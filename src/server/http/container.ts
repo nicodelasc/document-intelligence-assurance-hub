@@ -75,6 +75,10 @@ function parseDailyModelBudget(value: string | undefined): number {
   return parsed;
 }
 
+function hasStrongCronSecret(value: string | undefined): value is string {
+  return Boolean(value && value.length >= 32 && !/\s/.test(value));
+}
+
 export function createDefaultHttpContainer(
   environment: Environment = process.env,
 ): HttpContainer {
@@ -99,6 +103,15 @@ export function createDefaultHttpContainer(
   if (environment.NODE_ENV === "production" && liveModeEnabled && !hasDatabase) {
     throw new HttpContainerConfigurationError(
       "production_live_mode_requires_database",
+    );
+  }
+  if (
+    environment.NODE_ENV === "production" &&
+    hasDatabase &&
+    !hasStrongCronSecret(environment.CRON_SECRET)
+  ) {
+    throw new HttpContainerConfigurationError(
+      "production_cron_secret_required",
     );
   }
   return {

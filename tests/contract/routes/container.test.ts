@@ -17,10 +17,28 @@ describe("HTTP persistence container", () => {
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://unit-test-placeholder",
       BLOB_READ_WRITE_TOKEN: "blob-unit-test-placeholder",
+      CRON_SECRET: "cron-secret-with-at-least-32-characters",
     });
 
     expect(container.repository.constructor.name).not.toBe("InMemoryRunRepository");
     expect(container.documentStore.constructor.name).not.toBe("InMemoryDocumentStore");
+  });
+
+  it.each([
+    undefined,
+    "",
+    "too-short",
+    "x".repeat(31),
+    `cron secret ${"x".repeat(32)}`,
+  ])("rejects weak connected-production CRON_SECRET value %j", (cronSecret) => {
+    expect(() =>
+      createDefaultHttpContainer({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://unit-test-placeholder",
+        BLOB_READ_WRITE_TOKEN: "blob-unit-test-placeholder",
+        CRON_SECRET: cronSecret,
+      }),
+    ).toThrowError("production_cron_secret_required");
   });
 
   it.each([
