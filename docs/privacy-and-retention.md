@@ -28,6 +28,8 @@ Connected document storage is private Vercel Blob. Objects are never linked dire
 
 Neon stores run state, public-safe trace data, quota reservations, idempotency claims and cleanup jobs. Environment credentials remain server-side.
 
+Live evidence grounding runs inside the application. Text-native PDF text is extracted locally while PNG, JPEG and scanned PDF pages use local OCR with bundled English language data. Raw document bytes and full extracted page text are not sent to a separate OCR service. Full page text is held only for the active workflow and is not persisted or exposed. Public traces keep only the bounded evidence snippet returned for each requested field.
+
 ## Enterprise gaps
 
 This prototype does not provide authentication, private per-user run visibility, tenant isolation, malware scanning, data-loss prevention, legal hold, regional policy enforcement, audit export or a formally approved retention policy. Those controls are required before sensitive enterprise use.

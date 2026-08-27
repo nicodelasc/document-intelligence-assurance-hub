@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { Provider } from "@/domain/types";
-import type { ExecutionMode, RequestedField, TokenUsage } from "@/server/repositories/run-repository";
+import type {
+  ExecutionMode,
+  RequestedField,
+  TokenUsage,
+} from "@/server/repositories/run-repository";
 
 export const extractedFieldSchema = z
   .object({
@@ -37,6 +41,7 @@ export type ProviderExtractionInput = {
 export type ProviderExtractionResponse = {
   extraction: ExtractionResult;
   usage: TokenUsage;
+  usageTrustworthy?: boolean;
   latencyMs: number;
 };
 
@@ -66,19 +71,27 @@ export function validateExtractionForRequest(
 ): ExtractionResult {
   const parsed = extractionResultSchema.parse(value);
   const fieldsByKey = new Map(parsed.fields.map((field) => [field.key, field]));
-  if (fieldsByKey.size !== requestedFields.length || parsed.fields.length !== requestedFields.length) {
+  if (
+    fieldsByKey.size !== requestedFields.length ||
+    parsed.fields.length !== requestedFields.length
+  ) {
     throw new ProviderRequestError("provider_schema_mismatch", null);
   }
   return {
     fields: requestedFields.map((requestedField) => {
       const field = fieldsByKey.get(requestedField.key);
-      if (!field) throw new ProviderRequestError("provider_schema_mismatch", null);
+      if (!field)
+        throw new ProviderRequestError("provider_schema_mismatch", null);
       return { ...field, key: requestedField.key, label: requestedField.label };
     }),
   };
 }
 
 export function isRetryableProviderError(error: unknown): boolean {
-  if (!(error instanceof ProviderRequestError) || error.httpStatus === null) return false;
-  return error.httpStatus === 429 || (error.httpStatus >= 500 && error.httpStatus <= 599);
+  if (!(error instanceof ProviderRequestError) || error.httpStatus === null)
+    return false;
+  return (
+    error.httpStatus === 429 ||
+    (error.httpStatus >= 500 && error.httpStatus <= 599)
+  );
 }

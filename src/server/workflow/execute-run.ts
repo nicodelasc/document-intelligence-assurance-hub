@@ -15,6 +15,12 @@ import {
 import type { QuotaRepository } from "@/server/security/rate-limit";
 import type { DocumentStore } from "@/server/storage/document-store";
 import {
+  DocumentGroundingError,
+  evidenceMapsToPage,
+  groundDocument,
+  type DocumentGrounder,
+} from "@/server/workflow/document-grounding";
+import {
   isRetryableProviderError,
   ProviderRequestError,
   type ExtractedField,
@@ -65,6 +71,7 @@ export type ExecuteRunDependencies = {
   sleep?: (delayMs: number) => Promise<void>;
   replayStageDelayMs?: number;
   abortSignal?: AbortSignal;
+  documentGrounder?: DocumentGrounder;
   quotaReservation?: {
     repository: QuotaRepository;
     reservationId: string;
@@ -204,6 +211,7 @@ function evidenceSupportsValue(
 function deterministicFieldResult(
   input: FieldEvaluatorInput,
   candidate?: FieldResult,
+  grounding?: { required: boolean; evidenceGrounded: boolean },
 ): FieldResult {
   const extractedValue = optionalText(input.extractedField.extractedValue);
   const normalizedValue = extractedValue
@@ -215,8 +223,12 @@ function deterministicFieldResult(
   const evidence = optionalText(input.extractedField.evidence);
   let evaluatorStatus: FieldResult["evaluatorStatus"];
 
-  if (!extractedValue || !normalizedValue) {
+  if (!extractedValue) {
     evaluatorStatus = "not_found";
+  } else if (!normalizedValue) {
+    evaluatorStatus = grounding?.required ? "conflict" : "not_found";
+  } else if (grounding?.required && !grounding.evidenceGrounded) {
+    evaluatorStatus = "conflict";
   } else if (
     providerNormalizedValue !== null &&
     !valuesMatch(input.requestedField, normalizedValue, providerNormalizedValue)
@@ -289,6 +301,12 @@ function publicError(
       message: "The run could not be completed safely.",
     };
   }
+  if (error instanceof DocumentGroundingError) {
+    return {
+      code: "document_grounding_failed",
+      message: "The document could not be grounded safely.",
+    };
+  }
   if (error instanceof ProviderRequestError) {
     const messages: Record<string, string> = {
       provider_rate_limited:
@@ -328,10 +346,30 @@ function publicError(
   };
 }
 
+function isDefinitelyPreDispatchProviderError(error: unknown): boolean {
+  return (
+    error instanceof ProviderRequestError &&
+    (error.safeCode === "live_provider_disabled" ||
+      error.safeCode === "live_provider_key_missing" ||
+      error.safeCode === "live_provider_model_unsupported")
+  );
+}
+
+function hasTrustworthyUsage(response: ProviderExtractionResponse): boolean {
+  return (
+    response.usageTrustworthy !== false &&
+    Number.isFinite(response.usage.inputTokens) &&
+    response.usage.inputTokens >= 0 &&
+    Number.isFinite(response.usage.outputTokens) &&
+    response.usage.outputTokens >= 0
+  );
+}
+
 async function extractWithOneRetry(
   provider: ExtractionProvider,
   input: ExecuteRunInput,
   onDispatch: () => void,
+  onPreDispatchFailure: () => void,
   onRetry: (error: ProviderRequestError) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<{ response: ProviderExtractionResponse; retryCount: number }> {
@@ -353,6 +391,10 @@ async function extractWithOneRetry(
         retryCount,
       };
     } catch (error) {
+      if (isDefinitelyPreDispatchProviderError(error)) {
+        onPreDispatchFailure();
+        throw error;
+      }
       if (retryCount === 0 && isRetryableProviderError(error)) {
         retryCount = 1;
         await onRetry(error as ProviderRequestError);
@@ -375,6 +417,7 @@ export async function* executeRun(
   const credentialSource =
     dependencies.deletionCredentialSource ?? createDeletionCredential;
   const evaluator = dependencies.evaluateField ?? defaultEvaluateField;
+  const documentGrounder = dependencies.documentGrounder ?? groundDocument;
   const sleep = dependencies.sleep ?? defaultSleep;
   const signal = dependencies.abortSignal;
   const runId = idSource();
@@ -396,16 +439,17 @@ export async function* executeRun(
   let currentStageStartedAt: number | null = null;
   let retryCount = 0;
   let billableCostUsd: number | null = null;
+  let finalUsageTrustworthy = false;
   let quotaSettlementStarted = false;
   let quotaSettlementAccepted = false;
-  let providerDispatchStarted = false;
+  let providerDispatchCount = 0;
   const stepDurations: Record<string, number> = {};
 
   const releaseQuotaReservation = async (): Promise<void> => {
     if (
       !dependencies.quotaReservation ||
       quotaSettlementStarted ||
-      providerDispatchStarted
+      providerDispatchCount > 0
     ) {
       return;
     }
@@ -418,16 +462,24 @@ export async function* executeRun(
     }
   };
 
-  const settleBillableCost = async (): Promise<boolean> => {
-    if (!dependencies.quotaReservation || billableCostUsd === null) return true;
+  const settleProviderCost = async (): Promise<boolean> => {
+    if (!dependencies.quotaReservation) return true;
     if (quotaSettlementStarted) return quotaSettlementAccepted;
     quotaSettlementStarted = true;
     try {
-      const settlement =
-        await dependencies.quotaReservation.repository.settleLiveReservation(
-          dependencies.quotaReservation.reservationId,
-          billableCostUsd,
-        );
+      const useExactCost =
+        providerDispatchCount === 1 &&
+        retryCount === 0 &&
+        finalUsageTrustworthy &&
+        billableCostUsd !== null;
+      const settlement = useExactCost
+        ? await dependencies.quotaReservation.repository.settleLiveReservation(
+            dependencies.quotaReservation.reservationId,
+            billableCostUsd!,
+          )
+        : await dependencies.quotaReservation.repository.settleLiveReservationConservatively(
+            dependencies.quotaReservation.reservationId,
+          );
       quotaSettlementAccepted =
         settlement.status === "settled" ||
         settlement.status === "already_settled";
@@ -582,7 +634,10 @@ export async function* executeRun(
         dependencies.provider,
         input,
         () => {
-          providerDispatchStarted = true;
+          providerDispatchCount += 1;
+        },
+        () => {
+          providerDispatchCount = Math.max(0, providerDispatchCount - 1);
         },
         async (error) => {
           retryCount = 1;
@@ -597,8 +652,9 @@ export async function* executeRun(
         },
         signal,
       );
+    finalUsageTrustworthy = hasTrustworthyUsage(response);
     billableCostUsd =
-      dependencies.provider.executionMode === "live"
+      dependencies.provider.executionMode === "live" && finalUsageTrustworthy
         ? estimateRunCost({
             provider: dependencies.provider.provider,
             model: dependencies.provider.model,
@@ -612,6 +668,32 @@ export async function* executeRun(
     yield await announce("verifying");
     const verificationStartedAt = processingClock();
     currentStageStartedAt = verificationStartedAt;
+    const groundingRequired = !(
+      dependencies.provider.executionMode === "recorded" &&
+      input.sourceType === "synthetic"
+    );
+    let groundedPages: string[] | null = null;
+    if (groundingRequired) {
+      try {
+        groundedPages = await documentGrounder({
+          bytes: input.file.bytes,
+          mediaType: input.file.mediaType,
+          pageCount: input.file.pageCount,
+          signal,
+        });
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          (error.name === "AbortError" || error.name === "TimeoutError")
+        ) {
+          throw error;
+        }
+        if (error instanceof DocumentGroundingError) throw error;
+        throw new DocumentGroundingError("document_grounding_failed", {
+          cause: error,
+        });
+      }
+    }
     const verifiedFields = await Promise.all(
       input.requestedFields.map(async (requestedField, index) => {
         const evaluatorInput: FieldEvaluatorInput = {
@@ -620,7 +702,16 @@ export async function* executeRun(
           sourceType: input.sourceType,
         };
         const candidate = await evaluator(evaluatorInput);
-        return deterministicFieldResult(evaluatorInput, candidate);
+        return deterministicFieldResult(evaluatorInput, candidate, {
+          required: groundingRequired,
+          evidenceGrounded:
+            !groundingRequired ||
+            evidenceMapsToPage({
+              pages: groundedPages ?? [],
+              page: evaluatorInput.extractedField.page,
+              evidence: evaluatorInput.extractedField.evidence,
+            }),
+        });
       }),
     );
     signal?.throwIfAborted();
@@ -666,7 +757,7 @@ export async function* executeRun(
     const estimatedCostUsd = billableCostUsd ?? 0;
     if (dependencies.quotaReservation) {
       if (dependencies.provider.executionMode === "live") {
-        if (!(await settleBillableCost())) {
+        if (!(await settleProviderCost())) {
           throw new Error("quota_settlement_failed");
         }
       } else {
@@ -678,7 +769,9 @@ export async function* executeRun(
     await dependencies.repository.saveResults(runId, {
       fields,
       outcome,
-      usage: response.usage,
+      usage: finalUsageTrustworthy
+        ? response.usage
+        : { inputTokens: 0, outputTokens: 0 },
       estimatedCostUsd,
       retryCount,
       latencyMs: totalProcessingLatency(),
@@ -695,7 +788,7 @@ export async function* executeRun(
       timestamp: clock().toISOString(),
     };
   } catch (error) {
-    if (billableCostUsd !== null) await settleBillableCost();
+    if (providerDispatchCount > 0) await settleProviderCost();
     await releaseQuotaReservation();
     if (
       signal?.aborted ||

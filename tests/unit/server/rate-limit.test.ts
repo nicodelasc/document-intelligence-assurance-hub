@@ -54,7 +54,7 @@ describe("InMemoryQuotaRepository", () => {
     });
   });
 
-  it("reclaims a stale pending reservation lease before admitting later work", async () => {
+  it("charges a stale pending reservation conservatively before later admission", async () => {
     const quotas = new InMemoryQuotaRepository(
       MAX_SUPPORTED_LIVE_RUN_COST_USD,
       () => crypto.randomUUID(),
@@ -90,7 +90,17 @@ describe("InMemoryQuotaRepository", () => {
         bucket: "browser-b",
         now: new Date(now.getTime() + 60_000),
       }),
-    ).resolves.toMatchObject({ allowed: true });
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
+    await expect(
+      quotas.snapshot(new Date(now.getTime() + 60_000)),
+    ).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
   });
 
   it("atomically admits only three custom uploads per anonymous bucket and UTC day", async () => {
@@ -230,6 +240,46 @@ describe("InMemoryQuotaRepository", () => {
     });
     expect(await quotas.snapshot(now)).toMatchObject({
       globalSpendUsd: 0.25,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("settles a pending reservation from its repository-stored amount", async () => {
+    const quotas = quotaRepository();
+    const reservation = await quotas.reserve({
+      bucket: "browser-conservative",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now,
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("expected_live_reservation");
+    const conservativeSettlement = (
+      quotas as InMemoryQuotaRepository & {
+        settleLiveReservationConservatively?: (
+          reservationId: string,
+        ) => Promise<{ status: string; actualCostUsd: number }>;
+      }
+    ).settleLiveReservationConservatively;
+
+    expect(typeof conservativeSettlement).toBe("function");
+    if (!conservativeSettlement) return;
+    await expect(
+      conservativeSettlement.call(quotas, reservation.reservationId),
+    ).resolves.toEqual({
+      status: "settled",
+      actualCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(
+      conservativeSettlement.call(quotas, reservation.reservationId),
+    ).resolves.toEqual({
+      status: "already_settled",
+      actualCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(quotas.snapshot(now)).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
       reservedSpendUsd: 0,
     });
   });
@@ -511,6 +561,61 @@ describe("InMemoryQuotaRepository", () => {
     await expect(quotas.snapshot(now)).resolves.toMatchObject({
       globalSpendUsd: 0.25,
       reservedSpendUsd: 6 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+  });
+
+  it("maps conservative settlement and stale reconciliation through Neon functions", async () => {
+    const statements: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        statements.push({ sql: sql.trim(), parameters });
+        if (sql.includes("settle_reserved_daily_quota")) {
+          return [
+            {
+              result: {
+                status: "settled",
+                actualCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+              },
+            },
+          ];
+        }
+        if (sql.includes("reconcile_stale_daily_quota")) return [{}];
+        if (sql.includes("usage.anonymous_buckets")) {
+          return [
+            {
+              anonymous_buckets: {},
+              global_spend_usd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+              global_custom_uploads: 0,
+              global_recorded_runs: 0,
+              reserved_spend_usd: 0,
+            },
+          ];
+        }
+        return [];
+      },
+    };
+    const quotas = createNeonQuotaRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await expect(
+      quotas.settleLiveReservationConservatively("reservation-neon"),
+    ).resolves.toEqual({
+      status: "settled",
+      actualCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(quotas.snapshot(now)).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
+    expect(statements[0]).toEqual({
+      sql: "SELECT settle_reserved_daily_quota($1) AS result",
+      parameters: ["reservation-neon"],
+    });
+    expect(statements[1]).toEqual({
+      sql: "SELECT reconcile_stale_daily_quota($1::date, $2::timestamptz)",
+      parameters: ["2026-08-27", now.toISOString()],
     });
   });
 

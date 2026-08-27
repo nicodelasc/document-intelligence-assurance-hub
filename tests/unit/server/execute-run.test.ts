@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createCanvas } from "@napi-rs/canvas";
 import type { FieldResult, Provider } from "@/domain/types";
 import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
 import {
@@ -14,6 +17,7 @@ import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import {
   executeRun,
   type ExecuteRunDependencies,
+  type ExecuteRunInput,
   type FieldEvaluator,
 } from "@/server/workflow/execute-run";
 import {
@@ -61,6 +65,13 @@ const extraction: ProviderExtractionResponse = {
   latencyMs: 300,
 };
 
+const groundedPage = [
+  "Northstar Paperworks Invoice INV-NP-1001",
+  "Supplier: Northstar Paperworks",
+  "PO: PO-NP-1001",
+  "Total due: 1250.00 SGD",
+].join("\n");
+
 function provider(
   input: {
     name?: Provider;
@@ -88,7 +99,7 @@ function dependencies(
 ) {
   const repository = new InMemoryRunRepository();
   const documentStore = new InMemoryDocumentStore();
-  const value: ExecuteRunDependencies = {
+  const value = {
     repository,
     documentStore,
     provider: selectedProvider,
@@ -100,6 +111,9 @@ function dependencies(
     }),
     evaluateField: evaluator,
     sleep: async () => undefined,
+    documentGrounder: async () => [groundedPage],
+  } as ExecuteRunDependencies & {
+    documentGrounder: () => Promise<string[]>;
   };
   return { value, repository, documentStore };
 }
@@ -121,7 +135,10 @@ const input = {
   },
 };
 
-async function collect(inputValue: typeof input, deps: ExecuteRunDependencies) {
+async function collect(
+  inputValue: ExecuteRunInput,
+  deps: ExecuteRunDependencies,
+) {
   const events = [];
   for await (const event of executeRun(inputValue, deps)) events.push(event);
   return events;
@@ -577,7 +594,139 @@ describe("executeRun", () => {
     });
   });
 
-  it("retains an ambiguous provider reservation until its stale lease is reclaimed", async () => {
+  it("charges the stored reservation after one retry even when the final response has usage", async () => {
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-retry-success");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    let attempts = 0;
+    const { value, repository } = dependencies(
+      provider({
+        extract: async () => {
+          attempts += 1;
+          if (attempts === 1)
+            throw new ProviderRequestError("provider_unavailable", 503);
+          return extraction;
+        },
+      }),
+    );
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
+    await expect(
+      repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      usage: extraction.usage,
+      estimatedCostUsd: 0.000075,
+      retryCount: 1,
+    });
+  });
+
+  it("charges the stored reservation when every dispatched attempt fails", async () => {
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-all-fail");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const { value } = dependencies(
+      provider({
+        extract: async () => {
+          throw new ProviderRequestError("provider_unavailable", 503);
+        },
+      }),
+    );
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_unavailable",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("charges the stored reservation when final response usage is untrustworthy", async () => {
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-unknown-usage");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const response = {
+      ...extraction,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      usageTrustworthy: false,
+    } satisfies ProviderExtractionResponse;
+    const { value, repository } = dependencies(
+      provider({ extract: async () => response }),
+    );
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
+    await expect(
+      repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimatedCostUsd: 0,
+    });
+  });
+
+  it("charges an ambiguous provider reservation conservatively", async () => {
     const quotas = new InMemoryQuotaRepository(3, () => "quota-failure");
     const reservation = await quotas.reserve({
       bucket: "browser-a",
@@ -606,13 +755,13 @@ describe("executeRun", () => {
     await expect(
       quotas.snapshot(new Date("2026-08-27T00:05:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0,
-      reservedSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
     });
     await expect(
       quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0,
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
       reservedSpendUsd: 0,
     });
   });
@@ -652,6 +801,10 @@ describe("executeRun", () => {
       override async settleLiveReservation(): Promise<never> {
         throw new Error("quota-database-unavailable");
       }
+
+      override async settleLiveReservationConservatively(): Promise<never> {
+        throw new Error("quota-database-unavailable");
+      }
     }
     const quotas = new SettlementUnavailableQuotaRepository(
       3,
@@ -688,7 +841,7 @@ describe("executeRun", () => {
     await expect(
       quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0,
+      globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
       reservedSpendUsd: 0,
     });
     expect(JSON.stringify(events)).not.toContain("quota-database-unavailable");
@@ -786,6 +939,268 @@ describe("executeRun", () => {
     await expect(
       quotas.settleLiveReservation(reservation.reservationId, 0.5),
     ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.000075 });
+  });
+
+  it("rejects fabricated evidence that is absent from the claimed document page", async () => {
+    const response = structuredClone(extraction);
+    response.extraction.fields[0].evidence =
+      "Approved supplier Northstar Paperworks";
+    const { value } = dependencies(provider({ extract: async () => response }));
+
+    const events = await collect(input, value);
+
+    expect(
+      events.find(
+        (event) => event.type === "field" && event.field.key === "vendor_name",
+      ),
+    ).toMatchObject({
+      type: "field",
+      field: { evaluatorStatus: "conflict" },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
+  });
+
+  it("rejects evidence whose claimed page is outside the grounded document", async () => {
+    const response = structuredClone(extraction);
+    response.extraction.fields[0].page = 2;
+    const { value } = dependencies(provider({ extract: async () => response }));
+
+    const events = await collect(input, value);
+
+    expect(
+      events.find(
+        (event) => event.type === "field" && event.field.key === "vendor_name",
+      ),
+    ).toMatchObject({
+      type: "field",
+      field: { evaluatorStatus: "conflict" },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
+  });
+
+  it("does not allow a normalization-null live field to bypass custom review", async () => {
+    const customFields = [
+      { key: "vendor_name", label: "Vendor name" },
+      { key: "invoice_total", label: "Invoice total" },
+    ];
+    const response: ProviderExtractionResponse = {
+      extraction: {
+        fields: [
+          extraction.extraction.fields[0],
+          {
+            key: "invoice_total",
+            label: "Invoice total",
+            extractedValue: "amount unavailable",
+            normalizedValue: null,
+            evidence: "Total due: amount unavailable",
+            page: 1,
+          },
+        ],
+      },
+      usage: extraction.usage,
+      latencyMs: 10,
+    };
+    const { value } = dependencies(provider({ extract: async () => response }));
+    value.documentGrounder = async () => [
+      "Supplier: Northstar Paperworks\nTotal due: amount unavailable",
+    ];
+
+    const events = await collect(
+      {
+        sourceType: "custom",
+        file: {
+          filename: "review.png",
+          mediaType: "image/png",
+          bytes: new Uint8Array([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+          ]),
+        },
+        requestedFields: customFields,
+        consent: true,
+      },
+      value,
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "conflict",
+    });
+  });
+
+  it("accepts a contiguous grounded span after bounded Unicode and whitespace normalization", async () => {
+    const { value } = dependencies(provider());
+    value.documentGrounder = async () => [
+      [
+        "Supplier:\u00a0Northstar   Paperworks",
+        "PO: PO\u2011NP\u20111001",
+        "Total due: 1250.00 SGD",
+      ].join("\n"),
+    ];
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
+  });
+
+  it("keeps a grounded custom positive path evidence-consistent", async () => {
+    const customFields = [
+      { key: "vendor_name", label: "Vendor name" },
+      { key: "invoice_total", label: "Invoice total" },
+    ];
+    const response: ProviderExtractionResponse = {
+      extraction: {
+        fields: [
+          extraction.extraction.fields[0],
+          extraction.extraction.fields[2],
+        ],
+      },
+      usage: extraction.usage,
+      latencyMs: 10,
+    };
+    const { value } = dependencies(provider({ extract: async () => response }));
+
+    const events = await collect(
+      {
+        sourceType: "custom",
+        file: {
+          filename: "review.png",
+          mediaType: "image/png",
+          bytes: new Uint8Array([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+          ]),
+        },
+        requestedFields: customFields,
+        consent: true,
+      },
+      value,
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "evidence_consistent",
+    });
+  });
+
+  it("fails closed when live document grounding cannot complete", async () => {
+    const { value } = dependencies(provider());
+    value.documentGrounder = async () => {
+      throw new Error("parser-private-detail");
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "document_grounding_failed",
+    });
+    expect(JSON.stringify(events)).not.toContain("parser-private-detail");
+  });
+
+  it("grounds a live synthetic response against the real text-native PDF", async () => {
+    const response = structuredClone(extraction);
+    response.extraction.fields[0].evidence =
+      "Approved supplier Northstar Paperworks";
+    const { value } = dependencies(provider({ extract: async () => response }));
+    value.documentGrounder = undefined as never;
+    const realPdf = new Uint8Array(
+      await readFile(
+        join(process.cwd(), "public", "samples", "clean-match-invoice.pdf"),
+      ),
+    );
+
+    const events = await collect(
+      { ...input, file: { ...input.file, bytes: realPdf } },
+      value,
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
+  });
+
+  it("uses local image OCR as the grounding boundary", async () => {
+    const canvas = createCanvas(1200, 260);
+    const context = canvas.getContext("2d");
+    context.fillStyle = "white";
+    context.fillRect(0, 0, 1200, 260);
+    context.fillStyle = "black";
+    context.font = "52px sans-serif";
+    context.fillText("Supplier: Northstar Paperworks", 30, 90);
+    context.fillText("Total due: 1250.00 SGD", 30, 190);
+    const imageBytes = new Uint8Array(canvas.toBuffer("image/png"));
+    const customFields = [
+      { key: "vendor_name", label: "Vendor name" },
+      { key: "invoice_total", label: "Invoice total" },
+    ];
+    const response: ProviderExtractionResponse = {
+      extraction: {
+        fields: [
+          {
+            key: "vendor_name",
+            label: "Vendor name",
+            extractedValue: "Ghost Vendor",
+            normalizedValue: "Ghost Vendor",
+            evidence: "Supplier: Ghost Vendor",
+            page: 1,
+          },
+          {
+            key: "invoice_total",
+            label: "Invoice total",
+            extractedValue: "999.00 SGD",
+            normalizedValue: "999.00 SGD",
+            evidence: "Total due: 999.00 SGD",
+            page: 1,
+          },
+        ],
+      },
+      usage: extraction.usage,
+      latencyMs: 10,
+    };
+    const { value } = dependencies(provider({ extract: async () => response }));
+    value.documentGrounder = undefined as never;
+
+    const events = await collect(
+      {
+        sourceType: "custom",
+        file: {
+          filename: "invoice.png",
+          mediaType: "image/png",
+          bytes: imageBytes,
+        },
+        requestedFields: customFields,
+        consent: true,
+      },
+      value,
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "conflict",
+    });
+  }, 30_000);
+
+  it("preserves recorded fixture outcomes without invoking document grounding", async () => {
+    const { value } = dependencies(provider({ executionMode: "recorded" }));
+    value.documentGrounder = async () => {
+      throw new Error("recorded_replay_must_not_ground");
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
   });
 
   it("replaces equivalent provider normalization with a server-owned canonical value", async () => {

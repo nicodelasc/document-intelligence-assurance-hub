@@ -21,7 +21,8 @@ flowchart LR
   Route --> Gate[Validation and quota]
   Gate --> Workflow
   Workflow --> Provider[One provider port]
-  Provider --> Evaluators[Field evaluators]
+  Provider --> Grounding[Local document grounding]
+  Grounding --> Evaluators[Field evaluators]
   Evaluators --> Decision[Deterministic decision]
   Decision --> Repository[Repository and telemetry]
   Repository -. optional .-> Neon[(Neon)]
@@ -33,7 +34,8 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 ## Responsible AI safeguards
 
 - Model output must pass a structured schema before evaluation.
-- Server-owned normalization and evidence checks prevent provider text from deciding Clear directly.
+- Live evidence must map to a contiguous span on its claimed page before server-owned normalization can pass it.
+- Text-native PDFs are parsed locally. PNG, JPEG and scanned PDF pages use bounded local OCR with bundled English language data. Document bytes are not sent to another grounding service.
 - Clear requires every requested field to pass deterministic checks and any supplied reference comparison.
 - Provider failures use stable public error codes. Hidden provider details are not returned.
 - Live mode has per-browser limits, global limits and a parsed daily model budget.
@@ -77,7 +79,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-`npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm` records the real browser flow. The 2026-08-27 local dependency audit reported zero vulnerabilities. Rerun it for every rollout.
+`npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm` records the real browser flow. The 2026-08-28 local dependency audit reported zero vulnerabilities. Rerun it for every rollout.
 
 ## Connected persistence
 
@@ -87,6 +89,7 @@ Production requires `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` together. Create 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_assurance_hub.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_provider_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_public_resource_controls.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0004_conservative_provider_budget.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -139,3 +142,5 @@ Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). External de
 This prototype lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information.
 
 Keep live mode disabled until an authorized reviewer completes one OpenAI run, one Anthropic run, one deliberate live failure and one production retention simulation. Each must preserve safe errors, deterministic decisions, durable quotas and logical denial before cleanup.
+
+The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.

@@ -21,6 +21,18 @@ const sameOriginDocumentContentSecurityPolicy = contentSecurityPolicy.replace(
 );
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: [
+    "@napi-rs/canvas",
+    "@tesseract.js-data/eng",
+    "tesseract.js",
+  ],
+  outputFileTracingIncludes: {
+    "/api/runs": [
+      "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*",
+      "./node_modules/tesseract.js/src/worker-script/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+    ],
+  },
   async headers() {
     return [
       {

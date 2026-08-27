@@ -75,4 +75,29 @@ describe("default live provider runtime contract", () => {
       abortSignal: expect.any(AbortSignal),
     });
   });
+
+  it("marks absent SDK usage as untrustworthy for exact budget settlement", async () => {
+    generateTextMock.mockResolvedValueOnce({
+      output: modelOutput,
+      usage: { inputTokens: undefined, outputTokens: undefined },
+    });
+    const provider = createOpenAIExtractionProvider({
+      liveEnabled: true,
+      apiKey: "unit-test-placeholder",
+    });
+
+    const result = await provider.extract({
+      document: {
+        filename: "sample.pdf",
+        mediaType: "application/pdf",
+        bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+      },
+      requestedFields,
+    });
+
+    expect(result).toMatchObject({
+      usage: { inputTokens: 0, outputTokens: 0 },
+      usageTrustworthy: false,
+    });
+  });
 });

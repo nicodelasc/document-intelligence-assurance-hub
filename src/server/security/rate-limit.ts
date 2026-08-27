@@ -100,6 +100,9 @@ export interface QuotaRepository {
     reservationId: string,
     actualCostUsd: number,
   ): Promise<QuotaSettlement>;
+  settleLiveReservationConservatively(
+    reservationId: string,
+  ): Promise<QuotaSettlement>;
   releaseLiveReservation(reservationId: string): Promise<boolean>;
   snapshot(now: Date): Promise<QuotaSnapshot>;
 }
@@ -264,6 +267,9 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     actualCostUsd: number,
   ): Promise<QuotaSettlement> {
     return this.withLock(() => {
+      if (!Number.isFinite(actualCostUsd) || actualCostUsd < 0) {
+        throw new Error("quota_settlement_invalid");
+      }
       const reservation = this.reservations.get(reservationId);
       if (!reservation) return { status: "not_found", actualCostUsd: 0 };
       if (reservation.status === "released")
@@ -274,7 +280,7 @@ export class InMemoryQuotaRepository implements QuotaRepository {
           actualCostUsd: reservation.actualCostUsd,
         };
       }
-      const actual = Math.max(0, actualCostUsd);
+      const actual = actualCostUsd;
       reservation.status = "settled";
       reservation.actualCostUsd = actual;
       this.days.get(reservation.day)!.globalSpendUsd += actual;
@@ -284,6 +290,31 @@ export class InMemoryQuotaRepository implements QuotaRepository {
             ? "reservation_exceeded"
             : "settled",
         actualCostUsd: actual,
+      };
+    });
+  }
+
+  async settleLiveReservationConservatively(
+    reservationId: string,
+  ): Promise<QuotaSettlement> {
+    return this.withLock(() => {
+      const reservation = this.reservations.get(reservationId);
+      if (!reservation) return { status: "not_found", actualCostUsd: 0 };
+      if (reservation.status === "released")
+        return { status: "released", actualCostUsd: 0 };
+      if (reservation.status === "settled") {
+        return {
+          status: "already_settled",
+          actualCostUsd: reservation.actualCostUsd,
+        };
+      }
+      reservation.status = "settled";
+      reservation.actualCostUsd = reservation.reservedCostUsd;
+      this.days.get(reservation.day)!.globalSpendUsd +=
+        reservation.reservedCostUsd;
+      return {
+        status: "settled",
+        actualCostUsd: reservation.reservedCostUsd,
       };
     });
   }
@@ -346,7 +377,10 @@ export class InMemoryQuotaRepository implements QuotaRepository {
         reservation.status === "pending" &&
         reservation.expiresAtMs <= nowMs
       ) {
-        reservation.status = "released";
+        reservation.status = "settled";
+        reservation.actualCostUsd = reservation.reservedCostUsd;
+        this.days.get(reservation.day)!.globalSpendUsd +=
+          reservation.reservedCostUsd;
       }
     }
   }
@@ -455,10 +489,13 @@ class NeonQuotaRepository implements QuotaRepository {
     reservationId: string,
     actualCostUsd: number,
   ): Promise<QuotaSettlement> {
+    if (!Number.isFinite(actualCostUsd) || actualCostUsd < 0) {
+      throw new Error("quota_settlement_invalid");
+    }
     const driver = await this.readyDriver();
     const rows = await driver.query<{ result: unknown }>(
       "SELECT settle_daily_quota($1, $2, false) AS result",
-      [reservationId, Math.max(0, actualCostUsd)],
+      [reservationId, actualCostUsd],
     );
     const response = parseJsonRecord(rows[0]?.result);
     const status = response?.status;
@@ -466,6 +503,27 @@ class NeonQuotaRepository implements QuotaRepository {
       status !== "settled" &&
       status !== "already_settled" &&
       status !== "reservation_exceeded" &&
+      status !== "released" &&
+      status !== "not_found"
+    ) {
+      throw new Error("quota_settlement_failed");
+    }
+    return { status, actualCostUsd: Number(response?.actualCostUsd ?? 0) };
+  }
+
+  async settleLiveReservationConservatively(
+    reservationId: string,
+  ): Promise<QuotaSettlement> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query<{ result: unknown }>(
+      "SELECT settle_reserved_daily_quota($1) AS result",
+      [reservationId],
+    );
+    const response = parseJsonRecord(rows[0]?.result);
+    const status = response?.status;
+    if (
+      status !== "settled" &&
+      status !== "already_settled" &&
       status !== "released" &&
       status !== "not_found"
     ) {
@@ -485,6 +543,10 @@ class NeonQuotaRepository implements QuotaRepository {
 
   async snapshot(now: Date): Promise<QuotaSnapshot> {
     const driver = await this.readyDriver();
+    await driver.query(
+      "SELECT reconcile_stale_daily_quota($1::date, $2::timestamptz)",
+      [utcDay(now), now.toISOString()],
+    );
     const rows = await driver.query<{
       anonymous_buckets: unknown;
       global_spend_usd: unknown;

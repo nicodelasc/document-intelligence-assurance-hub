@@ -8,7 +8,8 @@ flowchart LR
   Route --> Gate[validation and quota]
   Gate --> Workflow[workflow]
   Workflow --> Provider[one provider port]
-  Provider --> Evaluators[field evaluators]
+  Provider --> Grounding[local document grounding]
+  Grounding --> Evaluators[field evaluators]
   Evaluators --> Decision[deterministic decision]
   Decision --> Repository[repository and telemetry]
 
@@ -24,7 +25,9 @@ The browser sends non-sensitive source and execution-mode admission headers with
 
 Exactly one provider port is selected for a run. Recorded mode returns deterministic fixture output without a network model call. Live mode calls the selected direct provider adapter only when the global switch and its server-side credential are present.
 
-Field evaluators normalize values then check evidence and compare optional reference data. The provider cannot directly choose the assurance outcome. The deterministic decision maps the complete field set to Clear, Needs review or Incomplete.
+Recorded synthetic fixtures are trusted application replays and retain their fixed outcomes. Every live run crosses a server-owned grounding boundary before field evaluation. Text-native PDF pages are extracted with `unpdf`. PNG, JPEG and PDF pages without usable text are processed locally with Tesseract.js, bundled English language data and a server-side canvas renderer. Page count, decoded image allocation, page text, OCR time and overall grounding time are bounded. Grounded page text remains in process memory and is never persisted or returned.
+
+Each live field can pass only when the claimed page exists, its evidence maps to a contiguous page span after bounded Unicode, whitespace and punctuation normalization and its server-normalized value is supported by that grounded evidence. A parser, renderer, OCR or grounding failure produces a safe failed run instead of Clear or Evidence-consistent. The provider cannot directly choose the assurance outcome.
 
 ## Persistence modes
 
@@ -40,12 +43,13 @@ Schema changes run through versioned migration files. Routine request handling i
 
 Live adapters accept only `gpt-5-mini` for OpenAI and `claude-haiku-4-5` for Anthropic so displayed costs always use the dated model-specific rate table. Each SDK call disables built-in retries, caps structured output at 2,000 tokens and composes the browser cancellation signal with a 45-second server deadline. The workflow owns the single permitted retry.
 
-Before dispatch Neon atomically reserves the higher worst-case cost across the supported model context windows for two provider attempts. A dispatch that may have reached a provider keeps its reservation instead of declaring the attempt free. Pending reservations use a 15-minute lease and a later atomic quota request reclaims stale leases. Early validation, storage and client-abort paths release their reservation because no provider dispatch occurred.
+Before dispatch Neon atomically reserves the higher worst-case cost across the supported model context windows for two provider attempts. One successful dispatched attempt with finite nonnegative usage settles its exact estimated response cost. A retry, unknown usage, timeout or terminal provider error settles the repository-stored reservation conservatively. If settlement cannot be confirmed then the reservation remains pending. Expired pending leases are reconciled into daily spend instead of being released for free. Early validation, storage, initialization and already-aborted paths release at zero because no provider request was dispatched.
 
 ## Trust boundaries
 
 - Uploaded bytes and labels are untrusted input.
 - Provider output is untrusted until schema validation and deterministic evaluation finish.
+- Extracted document text and local OCR output are transient grounding material. Neither is stored in Neon, Blob metadata or public traces.
 - Raw deletion tokens are browser-held capabilities. Only hashes are persisted.
 - Document locators, deletion hashes, full prompts and provider error bodies stay server-side.
 - Public responses contain bounded safe fields and no-store headers where document bytes are involved.

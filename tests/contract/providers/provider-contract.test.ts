@@ -142,13 +142,14 @@ describe("extraction provider contract", () => {
       });
 
       const result = await provider.extract({ document, requestedFields });
-      expect(provider.promptVersion).toBe("document-extraction-2026-08-27.v1");
+      expect(provider.promptVersion).toBe("document-extraction-2026-08-28.v2");
       expect(extractionResultSchema.parse(result.extraction)).toEqual(
         validModelOutput,
       );
       expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 30 });
       expect(request?.systemInstruction).toMatch(/untrusted/i);
       expect(request?.systemInstruction).toMatch(/ignore.*instructions/i);
+      expect(request?.systemInstruction).toMatch(/verbatim.*page snippet/i);
       expect(request?.tools).toBeUndefined();
       expect(JSON.stringify(result)).not.toMatch(
         /prompt|reasoning|apiKey|unit-test-placeholder/i,
