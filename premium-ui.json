@@ -1,0 +1,27 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["src"],
+  "locale": "en-SG",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Table Selection", "Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "ownership": {
+    "Table Selection": "authored",
+    "Select/Listbox": "native",
+    "Form": "authored",
+    "Scrollbar": "authored",
+    "Toast": "authored",
+    "CRUD": "authored"
+  },
+  "requiredCommands": ["unit", "e2e", "accessibility", "premium"],
+  "commands": {
+    "unit": "pnpm test",
+    "e2e": "pnpm test:e2e",
+    "accessibility": "pnpm test:a11y",
+    "premium": "pnpm verify:premium"
+  },
+  "evidence": {
+    "crudFullFlow": "tests/e2e/workbench.spec.ts",
+    "failurePaths": "tests/e2e/failure-and-delete.spec.ts"
+  }
+}
+

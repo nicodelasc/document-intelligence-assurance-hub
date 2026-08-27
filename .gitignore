@@ -1,0 +1,14 @@
+.next/
+node_modules/
+.vercel/
+.worktrees/
+.superpowers/
+coverage/
+playwright-report/
+test-results/
+premium-audit.json
+.env
+.env.*
+!.env.example
+*.log
+
