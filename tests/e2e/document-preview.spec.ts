@@ -7,6 +7,8 @@ test("active document preview avoids the browser error document", async ({
   const creation = await request.post("/api/runs", {
     headers: {
       "Idempotency-Key": `preview-${Date.now()}`,
+      "X-Run-Source-Type": "synthetic",
+      "X-Run-Execution-Mode": "recorded",
     },
     multipart: {
       sourceType: "synthetic",
