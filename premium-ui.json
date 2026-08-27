@@ -14,10 +14,10 @@
   },
   "requiredCommands": ["unit", "e2e", "accessibility", "premium"],
   "commands": {
-    "unit": "pnpm test",
-    "e2e": "pnpm test:e2e",
-    "accessibility": "pnpm test:a11y",
-    "premium": "pnpm verify:premium"
+    "unit": "npm test",
+    "e2e": "npm run test:e2e",
+    "accessibility": "npm run test:a11y",
+    "premium": "npm run verify:premium"
   },
   "evidence": {
     "crudFullFlow": "tests/e2e/workbench.spec.ts",

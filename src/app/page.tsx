@@ -1,3 +1,3 @@
-export default function HomePage() {
-  return <main>Document Intelligence Assurance Hub</main>;
-}
+import { redirect } from "next/navigation";
+
+export default function HomePage() { redirect("/workbench"); }
