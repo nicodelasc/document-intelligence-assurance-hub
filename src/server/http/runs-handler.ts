@@ -1,7 +1,3 @@
-import type { ExtractionProvider } from "@/server/workflow/provider";
-import { validateExtractionForRequest } from "@/server/workflow/provider";
-import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
-import type { ParsedRunRequest } from "@/server/http/multipart";
 import { MultipartInputError, parseRunMultipart } from "@/server/http/multipart";
 import type { HttpContainer } from "@/server/http/container";
 import {
@@ -16,45 +12,16 @@ import {
 } from "@/server/http/responses";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
 
-function customRecordedProvider(input: ParsedRunRequest): ExtractionProvider {
-  return {
-    provider: input.provider,
-    model: input.provider === "openai" ? "gpt-5-mini" : "claude-haiku-4-5",
-    promptVersion: "recorded-custom-no-extraction-2026-08-27.v1",
-    executionMode: "recorded",
-    async extract(request) {
-      const extraction = validateExtractionForRequest(
-        {
-          fields: request.requestedFields.map((field) => ({
-            key: field.key,
-            label: field.label,
-            extractedValue: null,
-            normalizedValue: null,
-            evidence: null,
-            page: null,
-          })),
-        },
-        request.requestedFields,
-      );
-      return { extraction, usage: { inputTokens: 0, outputTokens: 0 }, latencyMs: 0 };
-    },
-  };
-}
-
-function recordedProvider(input: ParsedRunRequest): ExtractionProvider {
-  if (!input.sample) return customRecordedProvider(input);
-  return createRecordedExtractionProvider({
-    provider: input.provider,
-    fixtureId: input.sample.id,
-  });
-}
-
 function quotaError(reason: string, requestId: string): Response {
   const messages: Record<string, string> = {
     custom_upload_limit: "This browser has reached the daily custom-upload limit.",
+    global_custom_upload_limit: "The public daily custom-upload limit has been reached.",
     live_run_limit: "This browser has reached the daily live-run limit.",
+    recorded_run_limit: "This browser has reached the daily recorded-replay limit.",
+    global_recorded_run_limit: "The public daily recorded-replay limit has been reached.",
     daily_budget: "The daily live model budget is unavailable.",
-    live_disabled: "Live processing is disabled. A recorded replay remains available.",
+    live_disabled:
+      "Live processing is disabled. Choose a synthetic recorded replay to continue.",
   };
   return safeErrorResponse({
     code: reason,
@@ -76,6 +43,19 @@ export async function handleRunsPost(
   });
   try {
     const input = await parseRunMultipart(request, container);
+    if (input.sourceType === "custom" && input.executionMode === "recorded") {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "recorded_custom_unavailable",
+          message:
+            "Recorded mode cannot extract a custom document. Choose a synthetic recorded replay or enable live processing.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
     if (input.executionMode === "live" && !container.liveModeEnabled) {
       return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
     }
@@ -91,11 +71,18 @@ export async function handleRunsPost(
     if (!quota.allowed) {
       return attachBucketCookie(quotaError(quota.reason, requestId), bucket);
     }
-    if (input.executionMode !== "recorded") {
+    let provider;
+    try {
+      provider = await container.createProvider({
+        provider: input.provider,
+        executionMode: input.executionMode,
+        sampleId: input.sample?.id ?? null,
+      });
+    } catch {
       if (quota.reservationId) {
         await container.quotaRepository.releaseLiveReservation(quota.reservationId);
       }
-      return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
+      throw new Error("provider_initialization_failed");
     }
 
     const events = container.execute(
@@ -116,7 +103,7 @@ export async function handleRunsPost(
                 reservationId: quota.reservationId,
               },
         documentStore: container.documentStore,
-        provider: recordedProvider(input),
+        provider,
         clock: container.clock,
         replayStageDelayMs: container.replayStageDelayMs,
       },
@@ -152,14 +139,42 @@ export async function handleRunsPost(
 }
 
 export async function handleRunsGet(
-  _request: Request,
+  request: Request,
   container: HttpContainer,
 ): Promise<Response> {
   const requestId = container.requestIdSource();
   try {
-    const runs = await container.repository.listPublicRuns(container.clock());
+    const url = new URL(request.url);
+    const rawLimit = url.searchParams.get("limit");
+    const rawOffset = url.searchParams.get("offset");
+    const requestedLimit = rawLimit === null ? 20 : Number(rawLimit);
+    const requestedOffset = rawOffset === null ? 0 : Number(rawOffset);
+    if (
+      !Number.isInteger(requestedLimit) ||
+      requestedLimit < 1 ||
+      !Number.isInteger(requestedOffset) ||
+      requestedOffset < 0 ||
+      requestedOffset > 10_000
+    ) {
+      return safeErrorResponse({
+        code: "invalid_pagination",
+        message: "Pagination values must be bounded non-negative integers.",
+        requestId,
+        status: 400,
+        headers: noIndexHeaders,
+      });
+    }
+    const limit = Math.min(50, requestedLimit);
+    const runs = await container.repository.listPublicRuns(container.clock(), {
+      limit,
+      offset: requestedOffset,
+      includeDetails: false,
+    });
     return safeJsonResponse(
-      { runs: runs.map(serializePublicRunListRow) },
+      {
+        runs: runs.map(serializePublicRunListRow),
+        pagination: { limit, offset: requestedOffset, returned: runs.length },
+      },
       { status: 200, headers: noIndexHeaders },
     );
   } catch {

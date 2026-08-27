@@ -79,6 +79,7 @@ describe("InMemoryDocumentStore", () => {
     const second = await purgeExpiredRuns(repository, store, new Date("2026-08-28T00:00:00.000Z"));
 
     expect(first.purgedRunIds).toEqual(["run-1"]);
+    expect(first.failedRunIds).toEqual([]);
     expect(second.purgedRunIds).toEqual([]);
     expect(await store.deleteDocument(key)).toBe(false);
     expect((await repository.aggregateAnonymousUsage()).totalRuns).toBe(1);

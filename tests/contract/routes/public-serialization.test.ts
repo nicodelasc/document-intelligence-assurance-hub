@@ -84,15 +84,24 @@ describe("public serializers", () => {
     expect(serialized).not.toContain("must-not-leak");
   });
 
-  it("keeps list rows anonymous and omits document content", () => {
+  it("keeps list rows anonymous while exposing only the active safe filename", () => {
     const serialized = JSON.stringify(serializePublicRunListRow(poisonedRun()));
 
     expect(serialized).toContain("run-safe-1");
     expect(serialized).toContain("recorded");
-    expect(serialized).not.toContain("invoice.pdf");
+    expect(serialized).toContain("invoice.pdf");
     expect(serialized).not.toContain("Example Supplier");
     expect(serialized).not.toContain("requestedFields");
     expect(serialized).not.toContain("details");
+  });
+
+  it("omits filenames from expired and deleted list rows", () => {
+    const run = poisonedRun();
+    run.status = "expired";
+
+    expect(serializePublicRunListRow(run)).not.toHaveProperty("filename");
+    run.status = "deleted";
+    expect(serializePublicRunListRow(run)).not.toHaveProperty("filename");
   });
 
   it("returns only minimal metadata for expired records", () => {

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { runEventSchema } from "@/domain/run-schema";
 import type { RunEvent } from "@/domain/types";
 import type { HttpContainer } from "@/server/http/container";
+import type { ExtractionProvider } from "@/server/workflow/provider";
+import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
 import { handleRunsGet, handleRunsPost } from "@/server/http/runs-handler";
 import {
   createTestContainer,
@@ -58,6 +60,42 @@ describe("POST /api/runs", () => {
     expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
   });
 
+  it("enforces the absolute multipart cap without trusting Content-Length", async () => {
+    let fixtureReads = 0;
+    let workflowCalls = 0;
+    const container = createTestContainer({
+      async loadSyntheticDocument() {
+        fixtureReads += 1;
+        return makePdf(1);
+      },
+      execute: (() => {
+        workflowCalls += 1;
+        throw new Error("workflow_must_not_start");
+      }) as HttpContainer["execute"],
+    });
+    const request = formRequest([
+      ["sourceType", "synthetic"],
+      ["provider", "openai"],
+      ["sampleId", "clean-match"],
+      ["ignored", "x".repeat(4_000_100)],
+    ]);
+    expect(request.headers.get("content-length")).toBeNull();
+
+    const response = await handleRunsPost(request, container);
+
+    expect(response.status).toBe(413);
+    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
+      "request_too_large",
+    );
+    expect(fixtureReads).toBe(0);
+    expect(workflowCalls).toBe(0);
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(await container.quotaRepository.snapshot(container.clock())).toMatchObject({
+      customUploadsByBucket: {},
+      liveRunsByBucket: {},
+    });
+  });
+
   it("uses the PDF bytes for page count instead of a form field", async () => {
     const container = createTestContainer();
     const request = formRequest([
@@ -105,6 +143,29 @@ describe("POST /api/runs", () => {
     expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(code);
   });
 
+  it("rejects colliding generated custom field keys before quota and storage", async () => {
+    const container = createTestContainer({ liveModeEnabled: true });
+    const request = formRequest([
+      ["sourceType", "custom"],
+      ["provider", "openai"],
+      ["requestedField", "Invoice-total"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]);
+
+    const response = await handleRunsPost(request, container);
+
+    expect(response.status).toBe(400);
+    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
+      "duplicate_field_key",
+    );
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(await container.quotaRepository.snapshot(container.clock())).toMatchObject({
+      customUploadsByBucket: {},
+    });
+  });
+
   it("selects synthetic files through the fixture allow-list", async () => {
     const container = createTestContainer();
     const response = await handleRunsPost(
@@ -134,6 +195,143 @@ describe("POST /api/runs", () => {
     expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
       "live_disabled",
     );
+  });
+
+  it("defaults custom uploads to live mode and rejects them before storage when disabled", async () => {
+    let providerCreations = 0;
+    const container = createTestContainer({
+      async createProvider() {
+        providerCreations += 1;
+        throw new Error("provider_must_not_be_created");
+      },
+    });
+    const request = formRequest([
+      ["sourceType", "custom"],
+      ["provider", "openai"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]);
+
+    const response = await handleRunsPost(request, container);
+
+    expect(response.status).toBe(503);
+    const body = await readJson<{ error: { code: string; message: string } }>(response);
+    expect(body.error.code).toBe("live_disabled");
+    expect(body.error.message).toContain("synthetic recorded replay");
+    expect(providerCreations).toBe(0);
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+  });
+
+  it("rejects explicit recorded mode for custom uploads without fabricating extraction", async () => {
+    const container = createTestContainer({ liveModeEnabled: true });
+    const request = formRequest([
+      ["sourceType", "custom"],
+      ["provider", "anthropic"],
+      ["executionMode", "recorded"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]);
+
+    const response = await handleRunsPost(request, container);
+
+    expect(response.status).toBe(409);
+    const body = await readJson<{ error: { code: string; message: string } }>(response);
+    expect(body.error.code).toBe("recorded_custom_unavailable");
+    expect(body.error.message).toContain("synthetic recorded replay");
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+  });
+
+  it("passes an enabled custom live run through the selected injected provider and quota reservation", async () => {
+    const selected: Array<{ provider: string; mode: string }> = [];
+    const provider: ExtractionProvider = {
+      provider: "anthropic",
+      model: "claude-haiku-4-5-test-double",
+      promptVersion: "live-contract-test.v1",
+      executionMode: "live",
+      async extract(input) {
+        return {
+          extraction: {
+            fields: input.requestedFields.map((field) => ({
+              key: field.key,
+              label: field.label,
+              extractedValue: null,
+              normalizedValue: null,
+              evidence: null,
+              page: null,
+            })),
+          },
+          usage: { inputTokens: 100, outputTokens: 20 },
+          latencyMs: 5,
+        };
+      },
+    };
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      async createProvider(input) {
+        selected.push({ provider: input.provider, mode: input.executionMode });
+        return provider;
+      },
+    });
+    const request = formRequest([
+      ["sourceType", "custom"],
+      ["provider", "anthropic"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]);
+
+    const response = await handleRunsPost(request, container);
+    const events = await readLines(response);
+    const completed = events.at(-1) as { type: string; runId: string; executionMode: string };
+
+    expect(completed).toMatchObject({ type: "completed", executionMode: "live" });
+    expect(selected).toEqual([{ provider: "anthropic", mode: "live" }]);
+    expect(
+      await container.repository.readPublicRun(completed.runId, container.clock()),
+    ).toMatchObject({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-test-double",
+      executionMode: "live",
+    });
+    expect((await container.quotaRepository.snapshot(container.clock())).globalSpendUsd).toBeGreaterThan(0);
+  });
+
+  it("returns a post-create deletion receipt when live mode is enabled without a provider key", async () => {
+    const { createOpenAIExtractionProvider } = await import(
+      "@/server/workflow/live-provider"
+    );
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      async createProvider() {
+        return createOpenAIExtractionProvider({
+          liveEnabled: true,
+          apiKey: undefined,
+        });
+      },
+    });
+    const request = formRequest([
+      ["sourceType", "custom"],
+      ["provider", "openai"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]);
+
+    const response = await handleRunsPost(request, container);
+    const events = await readLines(response);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "live_provider_key_missing",
+      runId: expect.any(String),
+      deletionToken: expect.any(String),
+    });
   });
 
   it("streams strict events in workflow order with one deletion receipt", async () => {
@@ -199,6 +397,34 @@ describe("POST /api/runs", () => {
     expect(text).not.toContain("secret storage credential");
     expect(text).not.toContain("stack");
   });
+
+  it("emits a safe terminal failure when an iterable ends without a terminal event", async () => {
+    const execute: HttpContainer["execute"] = async function* () {
+      yield {
+        type: "stage",
+        stage: "validating",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      };
+    };
+    const container = createTestContainer({ execute });
+
+    const response = await handleRunsPost(syntheticRequest(), container);
+    const events = await readLines(response);
+
+    expect(events).toEqual([
+      {
+        type: "stage",
+        stage: "validating",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      },
+      {
+        type: "failed",
+        code: "stream_incomplete",
+        message: "The run stream ended before a terminal result.",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      },
+    ]);
+  });
 });
 
 describe("GET /api/runs", () => {
@@ -218,6 +444,131 @@ describe("GET /api/runs", () => {
     expect(text).not.toContain("deletionToken");
     expect(text).not.toContain("deletionTokenHash");
     expect(text).not.toContain("documentKey");
-    expect(JSON.parse(text)).toMatchObject({ runs: [{ executionMode: "recorded" }] });
+    expect(JSON.parse(text)).toMatchObject({
+      runs: [
+        {
+          executionMode: "recorded",
+          filename: "clean-match-invoice.pdf",
+        },
+      ],
+      pagination: { limit: 20, offset: 0, returned: 1 },
+    });
+  });
+
+  it("uses bounded limit and offset pagination", async () => {
+    const container = createTestContainer();
+    for (const sampleId of [
+      "clean-match",
+      "invoice-total-mismatch",
+      "missing-purchase-order",
+    ]) {
+      await (await handleRunsPost(syntheticRequest(sampleId), container)).text();
+    }
+
+    const response = await handleRunsGet(
+      new Request("http://local.test/api/runs?limit=999&offset=1"),
+      container,
+    );
+    const body = (await response.json()) as { runs: unknown[]; pagination: Record<string, number> };
+
+    expect(body.runs).toHaveLength(2);
+    expect(body.pagination).toEqual({ limit: 50, offset: 1, returned: 2 });
+  });
+
+  it("bounds recorded replay creation for one browser", async () => {
+    let nextReservation = 0;
+    const quotaRepository = new InMemoryQuotaRepository(
+      3,
+      () => `reservation-${++nextReservation}`,
+      1,
+      { recordedRunsPerBucket: 2, globalRecordedRuns: 10 },
+    );
+    const container = createTestContainer({ quotaRepository });
+    const cookie = "diah_browser=bounded-browser-token-12345678901234567890";
+    const request = () => {
+      const base = syntheticRequest();
+      return new Request(base, { headers: { ...Object.fromEntries(base.headers), cookie } });
+    };
+
+    await (await handleRunsPost(request(), container)).text();
+    await (await handleRunsPost(request(), container)).text();
+    const denied = await handleRunsPost(request(), container);
+
+    expect(denied.status).toBe(429);
+    expect((await readJson<{ error: { code: string } }>(denied)).error.code).toBe(
+      "recorded_run_limit",
+    );
+  });
+
+  it("enforces the global custom-upload ceiling across rotated browser cookies", async () => {
+    const quotaRepository = new InMemoryQuotaRepository(
+      3,
+      () => crypto.randomUUID(),
+      1,
+      { globalCustomUploads: 2 },
+    );
+    const container = createTestContainer({
+      quotaRepository,
+      liveModeEnabled: true,
+      async createProvider(input) {
+        return {
+          provider: input.provider,
+          model: input.provider === "openai" ? "gpt-5-mini" : "claude-haiku-4-5",
+          promptVersion: "live-cookie-limit-test.v1",
+          executionMode: "live",
+          async extract(request) {
+            return {
+              extraction: {
+                fields: request.requestedFields.map((field) => ({
+                  key: field.key,
+                  label: field.label,
+                  extractedValue: null,
+                  normalizedValue: null,
+                  evidence: null,
+                  page: null,
+                })),
+              },
+              usage: { inputTokens: 0, outputTokens: 0 },
+              latencyMs: 0,
+            };
+          },
+        };
+      },
+    });
+    const request = (cookie: string) => {
+      const base = formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      ]);
+      return new Request(base, {
+        headers: { ...Object.fromEntries(base.headers), cookie },
+      });
+    };
+
+    await (
+      await handleRunsPost(
+        request("diah_browser=rotated-browser-a-12345678901234567890"),
+        container,
+      )
+    ).text();
+    await (
+      await handleRunsPost(
+        request("diah_browser=rotated-browser-b-12345678901234567890"),
+        container,
+      )
+    ).text();
+    const denied = await handleRunsPost(
+      request("diah_browser=rotated-browser-c-12345678901234567890"),
+      container,
+    );
+
+    expect(denied.status).toBe(429);
+    expect((await readJson<{ error: { code: string } }>(denied)).error.code).toBe(
+      "global_custom_upload_limit",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
 import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import { executeRun } from "@/server/workflow/execute-run";
 import type { HttpContainer } from "@/server/http/container";
+import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 
 export function createTestContainer(
   overrides: Partial<HttpContainer> = {},
@@ -20,6 +21,15 @@ export function createTestContainer(
     liveModeEnabled: false,
     cronSecret: "test-cron-secret",
     execute: executeRun,
+    async createProvider(input) {
+      if (input.executionMode !== "recorded" || !input.sampleId) {
+        throw new Error("test_live_provider_not_injected");
+      }
+      return createRecordedExtractionProvider({
+        provider: input.provider,
+        fixtureId: input.sampleId,
+      });
+    },
     async loadSyntheticDocument(filename) {
       return new Uint8Array(
         await readFile(join(process.cwd(), "public", "samples", filename)),

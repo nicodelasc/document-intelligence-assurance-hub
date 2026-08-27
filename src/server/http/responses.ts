@@ -129,6 +129,16 @@ export function ndjsonRunResponse(
           if (hasDeletionReceipt) deletionReceiptEmitted = true;
           terminal = parsed.type === "completed" || parsed.type === "failed";
         }
+        if (!terminal) {
+          const incomplete = runEventSchema.parse({
+            type: "failed",
+            code: "stream_incomplete",
+            message: "The run stream ended before a terminal result.",
+            timestamp: input.clock().toISOString(),
+          });
+          controller.enqueue(encoder.encode(`${safeJsonStringify(incomplete)}\n`));
+          terminal = true;
+        }
       } catch {
         if (!terminal) {
           const failure = runEventSchema.parse({

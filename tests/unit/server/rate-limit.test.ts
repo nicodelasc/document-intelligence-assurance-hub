@@ -172,6 +172,67 @@ describe("InMemoryQuotaRepository", () => {
     expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 0 });
   });
 
+  it("blocks rotating browser buckets at the global custom-upload ceiling", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => crypto.randomUUID(),
+      1,
+      { globalCustomUploads: 2 },
+    );
+    const decisions = [];
+    for (const bucket of ["rotated-a", "rotated-b", "rotated-c"]) {
+      decisions.push(
+        await quotas.reserve({
+          bucket,
+          sourceType: "custom",
+          executionMode: "live",
+          estimatedCostUsd: 0,
+          liveEnabled: true,
+          now,
+        }),
+      );
+    }
+
+    expect(decisions.slice(0, 2).every((decision) => decision.allowed)).toBe(true);
+    expect(decisions[2]).toEqual({
+      allowed: false,
+      reason: "global_custom_upload_limit",
+      replayAvailable: true,
+    });
+  });
+
+  it("bounds recorded synthetic runs per browser and across all browsers", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => crypto.randomUUID(),
+      1,
+      { recordedRunsPerBucket: 2, globalRecordedRuns: 3 },
+    );
+    const reserveRecorded = (bucket: string) =>
+      quotas.reserve({
+        bucket,
+        sourceType: "synthetic",
+        executionMode: "recorded",
+        estimatedCostUsd: 0,
+        liveEnabled: false,
+        now,
+      });
+
+    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({ allowed: true });
+    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({ allowed: true });
+    await expect(reserveRecorded("browser-a")).resolves.toEqual({
+      allowed: false,
+      reason: "recorded_run_limit",
+      replayAvailable: true,
+    });
+    await expect(reserveRecorded("browser-b")).resolves.toMatchObject({ allowed: true });
+    await expect(reserveRecorded("browser-c")).resolves.toEqual({
+      allowed: false,
+      reason: "global_recorded_run_limit",
+      replayAvailable: true,
+    });
+  });
+
   it("fails live work closed when the server kill switch is off and advertises replay availability", async () => {
     const quotas = new InMemoryQuotaRepository();
     await expect(
@@ -208,9 +269,9 @@ describe("InMemoryQuotaRepository", () => {
       async query(sql, parameters = []) {
         const normalizedSql = sql.trim();
         if (normalizedSql.startsWith("SELECT reserve_daily_quota")) {
-          const budget = Number(parameters[7]);
-          const reservationId = String(parameters[8]);
-          const reservationCostUsd = Number(parameters[9]);
+          const budget = Number(parameters[11]);
+          const reservationId = String(parameters[12]);
+          const reservationCostUsd = Number(parameters[13]);
           const pendingSpendUsd = [...pending.values()].reduce((total, cost) => total + cost, 0);
           if (globalSpendUsd + pendingSpendUsd + reservationCostUsd > budget) {
             return [{ decision: { decision: "daily_budget" } }];
@@ -261,6 +322,8 @@ describe("InMemoryQuotaRepository", () => {
             {
               anonymous_buckets: {},
               global_spend_usd: globalSpendUsd,
+              global_custom_uploads: 0,
+              global_recorded_runs: 0,
               reserved_spend_usd: [...pending.values()].reduce(
                 (total, cost) => total + cost,
                 0,

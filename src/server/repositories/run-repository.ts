@@ -91,6 +91,18 @@ export type MarkRunFailedInput = {
   stepDurations: Record<string, number>;
 };
 
+export type PublicRunListOptions = {
+  limit: number;
+  offset: number;
+  includeDetails: boolean;
+};
+
+export type PurgeExpiredResult = {
+  purgedRunIds: string[];
+  documentKeys: string[];
+  failedRunIds: string[];
+};
+
 export interface RunRepository {
   createRun(record: StoredRunRecord): Promise<void>;
   setStatus(runId: string, status: RunStatus): Promise<void>;
@@ -98,7 +110,8 @@ export interface RunRepository {
   saveResults(runId: string, result: SaveRunResultsInput): Promise<void>;
   markFailed(runId: string, input: MarkRunFailedInput): Promise<void>;
   readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null>;
-  listPublicRuns(now: Date): Promise<PublicRunRecord[]>;
+  listPublicRuns(now: Date, options?: PublicRunListOptions): Promise<PublicRunRecord[]>;
+  countCleanupBacklog(now: Date): Promise<number>;
   aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate>;
   getDeletionTokenHash(runId: string): Promise<string | null>;
   deleteDetailedData(
@@ -109,7 +122,7 @@ export interface RunRepository {
   purgeExpiredData(
     now: Date,
     deleteDocument?: (documentKey: string) => Promise<void>,
-  ): Promise<{ purgedRunIds: string[]; documentKeys: string[] }>;
+  ): Promise<PurgeExpiredResult>;
 }
 
 type InternalRun = {
@@ -218,10 +231,22 @@ export class InMemoryRunRepository implements RunRepository {
     return this.toPublicRun(run, now);
   }
 
-  async listPublicRuns(now: Date): Promise<PublicRunRecord[]> {
-    return [...this.runs.values()]
+  async listPublicRuns(
+    now: Date,
+    options?: PublicRunListOptions,
+  ): Promise<PublicRunRecord[]> {
+    const sorted = [...this.runs.values()]
       .sort((a, b) => Date.parse(b.record.createdAt) - Date.parse(a.record.createdAt))
-      .map((run) => this.toPublicRun(run, now));
+      .slice(options?.offset ?? 0, options ? options.offset + options.limit : undefined);
+    return sorted.map((run) =>
+      this.toPublicRun(run, now, options?.includeDetails ?? true),
+    );
+  }
+
+  async countCleanupBacklog(now: Date): Promise<number> {
+    return [...this.runs.values()].filter(
+      (run) => !run.detailsDeleted && isExpired(run, now),
+    ).length;
   }
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
@@ -253,14 +278,20 @@ export class InMemoryRunRepository implements RunRepository {
   async purgeExpiredData(
     now: Date,
     deleteDocument?: (documentKey: string) => Promise<void>,
-  ): Promise<{ purgedRunIds: string[]; documentKeys: string[] }> {
+  ): Promise<PurgeExpiredResult> {
     const purgedRunIds: string[] = [];
     const documentKeys: string[] = [];
+    const failedRunIds: string[] = [];
 
     for (const run of this.runs.values()) {
       if (run.detailsDeleted || !isExpired(run, now)) continue;
-      if (run.record.documentKey && deleteDocument) {
-        await deleteDocument(run.record.documentKey);
+      try {
+        if (run.record.documentKey && deleteDocument) {
+          await deleteDocument(run.record.documentKey);
+        }
+      } catch {
+        failedRunIds.push(run.record.id);
+        continue;
       }
       purgedRunIds.push(run.record.id);
       if (run.record.documentKey) documentKeys.push(run.record.documentKey);
@@ -268,7 +299,7 @@ export class InMemoryRunRepository implements RunRepository {
       this.clearDetails(run);
     }
 
-    return { purgedRunIds, documentKeys };
+    return { purgedRunIds, documentKeys, failedRunIds };
   }
 
   private requireRun(runId: string): InternalRun {
@@ -287,7 +318,11 @@ export class InMemoryRunRepository implements RunRepository {
     run.record.deletionTokenHash = "";
   }
 
-  private toPublicRun(run: InternalRun, now: Date): PublicRunRecord {
+  private toPublicRun(
+    run: InternalRun,
+    now: Date,
+    includeDetails = true,
+  ): PublicRunRecord {
     const safeRecord = clone(run.record);
     Reflect.deleteProperty(safeRecord, "documentKey");
     Reflect.deleteProperty(safeRecord, "deletionTokenHash");
@@ -299,7 +334,7 @@ export class InMemoryRunRepository implements RunRepository {
       publicRun.requestedFields = [];
     }
 
-    if (!run.detailsDeleted && !isExpired(run, now)) {
+    if (includeDetails && !run.detailsDeleted && !isExpired(run, now)) {
       publicRun.details = {
         steps: clone(run.steps),
         result: run.result ? clone(run.result) : null,
@@ -446,39 +481,84 @@ class NeonRunRepository implements RunRepository {
     return this.publicFromRow(driver, rows[0], now);
   }
 
-  async listPublicRuns(now: Date): Promise<PublicRunRecord[]> {
+  async listPublicRuns(
+    now: Date,
+    options?: PublicRunListOptions,
+  ): Promise<PublicRunRecord[]> {
     const driver = await this.readyDriver();
-    const rows = await driver.query("SELECT * FROM runs ORDER BY created_at DESC");
-    return Promise.all(rows.map((row) => this.publicFromRow(driver, row, now)));
+    const publicColumns = `id, provider, model, prompt_version, execution_mode,
+      source_type, file_metadata, requested_fields, status, outcome, usage,
+      estimated_cost_usd, consent, created_at, expires_at, deleted_at,
+      retry_count, latency_ms, step_durations, details_deleted`;
+    const rows = options
+      ? await driver.query(
+          `SELECT ${publicColumns} FROM runs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          [options.limit, options.offset],
+        )
+      : await driver.query(`SELECT ${publicColumns} FROM runs ORDER BY created_at DESC`);
+    return Promise.all(
+      rows.map((row) =>
+        this.publicFromRow(driver, row, now, options?.includeDetails ?? true),
+      ),
+    );
+  }
+
+  async countCleanupBacklog(now: Date): Promise<number> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query(
+      "SELECT COUNT(*) AS backlog_count FROM runs WHERE expires_at <= $1 AND details_deleted = false",
+      [now.toISOString()],
+    );
+    return Number(rows[0]?.backlog_count ?? 0);
   }
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
     const driver = await this.readyDriver();
     const rows = await driver.query(
-      "SELECT provider, outcome, usage, estimated_cost_usd, was_completed, was_failed FROM runs",
+      `SELECT
+        COUNT(*) AS total_runs,
+        COUNT(*) FILTER (WHERE was_completed) AS completed_runs,
+        COUNT(*) FILTER (WHERE was_failed) AS failed_runs,
+        COALESCE(SUM((usage ->> 'inputTokens')::bigint), 0) AS input_tokens,
+        COALESCE(SUM((usage ->> 'outputTokens')::bigint), 0) AS output_tokens,
+        COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd,
+        COUNT(*) FILTER (WHERE provider = 'openai') AS openai_runs,
+        COUNT(*) FILTER (WHERE provider = 'anthropic') AS anthropic_runs,
+        COUNT(*) FILTER (WHERE outcome = 'clear') AS clear_runs,
+        COUNT(*) FILTER (WHERE outcome = 'needs_review') AS needs_review_runs,
+        COUNT(*) FILTER (WHERE outcome = 'incomplete') AS incomplete_runs,
+        COUNT(*) FILTER (WHERE outcome = 'evidence_consistent') AS evidence_consistent_runs,
+        COUNT(*) FILTER (WHERE outcome = 'conflict') AS conflict_runs,
+        COUNT(*) FILTER (WHERE outcome = 'not_found') AS not_found_runs
+      FROM runs`,
     );
-    const aggregate: AnonymousUsageAggregate = {
-      totalRuns: rows.length,
-      completedRuns: 0,
-      failedRuns: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      estimatedCostUsd: 0,
-      providerCounts: { openai: 0, anthropic: 0 },
-      outcomeCounts: {},
-    };
-    for (const row of rows) {
-      const provider = row.provider as Provider;
-      const usage = asJson<TokenUsage>(row.usage);
-      aggregate.providerCounts[provider] += 1;
-      aggregate.completedRuns += row.was_completed ? 1 : 0;
-      aggregate.failedRuns += row.was_failed ? 1 : 0;
-      aggregate.totalInputTokens += usage.inputTokens;
-      aggregate.totalOutputTokens += usage.outputTokens;
-      aggregate.estimatedCostUsd += Number(row.estimated_cost_usd);
-      const outcome = row.outcome as Outcome | null;
-      if (outcome) aggregate.outcomeCounts[outcome] = (aggregate.outcomeCounts[outcome] ?? 0) + 1;
+    const row = rows[0] ?? {};
+    const outcomeCounts: Partial<Record<Outcome, number>> = {};
+    const outcomeColumns: Array<[Outcome, string]> = [
+      ["clear", "clear_runs"],
+      ["needs_review", "needs_review_runs"],
+      ["incomplete", "incomplete_runs"],
+      ["evidence_consistent", "evidence_consistent_runs"],
+      ["conflict", "conflict_runs"],
+      ["not_found", "not_found_runs"],
+    ];
+    for (const [outcome, column] of outcomeColumns) {
+      const count = Number(row[column] ?? 0);
+      if (count > 0) outcomeCounts[outcome] = count;
     }
+    const aggregate: AnonymousUsageAggregate = {
+      totalRuns: Number(row.total_runs ?? 0),
+      completedRuns: Number(row.completed_runs ?? 0),
+      failedRuns: Number(row.failed_runs ?? 0),
+      totalInputTokens: Number(row.input_tokens ?? 0),
+      totalOutputTokens: Number(row.output_tokens ?? 0),
+      estimatedCostUsd: Number(row.estimated_cost_usd ?? 0),
+      providerCounts: {
+        openai: Number(row.openai_runs ?? 0),
+        anthropic: Number(row.anthropic_runs ?? 0),
+      },
+      outcomeCounts,
+    };
     return aggregate;
   }
 
@@ -519,7 +599,7 @@ class NeonRunRepository implements RunRepository {
   async purgeExpiredData(
     now: Date,
     deleteDocument?: (documentKey: string) => Promise<void>,
-  ): Promise<{ purgedRunIds: string[]; documentKeys: string[] }> {
+  ): Promise<PurgeExpiredResult> {
     const driver = await this.readyDriver();
     const candidates = await driver.query(
       "SELECT id, document_key FROM runs WHERE expires_at <= $1 AND details_deleted = false ORDER BY id",
@@ -527,25 +607,32 @@ class NeonRunRepository implements RunRepository {
     );
     const purgedRunIds: string[] = [];
     const documentKeys: string[] = [];
+    const failedRunIds: string[] = [];
     for (const candidate of candidates) {
       const runId = String(candidate.id);
       const documentKey = candidate.document_key ? String(candidate.document_key) : null;
-      if (documentKey && deleteDocument) await deleteDocument(documentKey);
-      const rows = await driver.query(
-        `WITH removed_steps AS (DELETE FROM run_steps WHERE run_id = $1),
-          removed_result AS (DELETE FROM run_results WHERE run_id = $1)
-        UPDATE runs SET status = 'expired', document_key = NULL, deletion_token_hash = NULL,
-          details_deleted = true,
-          file_metadata = jsonb_set(file_metadata, '{filename}', '"expired-document"'::jsonb),
-          requested_fields = '[]'::jsonb
-        WHERE id = $1 AND details_deleted = false RETURNING id`,
-        [runId],
-      );
+      let rows: DatabaseRow[];
+      try {
+        if (documentKey && deleteDocument) await deleteDocument(documentKey);
+        rows = await driver.query(
+          `WITH removed_steps AS (DELETE FROM run_steps WHERE run_id = $1),
+            removed_result AS (DELETE FROM run_results WHERE run_id = $1)
+          UPDATE runs SET status = 'expired', document_key = NULL, deletion_token_hash = NULL,
+            details_deleted = true,
+            file_metadata = jsonb_set(file_metadata, '{filename}', '"expired-document"'::jsonb),
+            requested_fields = '[]'::jsonb
+          WHERE id = $1 AND details_deleted = false RETURNING id`,
+          [runId],
+        );
+      } catch {
+        failedRunIds.push(runId);
+        continue;
+      }
       if (rows.length === 0) continue;
       purgedRunIds.push(runId);
       if (documentKey) documentKeys.push(documentKey);
     }
-    return { purgedRunIds, documentKeys };
+    return { purgedRunIds, documentKeys, failedRunIds };
   }
 
   private async readyDriver(): Promise<NeonDriver> {

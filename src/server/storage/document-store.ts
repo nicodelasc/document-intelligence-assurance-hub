@@ -1,4 +1,7 @@
-import type { RunRepository } from "@/server/repositories/run-repository";
+import type {
+  PurgeExpiredResult,
+  RunRepository,
+} from "@/server/repositories/run-repository";
 
 export type StoreDocumentInput = {
   key: string;
@@ -154,7 +157,7 @@ export async function purgeExpiredRuns(
   repository: RunRepository,
   documentStore: DocumentStore,
   now: Date,
-): Promise<{ purgedRunIds: string[]; documentKeys: string[] }> {
+): Promise<PurgeExpiredResult> {
   return repository.purgeExpiredData(now, async (documentKey) => {
     await documentStore.deleteDocument(documentKey);
   });

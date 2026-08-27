@@ -10,10 +10,16 @@ export const DEFAULT_DAILY_MODEL_BUDGET_USD = 3;
 export const DEFAULT_LIVE_RUN_RESERVATION_USD = 1;
 export const MAX_CUSTOM_UPLOADS_PER_DAY = 3;
 export const MAX_LIVE_RUNS_PER_DAY = 6;
+export const MAX_RECORDED_RUNS_PER_BROWSER_PER_DAY = 24;
+export const MAX_GLOBAL_CUSTOM_UPLOADS_PER_DAY = 30;
+export const MAX_GLOBAL_RECORDED_RUNS_PER_DAY = 240;
 
 export type QuotaDenialReason =
   | "custom_upload_limit"
+  | "global_custom_upload_limit"
   | "live_run_limit"
+  | "recorded_run_limit"
+  | "global_recorded_run_limit"
   | "daily_budget"
   | "live_disabled";
 
@@ -33,7 +39,36 @@ export type QuotaReservation = {
 type DailyUsage = {
   customUploadsByBucket: Map<string, number>;
   liveRunsByBucket: Map<string, number>;
+  recordedRunsByBucket: Map<string, number>;
+  globalCustomUploads: number;
+  globalRecordedRuns: number;
   globalSpendUsd: number;
+};
+
+export type QuotaLimits = {
+  customUploadsPerBucket: number;
+  liveRunsPerBucket: number;
+  recordedRunsPerBucket: number;
+  globalCustomUploads: number;
+  globalRecordedRuns: number;
+};
+
+const defaultQuotaLimits: QuotaLimits = {
+  customUploadsPerBucket: MAX_CUSTOM_UPLOADS_PER_DAY,
+  liveRunsPerBucket: MAX_LIVE_RUNS_PER_DAY,
+  recordedRunsPerBucket: MAX_RECORDED_RUNS_PER_BROWSER_PER_DAY,
+  globalCustomUploads: MAX_GLOBAL_CUSTOM_UPLOADS_PER_DAY,
+  globalRecordedRuns: MAX_GLOBAL_RECORDED_RUNS_PER_DAY,
+};
+
+export type QuotaSnapshot = {
+  globalSpendUsd: number;
+  reservedSpendUsd: number;
+  globalCustomUploads: number;
+  globalRecordedRuns: number;
+  customUploadsByBucket: Record<string, number>;
+  liveRunsByBucket: Record<string, number>;
+  recordedRunsByBucket: Record<string, number>;
 };
 
 type LiveReservation = {
@@ -58,12 +93,7 @@ export interface QuotaRepository {
   reserve(input: QuotaReservation): Promise<QuotaDecision>;
   settleLiveReservation(reservationId: string, actualCostUsd: number): Promise<QuotaSettlement>;
   releaseLiveReservation(reservationId: string): Promise<boolean>;
-  snapshot(now: Date): Promise<{
-    globalSpendUsd: number;
-    reservedSpendUsd: number;
-    customUploadsByBucket: Record<string, number>;
-    liveRunsByBucket: Record<string, number>;
-  }>;
+  snapshot(now: Date): Promise<QuotaSnapshot>;
 }
 
 function utcDay(now: Date): string {
@@ -73,29 +103,57 @@ function utcDay(now: Date): string {
 export class InMemoryQuotaRepository implements QuotaRepository {
   private readonly days = new Map<string, DailyUsage>();
   private readonly reservations = new Map<string, LiveReservation>();
+  private readonly limits: QuotaLimits;
   private lockTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly dailyBudgetUsd = DEFAULT_DAILY_MODEL_BUDGET_USD,
     private readonly idSource: () => string = randomUUID,
     private readonly liveRunReservationUsd = DEFAULT_LIVE_RUN_RESERVATION_USD,
-  ) {}
+    limits: Partial<QuotaLimits> = {},
+  ) {
+    this.limits = { ...defaultQuotaLimits, ...limits };
+  }
 
   async reserve(input: QuotaReservation): Promise<QuotaDecision> {
     return this.withLock(() => {
       const usage = this.day(input.now);
       const customUploads = usage.customUploadsByBucket.get(input.bucket) ?? 0;
       const liveRuns = usage.liveRunsByBucket.get(input.bucket) ?? 0;
+      const recordedRuns = usage.recordedRunsByBucket.get(input.bucket) ?? 0;
+      const isRecordedSynthetic =
+        input.sourceType === "synthetic" && input.executionMode === "recorded";
 
-      if (input.sourceType === "custom" && customUploads >= MAX_CUSTOM_UPLOADS_PER_DAY) {
+      if (
+        input.sourceType === "custom" &&
+        customUploads >= this.limits.customUploadsPerBucket
+      ) {
         return { allowed: false, reason: "custom_upload_limit", replayAvailable: true };
+      }
+
+      if (
+        input.sourceType === "custom" &&
+        usage.globalCustomUploads >= this.limits.globalCustomUploads
+      ) {
+        return { allowed: false, reason: "global_custom_upload_limit", replayAvailable: true };
+      }
+
+      if (isRecordedSynthetic && recordedRuns >= this.limits.recordedRunsPerBucket) {
+        return { allowed: false, reason: "recorded_run_limit", replayAvailable: true };
+      }
+
+      if (
+        isRecordedSynthetic &&
+        usage.globalRecordedRuns >= this.limits.globalRecordedRuns
+      ) {
+        return { allowed: false, reason: "global_recorded_run_limit", replayAvailable: true };
       }
 
       if (input.executionMode === "live" && !input.liveEnabled) {
         return { allowed: false, reason: "live_disabled", replayAvailable: true };
       }
 
-      if (input.executionMode === "live" && liveRuns >= MAX_LIVE_RUNS_PER_DAY) {
+      if (input.executionMode === "live" && liveRuns >= this.limits.liveRunsPerBucket) {
         return { allowed: false, reason: "live_run_limit", replayAvailable: true };
       }
 
@@ -120,12 +178,18 @@ export class InMemoryQuotaRepository implements QuotaRepository {
         });
         if (input.sourceType === "custom") {
           usage.customUploadsByBucket.set(input.bucket, customUploads + 1);
+          usage.globalCustomUploads += 1;
         }
         usage.liveRunsByBucket.set(input.bucket, liveRuns + 1);
         return { allowed: true, reservationId, reservedCostUsd: reservationCostUsd };
       }
       if (input.sourceType === "custom") {
         usage.customUploadsByBucket.set(input.bucket, customUploads + 1);
+        usage.globalCustomUploads += 1;
+      }
+      if (isRecordedSynthetic) {
+        usage.recordedRunsByBucket.set(input.bucket, recordedRuns + 1);
+        usage.globalRecordedRuns += 1;
       }
       return { allowed: true, reservationId: null, reservedCostUsd: 0 };
     });
@@ -160,19 +224,17 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     });
   }
 
-  async snapshot(now: Date): Promise<{
-    globalSpendUsd: number;
-    reservedSpendUsd: number;
-    customUploadsByBucket: Record<string, number>;
-    liveRunsByBucket: Record<string, number>;
-  }> {
+  async snapshot(now: Date): Promise<QuotaSnapshot> {
     return this.withLock(() => {
       const usage = this.day(now);
       return {
         globalSpendUsd: usage.globalSpendUsd,
         reservedSpendUsd: this.pendingSpendUsd(utcDay(now)),
+        globalCustomUploads: usage.globalCustomUploads,
+        globalRecordedRuns: usage.globalRecordedRuns,
         customUploadsByBucket: Object.fromEntries(usage.customUploadsByBucket),
         liveRunsByBucket: Object.fromEntries(usage.liveRunsByBucket),
+        recordedRunsByBucket: Object.fromEntries(usage.recordedRunsByBucket),
       };
     });
   }
@@ -184,6 +246,9 @@ export class InMemoryQuotaRepository implements QuotaRepository {
       usage = {
         customUploadsByBucket: new Map(),
         liveRunsByBucket: new Map(),
+        recordedRunsByBucket: new Map(),
+        globalCustomUploads: 0,
+        globalRecordedRuns: 0,
         globalSpendUsd: 0,
       };
       this.days.set(key, usage);
@@ -223,6 +288,7 @@ type NeonQuotaOptions = {
   dailyBudgetUsd?: number;
   liveRunReservationUsd?: number;
   idSource?: () => string;
+  limits?: Partial<QuotaLimits>;
 };
 
 class NeonQuotaRepository implements QuotaRepository {
@@ -234,18 +300,23 @@ class NeonQuotaRepository implements QuotaRepository {
   async reserve(input: QuotaReservation): Promise<QuotaDecision> {
     const driver = await this.readyDriver();
     const reservationId = this.options.idSource?.() ?? randomUUID();
+    const limits = { ...defaultQuotaLimits, ...this.options.limits };
     const rows = await driver.query<{ decision: unknown }>(
       `SELECT reserve_daily_quota(
-        $1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        $1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
       ) AS decision`,
       [
         utcDay(input.now),
         input.bucket,
         input.sourceType === "custom",
         input.executionMode === "live",
+        input.sourceType === "synthetic" && input.executionMode === "recorded",
         input.liveEnabled,
-        MAX_CUSTOM_UPLOADS_PER_DAY,
-        MAX_LIVE_RUNS_PER_DAY,
+        limits.customUploadsPerBucket,
+        limits.liveRunsPerBucket,
+        limits.recordedRunsPerBucket,
+        limits.globalCustomUploads,
+        limits.globalRecordedRuns,
         this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
         reservationId,
         Math.max(
@@ -269,7 +340,10 @@ class NeonQuotaRepository implements QuotaRepository {
     }
     if (
       decision === "custom_upload_limit" ||
+      decision === "global_custom_upload_limit" ||
       decision === "live_run_limit" ||
+      decision === "recorded_run_limit" ||
+      decision === "global_recorded_run_limit" ||
       decision === "daily_budget" ||
       decision === "live_disabled"
     ) {
@@ -310,27 +384,27 @@ class NeonQuotaRepository implements QuotaRepository {
     return parseJsonRecord(rows[0]?.result)?.status === "released";
   }
 
-  async snapshot(now: Date): Promise<{
-    globalSpendUsd: number;
-    reservedSpendUsd: number;
-    customUploadsByBucket: Record<string, number>;
-    liveRunsByBucket: Record<string, number>;
-  }> {
+  async snapshot(now: Date): Promise<QuotaSnapshot> {
     const driver = await this.readyDriver();
     const rows = await driver.query<{
       anonymous_buckets: unknown;
       global_spend_usd: unknown;
       reserved_spend_usd: unknown;
+      global_custom_uploads: unknown;
+      global_recorded_runs: unknown;
     }>(
       `SELECT
         usage.anonymous_buckets,
         usage.global_spend_usd,
+        usage.global_custom_uploads,
+        usage.global_recorded_runs,
         COALESCE(SUM(reservation.reserved_cost_usd), 0) AS reserved_spend_usd
       FROM daily_usage AS usage
       LEFT JOIN model_budget_reservations AS reservation
         ON reservation.usage_day = usage.usage_day AND reservation.status = 'pending'
       WHERE usage.usage_day = $1::date
-      GROUP BY usage.usage_day, usage.anonymous_buckets, usage.global_spend_usd`,
+      GROUP BY usage.usage_day, usage.anonymous_buckets, usage.global_spend_usd,
+        usage.global_custom_uploads, usage.global_recorded_runs`,
       [utcDay(now)],
     );
     const row = rows[0];
@@ -338,21 +412,32 @@ class NeonQuotaRepository implements QuotaRepository {
       return {
         globalSpendUsd: 0,
         reservedSpendUsd: 0,
+        globalCustomUploads: 0,
+        globalRecordedRuns: 0,
         customUploadsByBucket: {},
         liveRunsByBucket: {},
+        recordedRunsByBucket: {},
       };
     }
     const buckets = (typeof row.anonymous_buckets === "string"
       ? JSON.parse(row.anonymous_buckets)
-      : row.anonymous_buckets) as Record<string, { customUploads?: number; liveRuns?: number }>;
+      : row.anonymous_buckets) as Record<
+      string,
+      { customUploads?: number; liveRuns?: number; recordedRuns?: number }
+    >;
     return {
       globalSpendUsd: Number(row.global_spend_usd),
       reservedSpendUsd: Number(row.reserved_spend_usd),
+      globalCustomUploads: Number(row.global_custom_uploads),
+      globalRecordedRuns: Number(row.global_recorded_runs),
       customUploadsByBucket: Object.fromEntries(
         Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.customUploads ?? 0]),
       ),
       liveRunsByBucket: Object.fromEntries(
         Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.liveRuns ?? 0]),
+      ),
+      recordedRunsByBucket: Object.fromEntries(
+        Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.recordedRuns ?? 0]),
       ),
     };
   }

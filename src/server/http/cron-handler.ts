@@ -54,7 +54,7 @@ export async function handlePurgeExpiredGet(
         purge: {
           purgedRuns: purged.purgedRunIds.length,
           purgedDocuments: purged.documentKeys.length,
-          safeFailures: 0,
+          safeFailures: purged.failedRunIds.length,
         },
       },
       { status: 200, headers: noIndexHeaders },

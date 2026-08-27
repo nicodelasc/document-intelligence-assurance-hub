@@ -70,18 +70,33 @@ export async function handleRunDelete(
   }
 
   try {
-    await deleteRunNow({
+    const result = await deleteRunNow({
       repository: container.repository,
       documentStore: container.documentStore,
       runId: parameters.id,
       token,
       now: container.clock(),
     });
+    if (result === "unauthorized" || result === "not_found" || result === "deleted") {
+      return safeJsonResponse(
+        { deletion: { status: "accepted", runId: parameters.id } },
+        { status: 202, headers: noIndexHeaders },
+      );
+    }
   } catch {
-    // The generic accepted response avoids disclosing record or storage state.
+    return safeErrorResponse({
+      code: "delete_temporarily_unavailable",
+      message: "Deletion is temporarily unavailable. Retry with the same token.",
+      requestId,
+      status: 503,
+      headers: noIndexHeaders,
+    });
   }
-  return safeJsonResponse(
-    { deletion: { status: "accepted", runId: parameters.id } },
-    { status: 202, headers: noIndexHeaders },
-  );
+  return safeErrorResponse({
+    code: "delete_temporarily_unavailable",
+    message: "Deletion is temporarily unavailable. Retry with the same token.",
+    requestId,
+    status: 503,
+    headers: noIndexHeaders,
+  });
 }

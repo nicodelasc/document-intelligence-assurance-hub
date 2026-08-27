@@ -115,8 +115,9 @@ describe("InMemoryRunRepository", () => {
     expect(first).toEqual({
       purgedRunIds: ["run-1"],
       documentKeys: ["runs/run-1/clean-match-invoice.pdf"],
+      failedRunIds: [],
     });
-    expect(second).toEqual({ purgedRunIds: [], documentKeys: [] });
+    expect(second).toEqual({ purgedRunIds: [], documentKeys: [], failedRunIds: [] });
     expect(await repository.getDeletionTokenHash("run-1")).toBeNull();
     expect(await repository.aggregateAnonymousUsage()).toMatchObject({
       totalRuns: 1,
@@ -211,7 +212,7 @@ describe("InMemoryRunRepository", () => {
           return [];
         }
         if (sql.includes("SELECT * FROM runs WHERE id")) return [row()];
-        if (sql.includes("SELECT * FROM runs ORDER BY")) return [row()];
+        if (sql.includes("FROM runs ORDER BY")) return [row()];
         if (sql.includes("SELECT step_json FROM run_steps")) {
           return [{ step_json: { kind: "stage", stage: status, timestamp: createdAt, durationMs: 25 } }];
         }
@@ -257,5 +258,133 @@ describe("InMemoryRunRepository", () => {
         details: expect.objectContaining({ result: null }),
       }),
     ]);
+  });
+
+  it("returns a bounded in-memory summary window without trace details", async () => {
+    const repository = new InMemoryRunRepository();
+    for (let index = 0; index < 5; index += 1) {
+      const record = runRecord(`run-${index}`);
+      record.createdAt = new Date(Date.parse(createdAt) + index * 1000).toISOString();
+      await repository.createRun(record);
+    }
+
+    const runs = await repository.listPublicRuns(
+      new Date("2026-08-27T01:00:00.000Z"),
+      { limit: 2, offset: 1, includeDetails: false },
+    );
+
+    expect(runs.map((run) => run.id)).toEqual(["run-3", "run-2"]);
+    expect(runs.every((run) => run.details === undefined)).toBe(true);
+  });
+
+  it("uses one bounded Neon summary query without trace N+1 reads", async () => {
+    const queryLog: Array<{ sql: string; parameters: unknown[] }> = [];
+    const baseRow = {
+      provider: "openai",
+      model: "gpt-5-mini",
+      prompt_version: "recorded-fixture-2026-08-27.v1",
+      execution_mode: "recorded",
+      source_type: "synthetic",
+      file_metadata: {
+        filename: "invoice.pdf",
+        mediaType: "application/pdf",
+        sizeBytes: 100,
+        pageCount: 1,
+      },
+      requested_fields: [],
+      status: "completed",
+      outcome: "clear",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimated_cost_usd: 0,
+      consent: false,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      deleted_at: null,
+      retry_count: 0,
+      latency_ms: 10,
+      step_durations: {},
+      details_deleted: false,
+    };
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queryLog.push({ sql, parameters });
+        if (sql.includes("FROM runs ORDER BY")) {
+          return [
+            { ...baseRow, id: "run-neon-2" },
+            { ...baseRow, id: "run-neon-1" },
+          ];
+        }
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    const runs = await repository.listPublicRuns(
+      new Date("2026-08-27T01:00:00.000Z"),
+      { limit: 2, offset: 4, includeDetails: false },
+    );
+    const summaryQueries = queryLog.filter((entry) =>
+      entry.sql.includes("FROM runs ORDER BY"),
+    );
+
+    expect(runs.map((run) => run.id)).toEqual(["run-neon-2", "run-neon-1"]);
+    expect(summaryQueries).toHaveLength(1);
+    expect(summaryQueries[0].sql).toContain("LIMIT $1 OFFSET $2");
+    expect(summaryQueries[0].sql).not.toContain("SELECT *");
+    expect(summaryQueries[0].sql).not.toContain("deletion_token_hash");
+    expect(summaryQueries[0].sql).not.toContain("document_key");
+    expect(summaryQueries[0].parameters).toEqual([2, 4]);
+    expect(queryLog.some((entry) => entry.sql.includes("FROM run_steps"))).toBe(false);
+    expect(queryLog.some((entry) => entry.sql.includes("FROM run_results"))).toBe(false);
+  });
+
+  it("counts only expired detailed records as cleanup backlog", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun(runRecord());
+
+    expect(await repository.countCleanupBacklog(new Date(expiresAt))).toBe(1);
+    await repository.purgeExpiredData(new Date(expiresAt));
+    expect(await repository.countCleanupBacklog(new Date(expiresAt))).toBe(0);
+  });
+
+  it("computes Neon anonymous totals in one server-side aggregate row", async () => {
+    let aggregateSql = "";
+    const driver: NeonDriver = {
+      async query(sql) {
+        if (sql.includes("COUNT(*)")) {
+          aggregateSql = sql;
+          return [
+            {
+              total_runs: 5,
+              completed_runs: 4,
+              failed_runs: 1,
+              input_tokens: 100,
+              output_tokens: 20,
+              estimated_cost_usd: 0.5,
+              openai_runs: 3,
+              anthropic_runs: 2,
+              clear_runs: 1,
+              needs_review_runs: 1,
+              incomplete_runs: 1,
+              evidence_consistent_runs: 0,
+              conflict_runs: 1,
+              not_found_runs: 0,
+            },
+          ];
+        }
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await expect(repository.aggregateAnonymousUsage()).resolves.toMatchObject({
+      totalRuns: 5,
+      completedRuns: 4,
+      failedRuns: 1,
+      providerCounts: { openai: 3, anthropic: 2 },
+      outcomeCounts: { clear: 1, needs_review: 1, incomplete: 1, conflict: 1 },
+    });
+    expect(aggregateSql).toContain("COUNT(*) FILTER");
+    expect(aggregateSql).not.toContain("SELECT provider, outcome");
   });
 });

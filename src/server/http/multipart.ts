@@ -115,8 +115,12 @@ function parseProvider(value: string): Provider {
   );
 }
 
-function parseExecutionMode(value: FormDataEntryValue | null): ExecutionMode {
-  if (value === null || value === "recorded") return "recorded";
+function parseExecutionMode(
+  value: FormDataEntryValue | null,
+  sourceType: SourceType,
+): ExecutionMode {
+  if (value === null) return sourceType === "custom" ? "live" : "recorded";
+  if (value === "recorded") return "recorded";
   if (value === "live") return "live";
   throw new MultipartInputError(
     "invalid_execution_mode",
@@ -152,13 +156,60 @@ async function parseForm(request: Request): Promise<FormData> {
       415,
     );
   }
-  const contentLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_MULTIPART_BYTES) {
-    throw validationError("file_too_large");
+  const contentLengthHeader = request.headers.get("content-length");
+  const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
+  if (
+    contentLength !== null &&
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_MULTIPART_BYTES
+  ) {
+    throw new MultipartInputError(
+      "request_too_large",
+      "The multipart request is too large.",
+      413,
+    );
   }
   try {
-    return await request.formData();
-  } catch {
+    if (!request.body) {
+      throw new MultipartInputError(
+        "invalid_multipart",
+        "The multipart request could not be read.",
+        400,
+      );
+    }
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > MAX_MULTIPART_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new MultipartInputError(
+          "request_too_large",
+          "The multipart request is too large.",
+          413,
+        );
+      }
+      chunks.push(chunk.value);
+    }
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const boundedHeaders = new Headers(request.headers);
+    boundedHeaders.delete("content-length");
+    const boundedRequest = new Request(request.url, {
+      method: request.method,
+      headers: boundedHeaders,
+      body: Buffer.from(bytes),
+    });
+    return await boundedRequest.formData();
+  } catch (error) {
+    if (error instanceof MultipartInputError) throw error;
     throw new MultipartInputError(
       "invalid_multipart",
       "The multipart request could not be read.",
@@ -211,7 +262,7 @@ export async function parseRunMultipart(
   }
   const sourceType: SourceType = sourceValue;
   const provider = parseProvider(requiredString(form, "provider"));
-  const executionMode = parseExecutionMode(form.get("executionMode"));
+  const executionMode = parseExecutionMode(form.get("executionMode"), sourceType);
 
   if (sourceType === "synthetic") {
     const sampleId = requiredString(form, "sampleId");
@@ -269,6 +320,13 @@ export async function parseRunMultipart(
     .filter((value): value is string => typeof value === "string")
     .map(sanitizeFieldLabel);
   const requestedFields = labels.map((label) => ({ key: fieldKey(label), label }));
+  if (new Set(requestedFields.map((field) => field.key)).size !== requestedFields.length) {
+    throw new MultipartInputError(
+      "duplicate_field_key",
+      "Field labels must remain unique after normalization.",
+      400,
+    );
+  }
   const consent = form.get("consent") === "true";
   const filename = sanitizeFilename(documentEntry.name);
   const validation = validateUpload({

@@ -1,5 +1,4 @@
 import { recordedRunResults } from "@/domain/fixtures";
-import { decideOutcome } from "@/domain/outcomes";
 import { calculateResourceScenario } from "@/domain/resource-model";
 import type { HttpContainer } from "@/server/http/container";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
@@ -36,29 +35,71 @@ function averageDurations(records: Array<Record<string, number>>): Record<string
   );
 }
 
+const syntheticExtractionTruth = {
+  "clean-match": {
+    vendor_name: "Northstar Paperworks",
+    purchase_order_number: "PO-NP-1001",
+    invoice_total: "1250.00 SGD",
+  },
+  "invoice-total-mismatch": {
+    vendor_name: "Harborline Supplies",
+    purchase_order_number: "PO-HS-2001",
+    invoice_total: "890.00 SGD",
+  },
+  "missing-purchase-order": {
+    vendor_name: "Vireo Office Goods",
+    purchase_order_number: null,
+    invoice_total: "460.00 SGD",
+  },
+} as const;
+
+const syntheticEvaluatorTruth = {
+  "clean-match": {
+    vendor_name: "pass",
+    purchase_order_number: "pass",
+    invoice_total: "pass",
+  },
+  "invoice-total-mismatch": {
+    vendor_name: "pass",
+    purchase_order_number: "pass",
+    invoice_total: "conflict",
+  },
+  "missing-purchase-order": {
+    vendor_name: "pass",
+    purchase_order_number: "not_found",
+    invoice_total: "pass",
+  },
+} as const;
+
 function recordedBenchmark() {
-  const expectedMissing = new Set(["missing-purchase-order:purchase_order_number"]);
   let exactMatches = 0;
   let totalFields = 0;
   let foundExpectedMissing = 0;
+  let expectedMissing = 0;
   let evaluatorAgreements = 0;
+  let evaluatorComparisons = 0;
   let falseClearCount = 0;
 
-  for (const fixture of recordedRunResults) {
-    totalFields += fixture.fields.length;
-    exactMatches += fixture.fields.filter((field) => field.referenceMatch === true).length;
-    foundExpectedMissing += fixture.fields.filter(
-      (field) =>
-        expectedMissing.has(`${fixture.invoiceId}:${field.key}`) &&
-        field.evaluatorStatus === "not_found",
-    ).length;
-    const decided = decideOutcome({ sourceType: "synthetic", fields: fixture.fields });
-    if (decided === fixture.outcome) evaluatorAgreements += 1;
+  for (const fixture of [...recordedRunResults, ...recordedRunResults]) {
+    const extractionTruth = syntheticExtractionTruth[fixture.invoiceId];
+    const evaluatorTruth = syntheticEvaluatorTruth[fixture.invoiceId];
+    for (const field of fixture.fields) {
+      const expectedValue = extractionTruth[field.key as keyof typeof extractionTruth];
+      const expectedStatus = evaluatorTruth[field.key as keyof typeof evaluatorTruth];
+      totalFields += 1;
+      evaluatorComparisons += 1;
+      if (field.extractedValue === expectedValue) exactMatches += 1;
+      if (field.evaluatorStatus === expectedStatus) evaluatorAgreements += 1;
+      if (expectedValue === null) {
+        expectedMissing += 1;
+        if (field.extractedValue === null && field.evaluatorStatus === "not_found") {
+          foundExpectedMissing += 1;
+        }
+      }
+    }
     if (
-      decided === "clear" &&
-      fixture.fields.some(
-        (field) => field.evaluatorStatus !== "pass" || field.referenceMatch === false,
-      )
+      fixture.outcome === "clear" &&
+      Object.values(evaluatorTruth).some((status) => status !== "pass")
     ) {
       falseClearCount += 1;
     }
@@ -70,8 +111,8 @@ function recordedBenchmark() {
     recordedRuns: recordedRunResults.length * 2,
     providerCoverage: { openai: recordedRunResults.length, anthropic: recordedRunResults.length },
     exactMatchRate: ratio(exactMatches, totalFields),
-    missingFieldRecall: ratio(foundExpectedMissing, expectedMissing.size),
-    evaluatorAgreement: ratio(evaluatorAgreements, recordedRunResults.length),
+    missingFieldRecall: ratio(foundExpectedMissing, expectedMissing),
+    evaluatorAgreement: ratio(evaluatorAgreements, evaluatorComparisons),
     falseClearCount,
   };
 }
@@ -83,33 +124,41 @@ export async function handleMetricsGet(
   const requestId = container.requestIdSource();
   try {
     const now = container.clock();
-    const [aggregate, runs] = await Promise.all([
+    const [aggregate, runs, cleanupBacklog] = await Promise.all([
       container.repository.aggregateAnonymousUsage(),
-      container.repository.listPublicRuns(now),
+      container.repository.listPublicRuns(now, {
+        limit: 100,
+        offset: 0,
+        includeDetails: false,
+      }),
+      container.repository.countCleanupBacklog(now),
     ]);
     const latencies = runs.flatMap((run) =>
       run.latencyMs === null ? [] : [run.latencyMs],
     );
     const reviewRuns =
       (aggregate.outcomeCounts.needs_review ?? 0) +
-      (aggregate.outcomeCounts.conflict ?? 0);
+      (aggregate.outcomeCounts.incomplete ?? 0) +
+      (aggregate.outcomeCounts.conflict ?? 0) +
+      (aggregate.outcomeCounts.not_found ?? 0);
     const liveRuns = runs.filter((run) => run.executionMode === "live").length;
     const recordedRuns = runs.filter((run) => run.executionMode === "recorded").length;
     const activeRuns = runs.filter(
       (run) => run.status !== "expired" && run.status !== "deleted",
     );
     const nextHour = now.getTime() + 60 * 60 * 1000;
-    const averageModelCostPerRun = ratio(
+    const averageModelCostPerRunUsd = ratio(
       aggregate.estimatedCostUsd,
       aggregate.completedRuns,
     );
+    const illustrativeUsdToSgd = 1.35;
     const resourceInputs = {
       documents: 200,
       fields: 3,
       manualMinutesPerField: 2,
       assistedMinutesPerField: 0.5,
       loadedHourlyCost: 50,
-      averageModelCostPerRun,
+      averageModelCostPerRun: averageModelCostPerRunUsd * illustrativeUsdToSgd,
     };
     const resourceResult = calculateResourceScenario(resourceInputs);
 
@@ -123,6 +172,7 @@ export async function handleMetricsGet(
           failureRate: ratio(aggregate.failedRuns, aggregate.totalRuns),
         },
         performance: {
+          sampleCount: runs.length,
           p50LatencyMs: percentile(latencies, 0.5),
           p95LatencyMs: percentile(latencies, 0.95),
           retryCount: runs.reduce((total, run) => total + run.retryCount, 0),
@@ -151,12 +201,21 @@ export async function handleMetricsGet(
           upcomingExpirations: activeRuns.filter(
             (run) => Date.parse(run.expiresAt) <= nextHour,
           ).length,
-          cleanupBacklog: runs.filter((run) => run.status === "expired").length,
+          cleanupBacklog,
+          sampleCount: runs.length,
         },
         runExplorer: runs.map(serializePublicRunListRow),
         resourceScenario: {
           currency: "SGD",
           inputs: resourceInputs,
+          modelCostAssumption: {
+            sourceCurrency: "USD",
+            targetCurrency: "SGD",
+            averageModelCostPerRunUsd,
+            usdToSgd: illustrativeUsdToSgd,
+            assumptionDate: "2026-08-27",
+            illustrative: true,
+          },
           result: {
             ...resourceResult,
             estimatedNetSavings:

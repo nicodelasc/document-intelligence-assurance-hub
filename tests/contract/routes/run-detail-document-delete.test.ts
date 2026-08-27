@@ -13,6 +13,7 @@ import {
   syntheticRequest,
 } from "./test-support";
 import { handleRunsPost } from "@/server/http/runs-handler";
+import { InMemoryDocumentStore } from "@/server/storage/document-store";
 
 async function completedRun(container: ReturnType<typeof createTestContainer>) {
   const response = await handleRunsPost(syntheticRequest(), container);
@@ -196,5 +197,30 @@ describe("DELETE /api/runs/[id]", () => {
         requestId: "request-test-1",
       },
     });
+  });
+
+  it("returns a retriable safe error when authorized deletion cannot reach storage", async () => {
+    class FailingDeleteStore extends InMemoryDocumentStore {
+      override async deleteDocument(): Promise<boolean> {
+        throw new Error("private_blob_failure");
+      }
+    }
+    const container = createTestContainer({ documentStore: new FailingDeleteStore() });
+    const completed = await completedRun(container);
+
+    const response = await handleRunDelete(
+      new Request(`http://local.test/api/runs/${completed.runId}`, {
+        method: "DELETE",
+        headers: { "x-delete-token": completed.deletionToken },
+      }),
+      { id: completed.runId },
+      container,
+    );
+    const body = (await response.json()) as { error: { code: string; message: string } };
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("delete_temporarily_unavailable");
+    expect(body.error.message).not.toContain("private_blob_failure");
+    expect((await container.repository.readPublicRun(completed.runId, container.clock()))?.status).toBe("completed");
   });
 });

@@ -70,6 +70,9 @@ export function serializePublicRunListRow(run: PublicRunRecord) {
     retryCount: run.retryCount,
     latencyMs: run.latencyMs,
     estimatedCostUsd: run.estimatedCostUsd,
+    ...(run.status === "expired" || run.status === "deleted"
+      ? {}
+      : { filename: cleanText(run.file.filename, 120) }),
   };
 }
 
