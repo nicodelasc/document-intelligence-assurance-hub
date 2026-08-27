@@ -70,4 +70,11 @@ export type RunEvent =
       deletionToken: string;
       timestamp: string;
     }
-  | { type: "failed"; code: string; message: string; runId?: string; timestamp: string };
+  | {
+      type: "failed";
+      code: string;
+      message: string;
+      runId?: string;
+      deletionToken?: string;
+      timestamp: string;
+    };

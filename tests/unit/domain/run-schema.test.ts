@@ -53,4 +53,26 @@ describe("runEventSchema", () => {
       }),
     ).toMatchObject({ type: "failed", code: "provider_unavailable" });
   });
+
+  it("allows a one-time deletion token only when a failed run was created", () => {
+    expect(
+      runEventSchema.parse({
+        type: "failed",
+        code: "provider_unavailable",
+        message: "The selected provider is temporarily unavailable.",
+        runId: "run-123",
+        deletionToken: "shown-to-uploader-once",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      }),
+    ).toMatchObject({ type: "failed", runId: "run-123", deletionToken: "shown-to-uploader-once" });
+    expect(
+      runEventSchema.safeParse({
+        type: "failed",
+        code: "validation_failed",
+        message: "The upload is invalid.",
+        deletionToken: "must-not-exist-before-run-creation",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
 });

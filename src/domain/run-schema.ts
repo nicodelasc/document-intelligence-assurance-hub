@@ -37,7 +37,7 @@ const fieldResultSchema = z
   })
   .strict();
 
-export const runEventSchema: z.ZodType<RunEvent> = z.discriminatedUnion("type", [
+const runEventUnion = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stage"), stage: runStatusSchema, timestamp: z.string().datetime() }).strict(),
   z.object({ type: z.literal("field"), field: fieldResultSchema, timestamp: z.string().datetime() }).strict(),
   z
@@ -56,7 +56,20 @@ export const runEventSchema: z.ZodType<RunEvent> = z.discriminatedUnion("type", 
       code: z.string().min(1).max(80),
       message: z.string().min(1).max(240),
       runId: z.string().min(1).optional(),
+      deletionToken: z.string().min(1).optional(),
       timestamp: z.string().datetime(),
     })
     .strict(),
 ]);
+
+export const runEventSchema: z.ZodType<RunEvent> = runEventUnion.superRefine((event, context) => {
+  if (
+    event.type === "failed" &&
+    ((event.runId === undefined) !== (event.deletionToken === undefined))
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Failed uploader receipts require both runId and deletionToken.",
+    });
+  }
+});

@@ -79,5 +79,5 @@ export function validateExtractionForRequest(
 
 export function isRetryableProviderError(error: unknown): boolean {
   if (!(error instanceof ProviderRequestError) || error.httpStatus === null) return false;
-  return error.httpStatus === 429 || error.httpStatus >= 500;
+  return error.httpStatus === 429 || (error.httpStatus >= 500 && error.httpStatus <= 599);
 }

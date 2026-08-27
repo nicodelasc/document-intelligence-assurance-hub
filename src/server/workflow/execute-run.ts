@@ -12,6 +12,7 @@ import {
   createDeletionCredential,
   type DeletionCredential,
 } from "@/server/security/deletion-token";
+import type { QuotaRepository } from "@/server/security/rate-limit";
 import type { DocumentStore } from "@/server/storage/document-store";
 import {
   isRetryableProviderError,
@@ -41,7 +42,6 @@ export type ExecuteRunInput = {
 export type FieldEvaluatorInput = {
   extractedField: ExtractedField;
   requestedField: RequestedField;
-  referenceValue: string | null | undefined;
   sourceType: SourceType;
 };
 
@@ -52,15 +52,24 @@ export type ExecuteRunDependencies = {
   documentStore: DocumentStore;
   provider: ExtractionProvider;
   clock?: () => Date;
+  processingClock?: () => number;
   idSource?: () => string;
   deletionCredentialSource?: () => DeletionCredential;
   evaluateField?: FieldEvaluator;
   sleep?: (delayMs: number) => Promise<void>;
   replayStageDelayMs?: number;
+  quotaReservation?: {
+    repository: QuotaRepository;
+    reservationId: string;
+  };
 };
 
 function defaultClock(): Date {
   return new Date();
+}
+
+function defaultProcessingClock(): number {
+  return performance.now();
 }
 
 function defaultIdSource(): string {
@@ -81,28 +90,124 @@ function comparable(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
-async function defaultEvaluateField(input: FieldEvaluatorInput): Promise<FieldResult> {
-  const normalizedValue = input.extractedField.normalizedValue?.trim() || null;
-  const extractedValue = input.extractedField.extractedValue?.trim() || null;
-  const evidence = input.extractedField.evidence?.trim() || null;
+function optionalText(value: string | null): string | null {
+  const cleaned = value?.trim().replace(/\s+/g, " ") ?? "";
+  return cleaned || null;
+}
+
+function isMoneyField(field: RequestedField): boolean {
+  return /(?:total|amount|price|cost)/i.test(`${field.key} ${field.label}`);
+}
+
+function isIdentifierField(field: RequestedField): boolean {
+  return /(?:number|identifier|\bid\b|code|reference|purchase[ _-]?order)/i.test(
+    `${field.key} ${field.label}`,
+  );
+}
+
+type MoneyValue = { amount: number; currency: string | null };
+
+function normalizeCurrency(value: string | undefined): string | null {
+  if (!value) return null;
+  return value.toUpperCase() === "S$" ? "SGD" : value.toUpperCase();
+}
+
+function moneyValues(value: string): MoneyValue[] {
+  const pattern =
+    /(?:(S\$|SGD|USD|EUR|GBP|JPY|AUD|CAD)\s*)?([-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?:\s*(SGD|USD|EUR|GBP|JPY|AUD|CAD))?/gi;
+  return [...value.matchAll(pattern)].flatMap((match) => {
+    const amount = Number(match[2].replace(/,/g, ""));
+    const currency = normalizeCurrency(match[1] ?? match[3]);
+    return Number.isFinite(amount) ? [{ amount, currency }] : [];
+  });
+}
+
+function normalizeFieldValue(field: RequestedField, value: string): string | null {
+  const cleaned = optionalText(value);
+  if (!cleaned) return null;
+  if (isMoneyField(field)) {
+    const money = moneyValues(cleaned)[0];
+    if (!money) return null;
+    const amount = money.amount.toFixed(2);
+    return money.currency ? `${amount} ${money.currency}` : amount;
+  }
+  return isIdentifierField(field) ? cleaned.toUpperCase() : cleaned;
+}
+
+function comparisonToken(field: RequestedField, value: string): string {
+  if (isIdentifierField(field)) return comparable(value).replace(/[^a-z0-9]/g, "");
+  return comparable(value)
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function valuesMatch(field: RequestedField, left: string, right: string): boolean {
+  if (isMoneyField(field)) {
+    const leftMoney = moneyValues(left)[0];
+    const rightMoney = moneyValues(right)[0];
+    if (!leftMoney || !rightMoney || leftMoney.amount !== rightMoney.amount) return false;
+    return (
+      leftMoney.currency === rightMoney.currency ||
+      leftMoney.currency === null ||
+      rightMoney.currency === null
+    );
+  }
+  return comparisonToken(field, left) === comparisonToken(field, right);
+}
+
+function evidenceSupportsValue(
+  field: RequestedField,
+  normalizedValue: string,
+  evidence: string,
+): boolean {
+  if (isMoneyField(field)) {
+    const expected = moneyValues(normalizedValue)[0];
+    if (!expected) return false;
+    return moneyValues(evidence).some(
+      (candidate) =>
+        candidate.amount === expected.amount &&
+        (expected.currency === null || candidate.currency === expected.currency),
+    );
+  }
+  const valueToken = comparisonToken(field, normalizedValue);
+  if (!valueToken) return false;
+  if (isIdentifierField(field)) {
+    const evidenceTokens =
+      evidence.match(/[\p{L}\p{N}]+(?:[-_./][\p{L}\p{N}]+)*/gu) ?? [];
+    return evidenceTokens.some(
+      (evidenceToken) => comparisonToken(field, evidenceToken) === valueToken,
+    );
+  }
+  return ` ${comparisonToken(field, evidence)} `.includes(` ${valueToken} `);
+}
+
+function deterministicFieldResult(
+  input: FieldEvaluatorInput,
+  candidate?: FieldResult,
+): FieldResult {
+  const extractedValue = optionalText(input.extractedField.extractedValue);
+  const normalizedValue = extractedValue
+    ? normalizeFieldValue(input.requestedField, extractedValue)
+    : null;
+  const providerNormalizedValue = optionalText(input.extractedField.normalizedValue);
+  const evidence = optionalText(input.extractedField.evidence);
+  let evaluatorStatus: FieldResult["evaluatorStatus"];
 
   if (!extractedValue || !normalizedValue) {
-    return {
-      key: input.requestedField.key,
-      label: input.requestedField.label,
-      extractedValue,
-      normalizedValue,
-      evidence,
-      page: input.extractedField.page,
-      evaluatorStatus: "not_found",
-      referenceMatch: null,
-    };
+    evaluatorStatus = "not_found";
+  } else if (
+    providerNormalizedValue !== null &&
+    !valuesMatch(input.requestedField, normalizedValue, providerNormalizedValue)
+  ) {
+    evaluatorStatus = "conflict";
+  } else if (!evidence || !evidenceSupportsValue(input.requestedField, normalizedValue, evidence)) {
+    evaluatorStatus = "conflict";
+  } else if (candidate?.evaluatorStatus === "conflict") {
+    evaluatorStatus = "conflict";
+  } else {
+    evaluatorStatus = "pass";
   }
 
-  const hasReference = input.referenceValue !== undefined && input.referenceValue !== null;
-  const referenceMatch = hasReference
-    ? comparable(normalizedValue) === comparable(input.referenceValue as string)
-    : null;
   return {
     key: input.requestedField.key,
     label: input.requestedField.label,
@@ -110,8 +215,37 @@ async function defaultEvaluateField(input: FieldEvaluatorInput): Promise<FieldRe
     normalizedValue,
     evidence,
     page: input.extractedField.page,
-    evaluatorStatus: !evidence || referenceMatch === false ? "conflict" : "pass",
+    evaluatorStatus,
+    referenceMatch: null,
+  };
+}
+
+async function defaultEvaluateField(input: FieldEvaluatorInput): Promise<FieldResult> {
+  return deterministicFieldResult(input);
+}
+
+function compareFieldWithReference(
+  field: FieldResult,
+  requestedField: RequestedField,
+  referenceValue: string | null | undefined,
+): FieldResult {
+  if (referenceValue === undefined || referenceValue === null) {
+    return { ...field, referenceMatch: null };
+  }
+  const normalizedReference = normalizeFieldValue(requestedField, referenceValue);
+  const referenceMatch =
+    field.normalizedValue !== null &&
+    normalizedReference !== null &&
+    valuesMatch(requestedField, field.normalizedValue, normalizedReference);
+  return {
+    ...field,
     referenceMatch,
+    evaluatorStatus:
+      field.evaluatorStatus === "not_found"
+        ? "not_found"
+        : field.evaluatorStatus === "conflict" || !referenceMatch
+          ? "conflict"
+          : "pass",
   };
 }
 
@@ -178,6 +312,7 @@ export async function* executeRun(
   dependencies: ExecuteRunDependencies,
 ): AsyncGenerator<RunEvent> {
   const clock = dependencies.clock ?? defaultClock;
+  const processingClock = dependencies.processingClock ?? defaultProcessingClock;
   const idSource = dependencies.idSource ?? defaultIdSource;
   const credentialSource = dependencies.deletionCredentialSource ?? createDeletionCredential;
   const evaluator = dependencies.evaluateField ?? defaultEvaluateField;
@@ -193,7 +328,21 @@ export async function* executeRun(
   let stageCount = 0;
   let runCreated = false;
   let currentStage: RunStatus = "validating";
+  let currentStageStartedAt: number | null = null;
+  let retryCount = 0;
+  let quotaSettlementStarted = false;
   const stepDurations: Record<string, number> = {};
+
+  const releaseQuotaReservation = async (): Promise<void> => {
+    if (!dependencies.quotaReservation || quotaSettlementStarted) return;
+    try {
+      await dependencies.quotaReservation.repository.releaseLiveReservation(
+        dependencies.quotaReservation.reservationId,
+      );
+    } catch {
+      // Quota cleanup must not expose persistence details in the public event stream.
+    }
+  };
 
   const announce = async (stage: RunStatus): Promise<RunEvent> => {
     currentStage = stage;
@@ -206,8 +355,9 @@ export async function* executeRun(
   };
 
   const appendStage = async (stage: RunStatus, startedAt: number): Promise<void> => {
-    const durationMs = Math.max(0, clock().getTime() - startedAt);
+    const durationMs = Math.max(0, processingClock() - startedAt);
     stepDurations[stage] = durationMs;
+    currentStageStartedAt = null;
     if (runCreated) {
       await dependencies.repository.appendStep(runId, {
         kind: "stage",
@@ -218,8 +368,12 @@ export async function* executeRun(
     }
   };
 
-  const validationStartedAt = clock().getTime();
+  const totalProcessingLatency = (): number =>
+    Object.values(stepDurations).reduce((total, duration) => total + duration, 0);
+
   yield await announce("validating");
+  const validationStartedAt = processingClock();
+  currentStageStartedAt = validationStartedAt;
   const validation = validateUpload({
     bytes: input.file.bytes,
     filename: safeFilename(input.file.filename),
@@ -230,6 +384,7 @@ export async function* executeRun(
     sourceType: input.sourceType,
   });
   if (!validation.valid) {
+    await releaseQuotaReservation();
     yield {
       type: "failed",
       code: "validation_failed",
@@ -271,6 +426,7 @@ export async function* executeRun(
       stepDurations: {},
     });
   } catch {
+    await releaseQuotaReservation();
     yield {
       type: "failed",
       code: "telemetry_unavailable",
@@ -283,8 +439,9 @@ export async function* executeRun(
   await appendStage("validating", validationStartedAt);
 
   try {
-    const storageStartedAt = clock().getTime();
     yield await announce("storing");
+    const storageStartedAt = processingClock();
+    currentStageStartedAt = storageStartedAt;
     await dependencies.documentStore.storePrivateDocument({
       key: documentKey,
       bytes: input.file.bytes,
@@ -292,12 +449,14 @@ export async function* executeRun(
     });
     await appendStage("storing", storageStartedAt);
 
-    const extractionStartedAt = clock().getTime();
     yield await announce("extracting");
-    const { response, retryCount } = await extractWithOneRetry(
+    const extractionStartedAt = processingClock();
+    currentStageStartedAt = extractionStartedAt;
+    const { response, retryCount: completedRetryCount } = await extractWithOneRetry(
       dependencies.provider,
       input,
       async (error) => {
+        retryCount = 1;
         const step: RunStepRecord = {
           kind: "retry",
           stage: "extracting",
@@ -308,21 +467,36 @@ export async function* executeRun(
         await dependencies.repository.appendStep(runId, step);
       },
     );
+    retryCount = completedRetryCount;
     await appendStage("extracting", extractionStartedAt);
 
-    const verificationStartedAt = clock().getTime();
     yield await announce("verifying");
-    const fields = await Promise.all(
-      input.requestedFields.map((requestedField, index) =>
-        evaluator({
+    const verificationStartedAt = processingClock();
+    currentStageStartedAt = verificationStartedAt;
+    const verifiedFields = await Promise.all(
+      input.requestedFields.map(async (requestedField, index) => {
+        const evaluatorInput: FieldEvaluatorInput = {
           extractedField: response.extraction.fields[index],
           requestedField,
-          referenceValue: input.referenceData?.[requestedField.key],
           sourceType: input.sourceType,
-        }),
-      ),
+        };
+        const candidate = await evaluator(evaluatorInput);
+        return deterministicFieldResult(evaluatorInput, candidate);
+      }),
     );
     await appendStage("verifying", verificationStartedAt);
+
+    yield await announce("comparing");
+    const comparisonStartedAt = processingClock();
+    currentStageStartedAt = comparisonStartedAt;
+    const fields = verifiedFields.map((field, index) =>
+      compareFieldWithReference(
+        field,
+        input.requestedFields[index],
+        input.referenceData?.[input.requestedFields[index].key],
+      ),
+    );
+    await appendStage("comparing", comparisonStartedAt);
     for (const field of fields) {
       const timestamp = clock().toISOString();
       await dependencies.repository.appendStep(runId, {
@@ -334,12 +508,9 @@ export async function* executeRun(
       yield { type: "field", field, timestamp };
     }
 
-    const comparisonStartedAt = clock().getTime();
-    yield await announce("comparing");
-    await appendStage("comparing", comparisonStartedAt);
-
-    const decisionStartedAt = clock().getTime();
     yield await announce("deciding");
+    const decisionStartedAt = processingClock();
+    currentStageStartedAt = decisionStartedAt;
     const outcome = decideOutcome({ sourceType: input.sourceType, fields });
     await dependencies.repository.appendStep(runId, {
       kind: "decision",
@@ -349,8 +520,9 @@ export async function* executeRun(
     });
     await appendStage("deciding", decisionStartedAt);
 
-    const publishingStartedAt = clock().getTime();
     yield await announce("publishing");
+    const publishingStartedAt = processingClock();
+    currentStageStartedAt = publishingStartedAt;
     const estimatedCostUsd =
       dependencies.provider.executionMode === "live"
         ? estimateRunCost({
@@ -359,6 +531,21 @@ export async function* executeRun(
             outputTokens: response.usage.outputTokens,
           })
         : 0;
+    if (dependencies.quotaReservation) {
+      if (dependencies.provider.executionMode === "live") {
+        quotaSettlementStarted = true;
+        const settlement =
+          await dependencies.quotaReservation.repository.settleLiveReservation(
+            dependencies.quotaReservation.reservationId,
+            estimatedCostUsd,
+          );
+        if (settlement.status !== "settled" && settlement.status !== "already_settled") {
+          throw new Error("quota_settlement_failed");
+        }
+      } else {
+        await releaseQuotaReservation();
+      }
+    }
     await appendStage("publishing", publishingStartedAt);
     const completedAt = clock().toISOString();
     await dependencies.repository.saveResults(runId, {
@@ -367,7 +554,7 @@ export async function* executeRun(
       usage: response.usage,
       estimatedCostUsd,
       retryCount,
-      latencyMs: Math.max(0, clock().getTime() - createdAtDate.getTime()),
+      latencyMs: totalProcessingLatency(),
       stepDurations,
       completedAt,
     });
@@ -381,12 +568,23 @@ export async function* executeRun(
       timestamp: clock().toISOString(),
     };
   } catch (error) {
+    await releaseQuotaReservation();
     const safe = publicError(error, currentStage);
+    if (currentStageStartedAt !== null) {
+      stepDurations[currentStage] = Math.max(0, processingClock() - currentStageStartedAt);
+      currentStageStartedAt = null;
+    } else if (stepDurations[currentStage] === undefined) {
+      stepDurations[currentStage] = 0;
+    }
     if (runCreated) {
       try {
         await dependencies.repository.markFailed(runId, {
           timestamp: clock().toISOString(),
           safeCode: safe.code,
+          failedStage: currentStage,
+          retryCount,
+          latencyMs: totalProcessingLatency(),
+          stepDurations,
         });
       } catch {
         // The safe terminal event remains available even when telemetry storage is unavailable.
@@ -397,6 +595,7 @@ export async function* executeRun(
       code: safe.code,
       message: safe.message,
       runId,
+      deletionToken: deletionCredential.token,
       timestamp: clock().toISOString(),
     };
   }

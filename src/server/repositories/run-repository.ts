@@ -67,7 +67,7 @@ export type SaveRunResultsInput = {
 export type PublicRunRecord = Omit<StoredRunRecord, "documentKey" | "deletionTokenHash"> & {
   details?: {
     steps: RunStepRecord[];
-    result: SaveRunResultsInput;
+    result: SaveRunResultsInput | null;
   };
 };
 
@@ -82,12 +82,21 @@ export type AnonymousUsageAggregate = {
   outcomeCounts: Partial<Record<Outcome, number>>;
 };
 
+export type MarkRunFailedInput = {
+  timestamp: string;
+  safeCode: string;
+  failedStage: RunStatus;
+  retryCount: number;
+  latencyMs: number;
+  stepDurations: Record<string, number>;
+};
+
 export interface RunRepository {
   createRun(record: StoredRunRecord): Promise<void>;
   setStatus(runId: string, status: RunStatus): Promise<void>;
   appendStep(runId: string, step: RunStepRecord): Promise<void>;
   saveResults(runId: string, result: SaveRunResultsInput): Promise<void>;
-  markFailed(runId: string, input: { timestamp: string; safeCode: string }): Promise<void>;
+  markFailed(runId: string, input: MarkRunFailedInput): Promise<void>;
   readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null>;
   listPublicRuns(now: Date): Promise<PublicRunRecord[]>;
   aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate>;
@@ -182,15 +191,18 @@ export class InMemoryRunRepository implements RunRepository {
     }
   }
 
-  async markFailed(runId: string, input: { timestamp: string; safeCode: string }): Promise<void> {
+  async markFailed(runId: string, input: MarkRunFailedInput): Promise<void> {
     const run = this.requireRun(runId);
     run.record.status = "failed";
+    run.record.retryCount = input.retryCount;
+    run.record.latencyMs = input.latencyMs;
+    run.record.stepDurations = clone(input.stepDurations);
     if (!run.detailsDeleted) {
       run.steps.push({
         kind: "stage",
-        stage: "failed",
+        stage: input.failedStage,
         timestamp: input.timestamp,
-        durationMs: null,
+        durationMs: input.stepDurations[input.failedStage] ?? null,
         safeCode: input.safeCode,
       });
     }
@@ -287,10 +299,10 @@ export class InMemoryRunRepository implements RunRepository {
       publicRun.requestedFields = [];
     }
 
-    if (!run.detailsDeleted && !isExpired(run, now) && run.result) {
+    if (!run.detailsDeleted && !isExpired(run, now)) {
       publicRun.details = {
         steps: clone(run.steps),
-        result: clone(run.result),
+        result: run.result ? clone(run.result) : null,
       };
     }
     return publicRun;
@@ -402,21 +414,28 @@ class NeonRunRepository implements RunRepository {
     );
   }
 
-  async markFailed(runId: string, input: { timestamp: string; safeCode: string }): Promise<void> {
+  async markFailed(runId: string, input: MarkRunFailedInput): Promise<void> {
     const driver = await this.readyDriver();
     const step: RunStepRecord = {
       kind: "stage",
-      stage: "failed",
+      stage: input.failedStage,
       timestamp: input.timestamp,
-      durationMs: null,
+      durationMs: input.stepDurations[input.failedStage] ?? null,
       safeCode: input.safeCode,
     };
     await driver.query(
       `WITH saved AS (
         INSERT INTO run_steps (run_id, step_json) VALUES ($1, $2::jsonb)
       )
-      UPDATE runs SET status = 'failed', was_failed = true WHERE id = $1`,
-      [runId, JSON.stringify(step)],
+      UPDATE runs SET status = 'failed', retry_count = $3, latency_ms = $4,
+        step_durations = $5::jsonb, was_failed = true WHERE id = $1`,
+      [
+        runId,
+        JSON.stringify(step),
+        input.retryCount,
+        input.latencyMs,
+        JSON.stringify(input.stepDurations),
+      ],
     );
   }
 
@@ -430,7 +449,7 @@ class NeonRunRepository implements RunRepository {
   async listPublicRuns(now: Date): Promise<PublicRunRecord[]> {
     const driver = await this.readyDriver();
     const rows = await driver.query("SELECT * FROM runs ORDER BY created_at DESC");
-    return Promise.all(rows.map((row) => this.publicFromRow(driver, row, now, false)));
+    return Promise.all(rows.map((row) => this.publicFromRow(driver, row, now)));
   }
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
@@ -602,12 +621,10 @@ class NeonRunRepository implements RunRepository {
       driver.query("SELECT step_json FROM run_steps WHERE run_id = $1 ORDER BY sequence", [row.id]),
       driver.query("SELECT result_json FROM run_results WHERE run_id = $1", [row.id]),
     ]);
-    if (resultRows[0]) {
-      publicRun.details = {
-        steps: stepRows.map((stepRow) => asJson<RunStepRecord>(stepRow.step_json)),
-        result: asJson<SaveRunResultsInput>(resultRows[0].result_json),
-      };
-    }
+    publicRun.details = {
+      steps: stepRows.map((stepRow) => asJson<RunStepRecord>(stepRow.step_json)),
+      result: resultRows[0] ? asJson<SaveRunResultsInput>(resultRows[0].result_json) : null,
+    };
     return publicRun;
   }
 }
