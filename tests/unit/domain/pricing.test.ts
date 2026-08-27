@@ -1,19 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { estimateRunCost, pricingAsOf } from "@/domain/pricing";
+import {
+  MAX_LIVE_PROVIDER_ATTEMPTS,
+  MAX_PROVIDER_OUTPUT_TOKENS,
+  estimateMaximumLiveRunCost,
+  estimateRunCost,
+  pricingAsOf,
+} from "@/domain/pricing";
 
 describe("estimateRunCost", () => {
   it("uses the 2026-08-27 OpenAI GPT-5 mini rates", () => {
     expect(pricingAsOf).toBe("2026-08-27");
-    expect(estimateRunCost({ provider: "openai", inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(
-      2.25,
-    );
+    expect(
+      estimateRunCost({
+        provider: "openai",
+        model: "gpt-5-mini",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBe(2.25);
   });
 
   it("uses the 2026-08-27 Anthropic Claude Haiku 4.5 rates", () => {
-    expect(estimateRunCost({ provider: "anthropic", inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(6);
+    expect(
+      estimateRunCost({
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBe(6);
   });
 
   it("scales costs proportionally by token count", () => {
-    expect(estimateRunCost({ provider: "openai", inputTokens: 8_000, outputTokens: 500 })).toBe(0.003);
+    expect(
+      estimateRunCost({
+        provider: "openai",
+        model: "gpt-5-mini",
+        inputTokens: 8_000,
+        outputTokens: 500,
+      }),
+    ).toBe(0.003);
+  });
+
+  it("rejects a provider and model mismatch before any cost is published", () => {
+    expect(() =>
+      estimateRunCost({
+        provider: "openai",
+        model: "claude-haiku-4-5",
+        inputTokens: 100,
+        outputTokens: 10,
+      }),
+    ).toThrow("unsupported_live_model");
+  });
+
+  it("reserves the maximum two-call cost permitted by each model context and output cap", () => {
+    expect(MAX_LIVE_PROVIDER_ATTEMPTS).toBe(2);
+    expect(MAX_PROVIDER_OUTPUT_TOKENS).toBe(2_000);
+    expect(estimateMaximumLiveRunCost("openai", "gpt-5-mini")).toBeCloseTo(
+      0.207,
+      9,
+    );
+    expect(
+      estimateMaximumLiveRunCost("anthropic", "claude-haiku-4-5"),
+    ).toBeCloseTo(0.416, 9);
   });
 });

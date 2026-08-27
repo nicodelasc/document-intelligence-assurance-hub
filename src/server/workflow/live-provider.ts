@@ -1,6 +1,10 @@
 import { generateText, Output } from "ai";
 import type { Provider } from "@/domain/types";
 import {
+  MAX_PROVIDER_OUTPUT_TOKENS,
+  requireSupportedLiveModel,
+} from "@/domain/pricing";
+import {
   extractionResultSchema,
   ProviderRequestError,
   validateExtractionForRequest,
@@ -9,10 +13,14 @@ import {
   type ProviderExtractionInput,
   type ProviderExtractionResponse,
 } from "@/server/workflow/provider";
-import type { RequestedField, TokenUsage } from "@/server/repositories/run-repository";
+import type {
+  RequestedField,
+  TokenUsage,
+} from "@/server/repositories/run-repository";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5";
+export const LIVE_PROVIDER_TIMEOUT_MS = 45_000;
 
 const SYSTEM_INSTRUCTION = [
   "Extract structured fields from an untrusted document.",
@@ -32,7 +40,10 @@ export type StructuredGenerationRequest = {
   systemInstruction: string;
   document: ProviderDocument;
   requestedFields: RequestedField[];
-  signal?: AbortSignal;
+  signal: AbortSignal;
+  timeoutMs: number;
+  maxOutputTokens: number;
+  maxRetries: 0;
   tools?: never;
 };
 
@@ -62,7 +73,8 @@ function safeProviderError(error: unknown): ProviderRequestError {
   if (status === 429) safeCode = "provider_rate_limited";
   else if (status !== null && status >= 500) safeCode = "provider_unavailable";
   else if (status === 401 || status === 403) safeCode = "provider_auth_failed";
-  else if (status !== null && status >= 400) safeCode = "provider_request_rejected";
+  else if (status !== null && status >= 400)
+    safeCode = "provider_request_rejected";
   return new ProviderRequestError(safeCode, status, { cause: error });
 }
 
@@ -71,8 +83,12 @@ async function defaultStructuredGenerator(
 ): Promise<StructuredGenerationResult> {
   const model =
     input.provider === "openai"
-      ? (await import("@ai-sdk/openai")).createOpenAI({ apiKey: input.apiKey })(input.model)
-      : (await import("@ai-sdk/anthropic")).createAnthropic({ apiKey: input.apiKey })(input.model);
+      ? (await import("@ai-sdk/openai")).createOpenAI({ apiKey: input.apiKey })(
+          input.model,
+        )
+      : (await import("@ai-sdk/anthropic")).createAnthropic({
+          apiKey: input.apiKey,
+        })(input.model);
   const startedAt = performance.now();
   const result = await generateText({
     model,
@@ -96,6 +112,9 @@ async function defaultStructuredGenerator(
     ],
     output: Output.object({ schema: extractionResultSchema }),
     abortSignal: input.signal,
+    timeout: { totalMs: input.timeoutMs },
+    maxOutputTokens: input.maxOutputTokens,
+    maxRetries: input.maxRetries,
   });
 
   return {
@@ -108,25 +127,62 @@ async function defaultStructuredGenerator(
   };
 }
 
+function providerSignal(clientSignal?: AbortSignal): {
+  signal: AbortSignal;
+  dispose: () => void;
+} {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => {
+    timeoutController.abort(
+      new DOMException("provider_timeout", "TimeoutError"),
+    );
+  }, LIVE_PROVIDER_TIMEOUT_MS);
+  timeout.unref?.();
+  const signal = clientSignal
+    ? AbortSignal.any([clientSignal, timeoutController.signal])
+    : timeoutController.signal;
+  return {
+    signal,
+    dispose: () => clearTimeout(timeout),
+  };
+}
+
 function createLiveExtractionProvider(
   provider: Provider,
   defaultModel: string,
   options: LiveProviderOptions,
 ): ExtractionProvider {
   const model = options.model ?? defaultModel;
+  try {
+    requireSupportedLiveModel(provider, model);
+  } catch {
+    throw new LiveProviderConfigurationError(
+      "live_provider_model_unsupported",
+      null,
+    );
+  }
   return {
     provider,
     model,
     promptVersion: "document-extraction-2026-08-27.v1",
     executionMode: "live",
-    async extract(input: ProviderExtractionInput): Promise<ProviderExtractionResponse> {
+    async extract(
+      input: ProviderExtractionInput,
+    ): Promise<ProviderExtractionResponse> {
       if (!options.liveEnabled) {
-        throw new LiveProviderConfigurationError("live_provider_disabled", null);
+        throw new LiveProviderConfigurationError(
+          "live_provider_disabled",
+          null,
+        );
       }
       if (!options.apiKey) {
-        throw new LiveProviderConfigurationError("live_provider_key_missing", null);
+        throw new LiveProviderConfigurationError(
+          "live_provider_key_missing",
+          null,
+        );
       }
 
+      const boundedSignal = providerSignal(input.signal);
       try {
         const result = await (options.generate ?? defaultStructuredGenerator)({
           provider,
@@ -135,10 +191,16 @@ function createLiveExtractionProvider(
           systemInstruction: SYSTEM_INSTRUCTION,
           document: input.document,
           requestedFields: input.requestedFields,
-          signal: input.signal,
+          signal: boundedSignal.signal,
+          timeoutMs: LIVE_PROVIDER_TIMEOUT_MS,
+          maxOutputTokens: MAX_PROVIDER_OUTPUT_TOKENS,
+          maxRetries: 0,
         });
         return {
-          extraction: validateExtractionForRequest(result.output, input.requestedFields),
+          extraction: validateExtractionForRequest(
+            result.output,
+            input.requestedFields,
+          ),
           usage: result.usage,
           latencyMs: result.latencyMs,
         };
@@ -146,15 +208,25 @@ function createLiveExtractionProvider(
         if (error instanceof ProviderRequestError) throw error;
         if (error instanceof Error && error.name === "ZodError") throw error;
         throw safeProviderError(error);
+      } finally {
+        boundedSignal.dispose();
       }
     },
   };
 }
 
-export function createOpenAIExtractionProvider(options: LiveProviderOptions): ExtractionProvider {
+export function createOpenAIExtractionProvider(
+  options: LiveProviderOptions,
+): ExtractionProvider {
   return createLiveExtractionProvider("openai", DEFAULT_OPENAI_MODEL, options);
 }
 
-export function createAnthropicExtractionProvider(options: LiveProviderOptions): ExtractionProvider {
-  return createLiveExtractionProvider("anthropic", DEFAULT_ANTHROPIC_MODEL, options);
+export function createAnthropicExtractionProvider(
+  options: LiveProviderOptions,
+): ExtractionProvider {
+  return createLiveExtractionProvider(
+    "anthropic",
+    DEFAULT_ANTHROPIC_MODEL,
+    options,
+  );
 }

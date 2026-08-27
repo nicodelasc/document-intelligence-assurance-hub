@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { FieldResult, Provider } from "@/domain/types";
+import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
 import {
   InMemoryRunRepository,
   type RunStepRecord,
 } from "@/server/repositories/run-repository";
 import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
-import { deleteRunNow, hashDeletionToken } from "@/server/security/deletion-token";
+import {
+  deleteRunNow,
+  hashDeletionToken,
+} from "@/server/security/deletion-token";
 import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import {
   executeRun,
@@ -57,11 +61,13 @@ const extraction: ProviderExtractionResponse = {
   latencyMs: 300,
 };
 
-function provider(input: {
-  name?: Provider;
-  executionMode?: "recorded" | "live";
-  extract?: ExtractionProvider["extract"];
-} = {}): ExtractionProvider {
+function provider(
+  input: {
+    name?: Provider;
+    executionMode?: "recorded" | "live";
+    extract?: ExtractionProvider["extract"];
+  } = {},
+): ExtractionProvider {
   return {
     provider: input.name ?? "openai",
     model: input.name === "anthropic" ? "claude-haiku-4-5" : "gpt-5-mini",
@@ -76,7 +82,10 @@ function clock(start = Date.parse("2026-08-27T00:00:00.000Z")): () => Date {
   return () => new Date(tick++);
 }
 
-function dependencies(selectedProvider: ExtractionProvider, evaluator?: FieldEvaluator) {
+function dependencies(
+  selectedProvider: ExtractionProvider,
+  evaluator?: FieldEvaluator,
+) {
   const repository = new InMemoryRunRepository();
   const documentStore = new InMemoryDocumentStore();
   const value: ExecuteRunDependencies = {
@@ -119,52 +128,64 @@ async function collect(inputValue: typeof input, deps: ExecuteRunDependencies) {
 }
 
 describe("executeRun", () => {
-  it.each([429, 500, 503])("retries HTTP %s once then completes with the selected provider", async (status) => {
-    let attempts = 0;
-    const selected = provider({
-      extract: async () => {
-        attempts += 1;
-        if (attempts === 1) throw new ProviderRequestError("provider_unavailable", status);
-        return extraction;
-      },
-    });
-    const { value, repository } = dependencies(selected);
+  it.each([429, 500, 503])(
+    "retries HTTP %s once then completes with the selected provider",
+    async (status) => {
+      let attempts = 0;
+      const selected = provider({
+        extract: async () => {
+          attempts += 1;
+          if (attempts === 1)
+            throw new ProviderRequestError("provider_unavailable", status);
+          return extraction;
+        },
+      });
+      const { value, repository } = dependencies(selected);
 
-    const events = await collect(input, value);
-    expect(attempts).toBe(2);
-    expect(events.at(-1)).toMatchObject({
-      type: "completed",
-      outcome: "clear",
-      runId: "run-123",
-      deletionToken: "delete-once",
-    });
-    expect((await repository.readPublicRun("run-123", new Date("2026-08-27T01:00:00.000Z")))?.provider).toBe(
-      "openai",
-    );
-  });
+      const events = await collect(input, value);
+      expect(attempts).toBe(2);
+      expect(events.at(-1)).toMatchObject({
+        type: "completed",
+        outcome: "clear",
+        runId: "run-123",
+        deletionToken: "delete-once",
+      });
+      expect(
+        (
+          await repository.readPublicRun(
+            "run-123",
+            new Date("2026-08-27T01:00:00.000Z"),
+          )
+        )?.provider,
+      ).toBe("openai");
+    },
+  );
 
   it.each([400, 401, 403, 422, 600])(
     "does not retry non-retryable HTTP %s provider failures",
     async (status) => {
-    let attempts = 0;
-    const selected = provider({
-      extract: async () => {
-        attempts += 1;
-        throw new ProviderRequestError("provider_request_rejected", status);
-      },
-    });
-    const { value, repository } = dependencies(selected);
+      let attempts = 0;
+      const selected = provider({
+        extract: async () => {
+          attempts += 1;
+          throw new ProviderRequestError("provider_request_rejected", status);
+        },
+      });
+      const { value, repository } = dependencies(selected);
 
-    const events = await collect(input, value);
-    expect(attempts).toBe(1);
-    expect(events.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "failed",
-        code: "provider_request_rejected",
-        deletionToken: "delete-once",
-      }),
-    );
-    const publicRun = await repository.readPublicRun("run-123", new Date("2026-08-27T01:00:00.000Z"));
+      const events = await collect(input, value);
+      expect(attempts).toBe(1);
+      expect(events.at(-1)).toEqual(
+        expect.objectContaining({
+          type: "failed",
+          code: "provider_request_rejected",
+          deletionToken: "delete-once",
+        }),
+      );
+      const publicRun = await repository.readPublicRun(
+        "run-123",
+        new Date("2026-08-27T01:00:00.000Z"),
+      );
       expect(publicRun).toMatchObject({
         provider: "openai",
         status: "failed",
@@ -188,9 +209,15 @@ describe("executeRun", () => {
 
     const events = await collect(input, value);
     expect(openAIAttempts).toBe(2);
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "provider_unavailable" });
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_unavailable",
+    });
     expect(
-      await repository.readPublicRun("run-123", new Date("2026-08-27T01:00:00.000Z")),
+      await repository.readPublicRun(
+        "run-123",
+        new Date("2026-08-27T01:00:00.000Z"),
+      ),
     ).toMatchObject({
       provider: "openai",
       status: "failed",
@@ -220,7 +247,9 @@ describe("executeRun", () => {
     const evaluator: FieldEvaluator = async ({ extractedField }) => {
       started += 1;
       if (started === requestedFields.length) signalAllStarted();
-      await new Promise<void>((resolve) => releases.set(extractedField.key, resolve));
+      await new Promise<void>((resolve) =>
+        releases.set(extractedField.key, resolve),
+      );
       completionOrder.push(extractedField.key);
       return {
         ...extractedField,
@@ -239,11 +268,21 @@ describe("executeRun", () => {
     releases.get("purchase_order_number")?.();
     const events = await eventsPromise;
 
-    expect(completionOrder).toEqual(["invoice_total", "vendor_name", "purchase_order_number"]);
-    expect(events.filter((event) => event.type === "field").map((event) => event.field.key)).toEqual(
-      requestedFields.map((field) => field.key),
-    );
-    expect(events.filter((event) => event.type === "stage").map((event) => event.stage)).toEqual([
+    expect(completionOrder).toEqual([
+      "invoice_total",
+      "vendor_name",
+      "purchase_order_number",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "field")
+        .map((event) => event.field.key),
+    ).toEqual(requestedFields.map((field) => field.key));
+    expect(
+      events
+        .filter((event) => event.type === "stage")
+        .map((event) => event.stage),
+    ).toEqual([
       "validating",
       "storing",
       "extracting",
@@ -271,7 +310,9 @@ describe("executeRun", () => {
     const startedAt = Date.parse("2026-08-27T00:00:00.000Z");
     let presentationTimeMs = 0;
     let processingTimeMs = 0;
-    const { value, repository } = dependencies(provider({ executionMode: "recorded" }));
+    const { value, repository } = dependencies(
+      provider({ executionMode: "recorded" }),
+    );
     value.clock = () => new Date(startedAt + presentationTimeMs);
     value.processingClock = () => {
       processingTimeMs += 5;
@@ -289,7 +330,9 @@ describe("executeRun", () => {
       new Date("2026-08-27T01:00:00.000Z"),
     );
     expect(run?.latencyMs).toBeLessThan(500);
-    expect(Math.max(...Object.values(run?.stepDurations ?? {}))).toBeLessThan(100);
+    expect(Math.max(...Object.values(run?.stepDurations ?? {}))).toBeLessThan(
+      100,
+    );
   });
 
   it("turns a raw persistence failure into one stable safe terminal event", async () => {
@@ -338,7 +381,10 @@ describe("executeRun", () => {
         throw new Error("result-write-private-detail");
       }
     }
-    const quotas = new InMemoryQuotaRepository(3, () => "quota-result-write-failure");
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-result-write-failure",
+    );
     const reservation = await quotas.reserve({
       bucket: "browser-a",
       sourceType: "synthetic",
@@ -347,10 +393,14 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(provider());
     value.repository = new ResultWriteFailsRepository();
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     const events = await collect(input, value);
 
@@ -360,7 +410,9 @@ describe("executeRun", () => {
       deletionToken: "delete-once",
     });
     expect(JSON.stringify(events)).not.toContain("result-write-private-detail");
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0.000075,
       reservedSpendUsd: 0,
     });
@@ -370,14 +422,21 @@ describe("executeRun", () => {
     class FirstTraceWriteFailsRepository extends InMemoryRunRepository {
       private appendAttempts = 0;
 
-      override async appendStep(runId: string, step: RunStepRecord): Promise<void> {
+      override async appendStep(
+        runId: string,
+        step: RunStepRecord,
+      ): Promise<void> {
         this.appendAttempts += 1;
-        if (this.appendAttempts === 1) throw new Error("first-trace-write-debug-payload");
+        if (this.appendAttempts === 1)
+          throw new Error("first-trace-write-debug-payload");
         await super.appendStep(runId, step);
       }
     }
     let providerAttempts = 0;
-    const quotas = new InMemoryQuotaRepository(3, () => "quota-pre-provider-failure");
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-pre-provider-failure",
+    );
     const reservation = await quotas.reserve({
       bucket: "browser-a",
       sourceType: "synthetic",
@@ -386,7 +445,8 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const selected = provider({
       extract: async () => {
         providerAttempts += 1;
@@ -395,7 +455,10 @@ describe("executeRun", () => {
     });
     const { value } = dependencies(selected);
     value.repository = new FirstTraceWriteFailsRepository();
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     const events = await collect(input, value);
 
@@ -407,8 +470,12 @@ describe("executeRun", () => {
       runId: "run-123",
       deletionToken: "delete-once",
     });
-    expect(JSON.stringify(events)).not.toContain("first-trace-write-debug-payload");
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    expect(JSON.stringify(events)).not.toContain(
+      "first-trace-write-debug-payload",
+    );
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0,
       reservedSpendUsd: 0,
     });
@@ -429,7 +496,10 @@ describe("executeRun", () => {
     value.repository = new FailingFailureWriteRepository();
 
     const events = await collect(input, value);
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "provider_request_rejected" });
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_request_rejected",
+    });
     expect(JSON.stringify(events)).not.toContain("database-debug-payload");
   });
 
@@ -480,23 +550,34 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    expect(reservation).toMatchObject({ allowed: true, reservationId: "quota-success" });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    expect(reservation).toMatchObject({
+      allowed: true,
+      reservationId: "quota-success",
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(provider());
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     await collect(input, value);
 
-    const snapshot = await quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"));
+    const snapshot = await quotas.snapshot(
+      new Date("2026-08-27T01:00:00.000Z"),
+    );
     expect(snapshot.globalSpendUsd).toBeCloseTo(0.000075, 9);
     expect(snapshot.reservedSpendUsd).toBe(0);
-    await expect(quotas.settleLiveReservation("quota-success", 2)).resolves.toEqual({
+    await expect(
+      quotas.settleLiveReservation("quota-success", 2),
+    ).resolves.toEqual({
       status: "already_settled",
       actualCostUsd: 0.000075,
     });
   });
 
-  it("releases a pending quota reservation when a live provider fails", async () => {
+  it("retains an ambiguous provider reservation until its stale lease is reclaimed", async () => {
     const quotas = new InMemoryQuotaRepository(3, () => "quota-failure");
     const reservation = await quotas.reserve({
       bucket: "browser-a",
@@ -506,7 +587,8 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(
       provider({
         extract: async () => {
@@ -514,11 +596,52 @@ describe("executeRun", () => {
         },
       }),
     );
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     await collect(input, value);
 
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:05:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("releases a reservation when the client has already aborted before workflow work begins", async () => {
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-early-abort");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const controller = new AbortController();
+    controller.abort("reviewer_left");
+    const { value } = dependencies(provider());
+    value.abortSignal = controller.signal;
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    await expect(collect(input, value)).resolves.toEqual([]);
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0,
       reservedSpendUsd: 0,
     });
@@ -530,7 +653,10 @@ describe("executeRun", () => {
         throw new Error("quota-database-unavailable");
       }
     }
-    const quotas = new SettlementUnavailableQuotaRepository(3, () => "quota-uncertain");
+    const quotas = new SettlementUnavailableQuotaRepository(
+      3,
+      () => "quota-uncertain",
+    );
     const reservation = await quotas.reserve({
       bucket: "browser-a",
       sourceType: "synthetic",
@@ -539,22 +665,40 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(provider());
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     const events = await collect(input, value);
 
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "workflow_failed" });
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:05:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0,
-      reservedSpendUsd: 1,
+      reservedSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
     });
     expect(JSON.stringify(events)).not.toContain("quota-database-unavailable");
   });
 
   it("settles billable cost once when parallel verification fails after extraction", async () => {
-    const quotas = new InMemoryQuotaRepository(3, () => "quota-verification-failure");
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-verification-failure",
+    );
     const reservation = await quotas.reserve({
       bucket: "browser-a",
       sourceType: "synthetic",
@@ -563,12 +707,16 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(provider());
     value.evaluateField = async () => {
       throw new Error("verification-debug-payload");
     };
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     const events = await collect(input, value);
 
@@ -578,7 +726,9 @@ describe("executeRun", () => {
       deletionToken: "delete-once",
     });
     expect(JSON.stringify(events)).not.toContain("verification-debug-payload");
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0.000075,
       reservedSpendUsd: 0,
     });
@@ -589,7 +739,10 @@ describe("executeRun", () => {
 
   it("settles billable cost once when extraction trace persistence fails", async () => {
     class ExtractionTraceFailsRepository extends InMemoryRunRepository {
-      override async appendStep(runId: string, step: RunStepRecord): Promise<void> {
+      override async appendStep(
+        runId: string,
+        step: RunStepRecord,
+      ): Promise<void> {
         if (step.kind === "stage" && step.stage === "extracting") {
           throw new Error("extraction-trace-debug-payload");
         }
@@ -605,10 +758,14 @@ describe("executeRun", () => {
       liveEnabled: true,
       now: new Date("2026-08-27T00:00:00.000Z"),
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
     const { value } = dependencies(provider());
     value.repository = new ExtractionTraceFailsRepository();
-    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
 
     const events = await collect(input, value);
 
@@ -617,8 +774,12 @@ describe("executeRun", () => {
       code: "workflow_failed",
       deletionToken: "delete-once",
     });
-    expect(JSON.stringify(events)).not.toContain("extraction-trace-debug-payload");
-    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+    expect(JSON.stringify(events)).not.toContain(
+      "extraction-trace-debug-payload",
+    );
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({
       globalSpendUsd: 0.000075,
       reservedSpendUsd: 0,
     });
@@ -645,7 +806,10 @@ describe("executeRun", () => {
         referenceMatch: true,
       },
     });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "clear" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
   });
 
   it("cannot false-clear when provider normalization contradicts extraction and evidence", async () => {
@@ -656,7 +820,10 @@ describe("executeRun", () => {
     const events = await collect(input, value);
 
     expect(
-      events.find((event) => event.type === "field" && event.field.key === "invoice_total"),
+      events.find(
+        (event) =>
+          event.type === "field" && event.field.key === "invoice_total",
+      ),
     ).toMatchObject({
       type: "field",
       field: {
@@ -665,7 +832,10 @@ describe("executeRun", () => {
         referenceMatch: true,
       },
     });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
   });
 
   it("cannot false-clear when extracted value and evidence contradict each other", async () => {
@@ -676,12 +846,18 @@ describe("executeRun", () => {
     const events = await collect(input, value);
 
     expect(
-      events.find((event) => event.type === "field" && event.field.key === "invoice_total"),
+      events.find(
+        (event) =>
+          event.type === "field" && event.field.key === "invoice_total",
+      ),
     ).toMatchObject({
       type: "field",
       field: { evaluatorStatus: "conflict", referenceMatch: true },
     });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
   });
 
   it("does not treat an unrelated invoice number as total evidence", async () => {
@@ -701,9 +877,15 @@ describe("executeRun", () => {
     const events = await collect(totalInput, value);
 
     expect(
-      events.find((event) => event.type === "field" && event.field.key === "invoice_total"),
+      events.find(
+        (event) =>
+          event.type === "field" && event.field.key === "invoice_total",
+      ),
     ).toMatchObject({ type: "field", field: { evaluatorStatus: "conflict" } });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
   });
 
   it("requires identifier evidence to match a complete canonical token", async () => {
@@ -724,10 +906,14 @@ describe("executeRun", () => {
 
     expect(
       events.find(
-        (event) => event.type === "field" && event.field.key === "purchase_order_number",
+        (event) =>
+          event.type === "field" && event.field.key === "purchase_order_number",
       ),
     ).toMatchObject({ type: "field", field: { evaluatorStatus: "conflict" } });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
   });
 
   it("performs reference matching after the announced comparison stage and flags mismatch", async () => {
@@ -751,7 +937,10 @@ describe("executeRun", () => {
       type: "field",
       field: { evaluatorStatus: "conflict", referenceMatch: false },
     });
-    expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
   });
 
   it("propagates cancellation to the provider then tombstones the unfinished run", async () => {
@@ -782,7 +971,10 @@ describe("executeRun", () => {
 
     expect(events.some((event) => event.type === "completed")).toBe(false);
     expect(
-      await repository.readPublicRun("run-123", new Date("2026-08-27T01:00:00.000Z")),
+      await repository.readPublicRun(
+        "run-123",
+        new Date("2026-08-27T01:00:00.000Z"),
+      ),
     ).toMatchObject({ status: "deleted", requestedFields: [] });
     await expect(
       documentStore.fetchActiveDocument({

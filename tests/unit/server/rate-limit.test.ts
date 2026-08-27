@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryQuotaRepository, createNeonQuotaRepository } from "@/server/security/rate-limit";
+import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
+import {
+  InMemoryQuotaRepository,
+  createNeonQuotaRepository,
+} from "@/server/security/rate-limit";
 import {
   PersistenceConfigurationError,
   type NeonDriver,
@@ -13,6 +17,82 @@ function quotaRepository() {
 }
 
 describe("InMemoryQuotaRepository", () => {
+  it("reserves a complete worst-case two-attempt run before provider dispatch", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      MAX_SUPPORTED_LIVE_RUN_COST_USD + 0.01,
+      () => "worst-case-reservation",
+      0.01,
+    );
+
+    await expect(
+      quotas.reserve({
+        bucket: "browser-a",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: 0,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      reservationId: "worst-case-reservation",
+      reservedCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
+    await expect(
+      quotas.reserve({
+        bucket: "browser-b",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: 0,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
+  });
+
+  it("reclaims a stale pending reservation lease before admitting later work", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      () => crypto.randomUUID(),
+      MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      {},
+      60_000,
+    );
+    const request = {
+      bucket: "browser-a",
+      sourceType: "synthetic" as const,
+      executionMode: "live" as const,
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+    };
+
+    await expect(quotas.reserve({ ...request, now })).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(
+      quotas.reserve({
+        ...request,
+        bucket: "browser-b",
+        now: new Date(now.getTime() + 59_999),
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
+    await expect(
+      quotas.reserve({
+        ...request,
+        bucket: "browser-b",
+        now: new Date(now.getTime() + 60_000),
+      }),
+    ).resolves.toMatchObject({ allowed: true });
+  });
+
   it("atomically admits only three custom uploads per anonymous bucket and UTC day", async () => {
     const quotas = new InMemoryQuotaRepository();
     const decisions = await Promise.all(
@@ -29,17 +109,19 @@ describe("InMemoryQuotaRepository", () => {
     );
 
     expect(decisions.filter((decision) => decision.allowed)).toHaveLength(3);
-    expect(decisions.filter((decision) => !decision.allowed).map((decision) => decision.reason)).toEqual(
-      Array(7).fill("custom_upload_limit"),
-    );
+    expect(
+      decisions
+        .filter((decision) => !decision.allowed)
+        .map((decision) => decision.reason),
+    ).toEqual(Array(7).fill("custom_upload_limit"));
   });
 
   it("blocks concurrent zero-estimate bypasses with a conservative global reservation", async () => {
     const quotas = quotaRepository();
     const decisions = await Promise.all(
-      Array.from({ length: 8 }, () =>
+      Array.from({ length: 8 }, (_, index) =>
         quotas.reserve({
-          bucket: "browser-b",
+          bucket: `browser-${index}`,
           sourceType: "synthetic",
           executionMode: "live",
           estimatedCostUsd: 0,
@@ -49,13 +131,21 @@ describe("InMemoryQuotaRepository", () => {
       ),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(3);
-    expect(allowed.map((decision) => decision.allowed && decision.reservedCostUsd)).toEqual([
-      1,
-      1,
-      1,
+    expect(allowed).toHaveLength(7);
+    expect(
+      allowed.every(
+        (decision) =>
+          decision.allowed &&
+          decision.reservedCostUsd === MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      ),
+    ).toBe(true);
+    expect(decisions.filter((decision) => !decision.allowed)).toEqual([
+      { allowed: false, reason: "daily_budget", replayAvailable: true },
     ]);
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 3 });
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 7 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
   });
 
   it("denies a new live run when the remaining budget cannot cover a full reservation", async () => {
@@ -68,7 +158,8 @@ describe("InMemoryQuotaRepository", () => {
       liveEnabled: true,
       now,
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("expected_live_reservation");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("expected_live_reservation");
     await quotas.settleLiveReservation(reservation.reservationId, 2.99);
 
     await expect(
@@ -80,7 +171,11 @@ describe("InMemoryQuotaRepository", () => {
         liveEnabled: true,
         now,
       }),
-    ).resolves.toEqual({ allowed: false, reason: "daily_budget", replayAvailable: true });
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
   });
 
   it("fails closed when actual cost exceeds its conservative reservation", async () => {
@@ -93,13 +188,19 @@ describe("InMemoryQuotaRepository", () => {
       liveEnabled: true,
       now,
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("expected_live_reservation");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("expected_live_reservation");
 
-    await expect(quotas.settleLiveReservation(reservation.reservationId, 1.01)).resolves.toEqual({
+    await expect(
+      quotas.settleLiveReservation(reservation.reservationId, 1.01),
+    ).resolves.toEqual({
       status: "reservation_exceeded",
       actualCostUsd: 1.01,
     });
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 1.01, reservedSpendUsd: 0 });
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 1.01,
+      reservedSpendUsd: 0,
+    });
   });
 
   it("settles actual live cost once then releases the unused reservation without double charging", async () => {
@@ -112,17 +213,25 @@ describe("InMemoryQuotaRepository", () => {
       liveEnabled: true,
       now,
     });
-    if (!reservation.allowed || !reservation.reservationId) throw new Error("expected_live_reservation");
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("expected_live_reservation");
 
-    await expect(quotas.settleLiveReservation(reservation.reservationId, 0.75)).resolves.toEqual({
+    await expect(
+      quotas.settleLiveReservation(reservation.reservationId, 0.25),
+    ).resolves.toEqual({
       status: "settled",
-      actualCostUsd: 0.75,
+      actualCostUsd: 0.25,
     });
-    await expect(quotas.settleLiveReservation(reservation.reservationId, 0.75)).resolves.toEqual({
+    await expect(
+      quotas.settleLiveReservation(reservation.reservationId, 0.25),
+    ).resolves.toEqual({
       status: "already_settled",
-      actualCostUsd: 0.75,
+      actualCostUsd: 0.25,
     });
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0.75, reservedSpendUsd: 0 });
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 0.25,
+      reservedSpendUsd: 0,
+    });
   });
 
   it("releases a failed live reservation while retaining the live-run attempt count", async () => {
@@ -136,8 +245,11 @@ describe("InMemoryQuotaRepository", () => {
         liveEnabled: true,
         now,
       });
-      if (!reservation.allowed || !reservation.reservationId) throw new Error("expected_live_reservation");
-      await expect(quotas.releaseLiveReservation(reservation.reservationId)).resolves.toBe(true);
+      if (!reservation.allowed || !reservation.reservationId)
+        throw new Error("expected_live_reservation");
+      await expect(
+        quotas.releaseLiveReservation(reservation.reservationId),
+      ).resolves.toBe(true);
     }
     await expect(
       quotas.reserve({
@@ -148,8 +260,15 @@ describe("InMemoryQuotaRepository", () => {
         liveEnabled: true,
         now,
       }),
-    ).resolves.toEqual({ allowed: false, reason: "live_run_limit", replayAvailable: true });
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 0 });
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "live_run_limit",
+      replayAvailable: true,
+    });
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
   });
 
   it("keeps recorded replays at zero without creating model-budget reservations", async () => {
@@ -168,8 +287,15 @@ describe("InMemoryQuotaRepository", () => {
       ),
     );
     expect(replayDecisions.every((decision) => decision.allowed)).toBe(true);
-    expect(replayDecisions.every((decision) => decision.allowed && decision.reservationId === null)).toBe(true);
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 0 });
+    expect(
+      replayDecisions.every(
+        (decision) => decision.allowed && decision.reservationId === null,
+      ),
+    ).toBe(true);
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
   });
 
   it("blocks rotating browser buckets at the global custom-upload ceiling", async () => {
@@ -193,7 +319,9 @@ describe("InMemoryQuotaRepository", () => {
       );
     }
 
-    expect(decisions.slice(0, 2).every((decision) => decision.allowed)).toBe(true);
+    expect(decisions.slice(0, 2).every((decision) => decision.allowed)).toBe(
+      true,
+    );
     expect(decisions[2]).toEqual({
       allowed: false,
       reason: "global_custom_upload_limit",
@@ -218,14 +346,20 @@ describe("InMemoryQuotaRepository", () => {
         now,
       });
 
-    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({ allowed: true });
-    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({ allowed: true });
+    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(reserveRecorded("browser-a")).resolves.toMatchObject({
+      allowed: true,
+    });
     await expect(reserveRecorded("browser-a")).resolves.toEqual({
       allowed: false,
       reason: "recorded_run_limit",
       replayAvailable: true,
     });
-    await expect(reserveRecorded("browser-b")).resolves.toMatchObject({ allowed: true });
+    await expect(reserveRecorded("browser-b")).resolves.toMatchObject({
+      allowed: true,
+    });
     await expect(reserveRecorded("browser-c")).resolves.toEqual({
       allowed: false,
       reason: "global_recorded_run_limit",
@@ -244,7 +378,11 @@ describe("InMemoryQuotaRepository", () => {
         liveEnabled: false,
         now,
       }),
-    ).resolves.toEqual({ allowed: false, reason: "live_disabled", replayAvailable: true });
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "live_disabled",
+      replayAvailable: true,
+    });
   });
 
   it("keeps the Neon-backed quota port inert until a database URL is supplied", async () => {
@@ -269,10 +407,13 @@ describe("InMemoryQuotaRepository", () => {
       async query(sql, parameters = []) {
         const normalizedSql = sql.trim();
         if (normalizedSql.startsWith("SELECT reserve_daily_quota")) {
-          const budget = Number(parameters[11]);
-          const reservationId = String(parameters[12]);
-          const reservationCostUsd = Number(parameters[13]);
-          const pendingSpendUsd = [...pending.values()].reduce((total, cost) => total + cost, 0);
+          const budget = Number(parameters[12]);
+          const reservationId = String(parameters[13]);
+          const reservationCostUsd = Number(parameters[14]);
+          const pendingSpendUsd = [...pending.values()].reduce(
+            (total, cost) => total + cost,
+            0,
+          );
           if (globalSpendUsd + pendingSpendUsd + reservationCostUsd > budget) {
             return [{ decision: { decision: "daily_budget" } }];
           }
@@ -311,13 +452,17 @@ describe("InMemoryQuotaRepository", () => {
             {
               result: {
                 status:
-                  actualCostUsd > reservedCostUsd ? "reservation_exceeded" : "settled",
+                  actualCostUsd > reservedCostUsd
+                    ? "reservation_exceeded"
+                    : "settled",
                 actualCostUsd,
               },
             },
           ];
         }
-        if (normalizedSql.startsWith("SELECT\n        usage.anonymous_buckets")) {
+        if (
+          normalizedSql.startsWith("SELECT\n        usage.anonymous_buckets")
+        ) {
           return [
             {
               anonymous_buckets: {},
@@ -350,10 +495,10 @@ describe("InMemoryQuotaRepository", () => {
     };
 
     const decisions = await Promise.all(
-      Array.from({ length: 4 }, () => quotas.reserve(reservationInput)),
+      Array.from({ length: 8 }, () => quotas.reserve(reservationInput)),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(3);
+    expect(allowed).toHaveLength(7);
     expect(decisions.filter((decision) => !decision.allowed)).toEqual([
       { allowed: false, reason: "daily_budget", replayAvailable: true },
     ]);
@@ -365,7 +510,7 @@ describe("InMemoryQuotaRepository", () => {
     ).resolves.toEqual({ status: "settled", actualCostUsd: 0.25 });
     await expect(quotas.snapshot(now)).resolves.toMatchObject({
       globalSpendUsd: 0.25,
-      reservedSpendUsd: 2,
+      reservedSpendUsd: 6 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
   });
 
@@ -382,9 +527,12 @@ describe("InMemoryQuotaRepository", () => {
     expect(reservation).toEqual({
       allowed: true,
       reservationId: "reservation-1",
-      reservedCostUsd: 1,
+      reservedCostUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
-    expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 1 });
+    expect(await quotas.snapshot(now)).toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+    });
   });
 
   it("does not run schema DDL during ordinary Neon quota requests", async () => {
@@ -395,7 +543,10 @@ describe("InMemoryQuotaRepository", () => {
         return [{ decision: { decision: "daily_budget" } }];
       },
     };
-    const quotas = createNeonQuotaRepository({ databaseUrl: undefined, driver });
+    const quotas = createNeonQuotaRepository({
+      databaseUrl: undefined,
+      driver,
+    });
 
     await quotas.reserve({
       bucket: "browser-a",

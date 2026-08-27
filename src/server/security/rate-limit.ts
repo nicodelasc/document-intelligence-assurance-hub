@@ -1,4 +1,8 @@
-import type { ExecutionMode, SourceType } from "@/server/repositories/run-repository";
+import type {
+  ExecutionMode,
+  SourceType,
+} from "@/server/repositories/run-repository";
+import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
 import {
   PersistenceConfigurationError,
   type NeonDriver,
@@ -6,7 +10,8 @@ import {
 import { randomUUID } from "node:crypto";
 
 export const DEFAULT_DAILY_MODEL_BUDGET_USD = 3;
-export const DEFAULT_LIVE_RUN_RESERVATION_USD = 1;
+export const DEFAULT_LIVE_RUN_RESERVATION_USD = MAX_SUPPORTED_LIVE_RUN_COST_USD;
+export const DEFAULT_LIVE_RESERVATION_LEASE_MS = 15 * 60 * 1000;
 export const MAX_CUSTOM_UPLOADS_PER_DAY = 3;
 export const MAX_LIVE_RUNS_PER_DAY = 6;
 export const MAX_RECORDED_RUNS_PER_BROWSER_PER_DAY = 24;
@@ -76,6 +81,7 @@ type LiveReservation = {
   reservedCostUsd: number;
   actualCostUsd: number;
   status: "pending" | "settled" | "released";
+  expiresAtMs: number;
 };
 
 export type QuotaSettlement = {
@@ -90,7 +96,10 @@ export type QuotaSettlement = {
 
 export interface QuotaRepository {
   reserve(input: QuotaReservation): Promise<QuotaDecision>;
-  settleLiveReservation(reservationId: string, actualCostUsd: number): Promise<QuotaSettlement>;
+  settleLiveReservation(
+    reservationId: string,
+    actualCostUsd: number,
+  ): Promise<QuotaSettlement>;
   releaseLiveReservation(reservationId: string): Promise<boolean>;
   snapshot(now: Date): Promise<QuotaSnapshot>;
 }
@@ -103,19 +112,31 @@ export class InMemoryQuotaRepository implements QuotaRepository {
   private readonly days = new Map<string, DailyUsage>();
   private readonly reservations = new Map<string, LiveReservation>();
   private readonly limits: QuotaLimits;
+  private readonly liveRunReservationUsd: number;
+  private readonly reservationLeaseMs: number;
   private lockTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly dailyBudgetUsd = DEFAULT_DAILY_MODEL_BUDGET_USD,
     private readonly idSource: () => string = randomUUID,
-    private readonly liveRunReservationUsd = DEFAULT_LIVE_RUN_RESERVATION_USD,
+    liveRunReservationUsd = DEFAULT_LIVE_RUN_RESERVATION_USD,
     limits: Partial<QuotaLimits> = {},
+    reservationLeaseMs = DEFAULT_LIVE_RESERVATION_LEASE_MS,
   ) {
     this.limits = { ...defaultQuotaLimits, ...limits };
+    this.liveRunReservationUsd = Math.max(
+      DEFAULT_LIVE_RUN_RESERVATION_USD,
+      Number.isFinite(liveRunReservationUsd) ? liveRunReservationUsd : 0,
+    );
+    this.reservationLeaseMs =
+      Number.isFinite(reservationLeaseMs) && reservationLeaseMs > 0
+        ? reservationLeaseMs
+        : DEFAULT_LIVE_RESERVATION_LEASE_MS;
   }
 
   async reserve(input: QuotaReservation): Promise<QuotaDecision> {
     return this.withLock(() => {
+      this.reclaimStaleReservations(input.now.getTime());
       const usage = this.day(input.now);
       const customUploads = usage.customUploadsByBucket.get(input.bucket) ?? 0;
       const liveRuns = usage.liveRunsByBucket.get(input.bucket) ?? 0;
@@ -127,45 +148,84 @@ export class InMemoryQuotaRepository implements QuotaRepository {
         input.sourceType === "custom" &&
         customUploads >= this.limits.customUploadsPerBucket
       ) {
-        return { allowed: false, reason: "custom_upload_limit", replayAvailable: true };
+        return {
+          allowed: false,
+          reason: "custom_upload_limit",
+          replayAvailable: true,
+        };
       }
 
       if (
         input.sourceType === "custom" &&
         usage.globalCustomUploads >= this.limits.globalCustomUploads
       ) {
-        return { allowed: false, reason: "global_custom_upload_limit", replayAvailable: true };
+        return {
+          allowed: false,
+          reason: "global_custom_upload_limit",
+          replayAvailable: true,
+        };
       }
 
-      if (isRecordedSynthetic && recordedRuns >= this.limits.recordedRunsPerBucket) {
-        return { allowed: false, reason: "recorded_run_limit", replayAvailable: true };
+      if (
+        isRecordedSynthetic &&
+        recordedRuns >= this.limits.recordedRunsPerBucket
+      ) {
+        return {
+          allowed: false,
+          reason: "recorded_run_limit",
+          replayAvailable: true,
+        };
       }
 
       if (
         isRecordedSynthetic &&
         usage.globalRecordedRuns >= this.limits.globalRecordedRuns
       ) {
-        return { allowed: false, reason: "global_recorded_run_limit", replayAvailable: true };
+        return {
+          allowed: false,
+          reason: "global_recorded_run_limit",
+          replayAvailable: true,
+        };
       }
 
       if (input.executionMode === "live" && !input.liveEnabled) {
-        return { allowed: false, reason: "live_disabled", replayAvailable: true };
+        return {
+          allowed: false,
+          reason: "live_disabled",
+          replayAvailable: true,
+        };
       }
 
-      if (input.executionMode === "live" && liveRuns >= this.limits.liveRunsPerBucket) {
-        return { allowed: false, reason: "live_run_limit", replayAvailable: true };
+      if (
+        input.executionMode === "live" &&
+        liveRuns >= this.limits.liveRunsPerBucket
+      ) {
+        return {
+          allowed: false,
+          reason: "live_run_limit",
+          replayAvailable: true,
+        };
       }
 
       if (input.executionMode === "live") {
         const day = utcDay(input.now);
         const remainingBudget =
-          this.dailyBudgetUsd - usage.globalSpendUsd - this.pendingSpendUsd(day);
+          this.dailyBudgetUsd -
+          usage.globalSpendUsd -
+          this.pendingSpendUsd(day);
         const callerEstimate = Number.isFinite(input.estimatedCostUsd)
           ? Math.max(0, input.estimatedCostUsd)
           : this.dailyBudgetUsd + this.liveRunReservationUsd;
-        const reservationCostUsd = Math.max(this.liveRunReservationUsd, callerEstimate);
+        const reservationCostUsd = Math.max(
+          this.liveRunReservationUsd,
+          callerEstimate,
+        );
         if (remainingBudget < reservationCostUsd) {
-          return { allowed: false, reason: "daily_budget", replayAvailable: true };
+          return {
+            allowed: false,
+            reason: "daily_budget",
+            replayAvailable: true,
+          };
         }
         const reservationId = this.idSource();
         this.reservations.set(reservationId, {
@@ -174,13 +234,18 @@ export class InMemoryQuotaRepository implements QuotaRepository {
           reservedCostUsd: reservationCostUsd,
           actualCostUsd: 0,
           status: "pending",
+          expiresAtMs: input.now.getTime() + this.reservationLeaseMs,
         });
         if (input.sourceType === "custom") {
           usage.customUploadsByBucket.set(input.bucket, customUploads + 1);
           usage.globalCustomUploads += 1;
         }
         usage.liveRunsByBucket.set(input.bucket, liveRuns + 1);
-        return { allowed: true, reservationId, reservedCostUsd: reservationCostUsd };
+        return {
+          allowed: true,
+          reservationId,
+          reservedCostUsd: reservationCostUsd,
+        };
       }
       if (input.sourceType === "custom") {
         usage.customUploadsByBucket.set(input.bucket, customUploads + 1);
@@ -194,13 +259,20 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     });
   }
 
-  async settleLiveReservation(reservationId: string, actualCostUsd: number): Promise<QuotaSettlement> {
+  async settleLiveReservation(
+    reservationId: string,
+    actualCostUsd: number,
+  ): Promise<QuotaSettlement> {
     return this.withLock(() => {
       const reservation = this.reservations.get(reservationId);
       if (!reservation) return { status: "not_found", actualCostUsd: 0 };
-      if (reservation.status === "released") return { status: "released", actualCostUsd: 0 };
+      if (reservation.status === "released")
+        return { status: "released", actualCostUsd: 0 };
       if (reservation.status === "settled") {
-        return { status: "already_settled", actualCostUsd: reservation.actualCostUsd };
+        return {
+          status: "already_settled",
+          actualCostUsd: reservation.actualCostUsd,
+        };
       }
       const actual = Math.max(0, actualCostUsd);
       reservation.status = "settled";
@@ -208,7 +280,9 @@ export class InMemoryQuotaRepository implements QuotaRepository {
       this.days.get(reservation.day)!.globalSpendUsd += actual;
       return {
         status:
-          actual > reservation.reservedCostUsd ? "reservation_exceeded" : "settled",
+          actual > reservation.reservedCostUsd
+            ? "reservation_exceeded"
+            : "settled",
         actualCostUsd: actual,
       };
     });
@@ -225,6 +299,7 @@ export class InMemoryQuotaRepository implements QuotaRepository {
 
   async snapshot(now: Date): Promise<QuotaSnapshot> {
     return this.withLock(() => {
+      this.reclaimStaleReservations(now.getTime());
       const usage = this.day(now);
       return {
         globalSpendUsd: usage.globalSpendUsd,
@@ -265,6 +340,17 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     return total;
   }
 
+  private reclaimStaleReservations(nowMs: number): void {
+    for (const reservation of this.reservations.values()) {
+      if (
+        reservation.status === "pending" &&
+        reservation.expiresAtMs <= nowMs
+      ) {
+        reservation.status = "released";
+      }
+    }
+  }
+
   private async withLock<T>(operation: () => T | Promise<T>): Promise<T> {
     const previous = this.lockTail;
     let release: () => void = () => undefined;
@@ -286,6 +372,7 @@ type NeonQuotaOptions = {
   driver?: NeonDriver;
   dailyBudgetUsd?: number;
   liveRunReservationUsd?: number;
+  reservationLeaseMs?: number;
   idSource?: () => string;
   limits?: Partial<QuotaLimits>;
 };
@@ -301,10 +388,12 @@ class NeonQuotaRepository implements QuotaRepository {
     const limits = { ...defaultQuotaLimits, ...this.options.limits };
     const rows = await driver.query<{ decision: unknown }>(
       `SELECT reserve_daily_quota(
-        $1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+        $1::date, $2::timestamptz, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+        $13, $14, $15, $16
       ) AS decision`,
       [
         utcDay(input.now),
+        input.now.toISOString(),
         input.bucket,
         input.sourceType === "custom",
         input.executionMode === "live",
@@ -318,11 +407,21 @@ class NeonQuotaRepository implements QuotaRepository {
         this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
         reservationId,
         Math.max(
-          this.options.liveRunReservationUsd ?? DEFAULT_LIVE_RUN_RESERVATION_USD,
+          DEFAULT_LIVE_RUN_RESERVATION_USD,
+          this.options.liveRunReservationUsd ??
+            DEFAULT_LIVE_RUN_RESERVATION_USD,
           Number.isFinite(input.estimatedCostUsd)
             ? Math.max(0, input.estimatedCostUsd)
             : (this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD) +
-                (this.options.liveRunReservationUsd ?? DEFAULT_LIVE_RUN_RESERVATION_USD),
+                (this.options.liveRunReservationUsd ??
+                  DEFAULT_LIVE_RUN_RESERVATION_USD),
+        ),
+        Math.max(
+          1,
+          Math.ceil(
+            (this.options.reservationLeaseMs ??
+              DEFAULT_LIVE_RESERVATION_LEASE_MS) / 1000,
+          ),
         ),
       ],
     );
@@ -332,7 +431,9 @@ class NeonQuotaRepository implements QuotaRepository {
       return {
         allowed: true,
         reservationId:
-          typeof response?.reservationId === "string" ? response.reservationId : null,
+          typeof response?.reservationId === "string"
+            ? response.reservationId
+            : null,
         reservedCostUsd: Number(response?.reservedCostUsd ?? 0),
       };
     }
@@ -399,11 +500,13 @@ class NeonQuotaRepository implements QuotaRepository {
         COALESCE(SUM(reservation.reserved_cost_usd), 0) AS reserved_spend_usd
       FROM daily_usage AS usage
       LEFT JOIN model_budget_reservations AS reservation
-        ON reservation.usage_day = usage.usage_day AND reservation.status = 'pending'
+        ON reservation.usage_day = usage.usage_day
+          AND reservation.status = 'pending'
+          AND reservation.expires_at > $2::timestamptz
       WHERE usage.usage_day = $1::date
       GROUP BY usage.usage_day, usage.anonymous_buckets, usage.global_spend_usd,
         usage.global_custom_uploads, usage.global_recorded_runs`,
-      [utcDay(now)],
+      [utcDay(now), now.toISOString()],
     );
     const row = rows[0];
     if (!row) {
@@ -417,9 +520,11 @@ class NeonQuotaRepository implements QuotaRepository {
         recordedRunsByBucket: {},
       };
     }
-    const buckets = (typeof row.anonymous_buckets === "string"
-      ? JSON.parse(row.anonymous_buckets)
-      : row.anonymous_buckets) as Record<
+    const buckets = (
+      typeof row.anonymous_buckets === "string"
+        ? JSON.parse(row.anonymous_buckets)
+        : row.anonymous_buckets
+    ) as Record<
       string,
       { customUploads?: number; liveRuns?: number; recordedRuns?: number }
     >;
@@ -429,13 +534,22 @@ class NeonQuotaRepository implements QuotaRepository {
       globalCustomUploads: Number(row.global_custom_uploads),
       globalRecordedRuns: Number(row.global_recorded_runs),
       customUploadsByBucket: Object.fromEntries(
-        Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.customUploads ?? 0]),
+        Object.entries(buckets).map(([bucket, usage]) => [
+          bucket,
+          usage.customUploads ?? 0,
+        ]),
       ),
       liveRunsByBucket: Object.fromEntries(
-        Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.liveRuns ?? 0]),
+        Object.entries(buckets).map(([bucket, usage]) => [
+          bucket,
+          usage.liveRuns ?? 0,
+        ]),
       ),
       recordedRunsByBucket: Object.fromEntries(
-        Object.entries(buckets).map(([bucket, usage]) => [bucket, usage.recordedRuns ?? 0]),
+        Object.entries(buckets).map(([bucket, usage]) => [
+          bucket,
+          usage.recordedRuns ?? 0,
+        ]),
       ),
     };
   }
@@ -451,17 +565,18 @@ class NeonQuotaRepository implements QuotaRepository {
       return this.driverPromise;
     }
     if (!this.options.databaseUrl) {
-      return Promise.reject(new PersistenceConfigurationError("neon_database_not_configured"));
+      return Promise.reject(
+        new PersistenceConfigurationError("neon_database_not_configured"),
+      );
     }
     const databaseUrl = this.options.databaseUrl;
     this.driverPromise = (async () => {
       const { neon } = await import("@neondatabase/serverless");
       const sql = neon(databaseUrl);
       return {
-        async query<T extends Record<string, unknown> = Record<string, unknown>>(
-          query: string,
-          parameters: unknown[] = [],
-        ) {
+        async query<
+          T extends Record<string, unknown> = Record<string, unknown>,
+        >(query: string, parameters: unknown[] = []) {
           return (await sql.query(query, parameters)) as T[];
         },
       } satisfies NeonDriver;
@@ -482,6 +597,8 @@ function parseJsonRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-export function createNeonQuotaRepository(options: NeonQuotaOptions): QuotaRepository {
+export function createNeonQuotaRepository(
+  options: NeonQuotaOptions,
+): QuotaRepository {
   return new NeonQuotaRepository(options);
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { extractionResultSchema } from "@/server/workflow/provider";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import {
+  LIVE_PROVIDER_TIMEOUT_MS,
   LiveProviderConfigurationError,
   createAnthropicExtractionProvider,
   createOpenAIExtractionProvider,
@@ -61,7 +62,9 @@ describe("extraction provider contract", () => {
 
       expect(provider.executionMode).toBe("recorded");
       expect(provider.promptVersion).toBe("recorded-fixture-2026-08-27.v1");
-      expect(extractionResultSchema.parse(result.extraction)).toEqual(validModelOutput);
+      expect(extractionResultSchema.parse(result.extraction)).toEqual(
+        validModelOutput,
+      );
       expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
     },
   );
@@ -69,47 +72,89 @@ describe("extraction provider contract", () => {
   it.each([
     ["openai", createOpenAIExtractionProvider],
     ["anthropic", createAnthropicExtractionProvider],
-  ] as const)("keeps the %s adapter inert unless live mode and a server key are both supplied", async (_name, factory) => {
-    const generate = vi.fn();
-    const disabled = factory({ liveEnabled: false, apiKey: undefined, generate });
-    const missingKey = factory({ liveEnabled: true, apiKey: undefined, generate });
+  ] as const)(
+    "keeps the %s adapter inert unless live mode and a server key are both supplied",
+    async (_name, factory) => {
+      const generate = vi.fn();
+      const disabled = factory({
+        liveEnabled: false,
+        apiKey: undefined,
+        generate,
+      });
+      const missingKey = factory({
+        liveEnabled: true,
+        apiKey: undefined,
+        generate,
+      });
 
-    await expect(disabled.extract({ document, requestedFields })).rejects.toBeInstanceOf(
-      LiveProviderConfigurationError,
-    );
-    await expect(missingKey.extract({ document, requestedFields })).rejects.toBeInstanceOf(
-      LiveProviderConfigurationError,
-    );
-    expect(generate).not.toHaveBeenCalled();
-  });
+      await expect(
+        disabled.extract({ document, requestedFields }),
+      ).rejects.toBeInstanceOf(LiveProviderConfigurationError);
+      await expect(
+        missingKey.extract({ document, requestedFields }),
+      ).rejects.toBeInstanceOf(LiveProviderConfigurationError);
+      expect(generate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["openai", createOpenAIExtractionProvider, "gpt-5-mini-preview"],
+    [
+      "anthropic",
+      createAnthropicExtractionProvider,
+      "claude-haiku-4-5-20261001",
+    ],
+  ] as const)(
+    "rejects an unpriced %s model override before generation",
+    (_name, factory, model) => {
+      const generate = vi.fn();
+
+      expect(() =>
+        factory({
+          liveEnabled: true,
+          apiKey: "unit-test-placeholder",
+          model,
+          generate,
+        }),
+      ).toThrowError("live_provider_model_unsupported");
+      expect(generate).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["openai", createOpenAIExtractionProvider],
     ["anthropic", createAnthropicExtractionProvider],
-  ] as const)("validates mocked %s output with the same schema and exposes no prompt or reasoning", async (_name, factory) => {
-    let request: StructuredGenerationRequest | undefined;
-    const provider = factory({
-      liveEnabled: true,
-      apiKey: "unit-test-placeholder",
-      generate: async (input) => {
-        request = input;
-        return {
-          output: validModelOutput,
-          usage: { inputTokens: 120, outputTokens: 30 },
-          latencyMs: 250,
-        };
-      },
-    });
+  ] as const)(
+    "validates mocked %s output with the same schema and exposes no prompt or reasoning",
+    async (_name, factory) => {
+      let request: StructuredGenerationRequest | undefined;
+      const provider = factory({
+        liveEnabled: true,
+        apiKey: "unit-test-placeholder",
+        generate: async (input) => {
+          request = input;
+          return {
+            output: validModelOutput,
+            usage: { inputTokens: 120, outputTokens: 30 },
+            latencyMs: 250,
+          };
+        },
+      });
 
-    const result = await provider.extract({ document, requestedFields });
-    expect(provider.promptVersion).toBe("document-extraction-2026-08-27.v1");
-    expect(extractionResultSchema.parse(result.extraction)).toEqual(validModelOutput);
-    expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 30 });
-    expect(request?.systemInstruction).toMatch(/untrusted/i);
-    expect(request?.systemInstruction).toMatch(/ignore.*instructions/i);
-    expect(request?.tools).toBeUndefined();
-    expect(JSON.stringify(result)).not.toMatch(/prompt|reasoning|apiKey|unit-test-placeholder/i);
-  });
+      const result = await provider.extract({ document, requestedFields });
+      expect(provider.promptVersion).toBe("document-extraction-2026-08-27.v1");
+      expect(extractionResultSchema.parse(result.extraction)).toEqual(
+        validModelOutput,
+      );
+      expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 30 });
+      expect(request?.systemInstruction).toMatch(/untrusted/i);
+      expect(request?.systemInstruction).toMatch(/ignore.*instructions/i);
+      expect(request?.tools).toBeUndefined();
+      expect(JSON.stringify(result)).not.toMatch(
+        /prompt|reasoning|apiKey|unit-test-placeholder/i,
+      );
+    },
+  );
 
   it("rejects a malformed adapter response rather than publishing partial output", async () => {
     const provider = createOpenAIExtractionProvider({
@@ -133,7 +178,9 @@ describe("extraction provider contract", () => {
       }),
     });
 
-    await expect(provider.extract({ document, requestedFields })).rejects.toMatchObject({
+    await expect(
+      provider.extract({ document, requestedFields }),
+    ).rejects.toMatchObject({
       name: "ZodError",
     });
   });
@@ -171,46 +218,109 @@ describe("extraction provider contract", () => {
       }),
     });
 
-    await expect(provider.extract({ document, requestedFields })).rejects.toMatchObject({ name: "ZodError" });
+    await expect(
+      provider.extract({ document, requestedFields }),
+    ).rejects.toMatchObject({ name: "ZodError" });
   });
 
   it.each([
     [429, "provider_rate_limited"],
     [503, "provider_unavailable"],
     [401, "provider_auth_failed"],
-  ] as const)("maps a live adapter HTTP %s failure to %s", async (status, safeCode) => {
-    const provider = createOpenAIExtractionProvider({
-      liveEnabled: true,
-      apiKey: "unit-test-placeholder",
-      generate: async () => {
-        throw { statusCode: status };
-      },
-    });
+  ] as const)(
+    "maps a live adapter HTTP %s failure to %s",
+    async (status, safeCode) => {
+      const provider = createOpenAIExtractionProvider({
+        liveEnabled: true,
+        apiKey: "unit-test-placeholder",
+        generate: async () => {
+          throw { statusCode: status };
+        },
+      });
 
-    await expect(provider.extract({ document, requestedFields })).rejects.toMatchObject({
-      safeCode,
-      httpStatus: status,
-    });
-  });
+      await expect(
+        provider.extract({ document, requestedFields }),
+      ).rejects.toMatchObject({
+        safeCode,
+        httpStatus: status,
+      });
+    },
+  );
 
   it("passes the workflow abort signal into the selected live adapter", async () => {
     const controller = new AbortController();
     let observedSignal: AbortSignal | undefined;
+    let finishGeneration:
+      | ((result: {
+          output: typeof validModelOutput;
+          usage: { inputTokens: number; outputTokens: number };
+          latencyMs: number;
+        }) => void)
+      | undefined;
     const provider = createOpenAIExtractionProvider({
       liveEnabled: true,
       apiKey: "unit-test-placeholder",
       generate: async (request) => {
         observedSignal = request.signal;
-        return {
-          output: validModelOutput,
-          usage: { inputTokens: 1, outputTokens: 1 },
-          latencyMs: 1,
-        };
+        return new Promise((resolve) => {
+          finishGeneration = resolve;
+        });
       },
     });
 
-    await provider.extract({ document, requestedFields, signal: controller.signal });
+    const extractionPromise = provider.extract({
+      document,
+      requestedFields,
+      signal: controller.signal,
+    });
 
-    expect(observedSignal).toBe(controller.signal);
+    expect(observedSignal).not.toBe(controller.signal);
+    expect(observedSignal?.aborted).toBe(false);
+    controller.abort("reviewer_left");
+    expect(observedSignal?.aborted).toBe(true);
+    expect(observedSignal?.reason).toBe("reviewer_left");
+    finishGeneration?.({
+      output: validModelOutput,
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 1,
+    });
+    await extractionPromise;
+  });
+
+  it("aborts a live generation after the server-owned deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let observedSignal: AbortSignal | undefined;
+      let finishGeneration:
+        | ((result: {
+            output: typeof validModelOutput;
+            usage: { inputTokens: number; outputTokens: number };
+            latencyMs: number;
+          }) => void)
+        | undefined;
+      const provider = createOpenAIExtractionProvider({
+        liveEnabled: true,
+        apiKey: "unit-test-placeholder",
+        generate: async (request) => {
+          observedSignal = request.signal;
+          return new Promise((resolve) => {
+            finishGeneration = resolve;
+          });
+        },
+      });
+
+      const extractionPromise = provider.extract({ document, requestedFields });
+      expect(observedSignal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(LIVE_PROVIDER_TIMEOUT_MS);
+      expect(observedSignal?.aborted).toBe(true);
+      finishGeneration?.({
+        output: validModelOutput,
+        usage: { inputTokens: 1, outputTokens: 1 },
+        latencyMs: 1,
+      });
+      await extractionPromise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

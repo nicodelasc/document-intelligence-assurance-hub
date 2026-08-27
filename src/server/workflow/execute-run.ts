@@ -49,7 +49,9 @@ export type FieldEvaluatorInput = {
   sourceType: SourceType;
 };
 
-export type FieldEvaluator = (input: FieldEvaluatorInput) => Promise<FieldResult>;
+export type FieldEvaluator = (
+  input: FieldEvaluatorInput,
+) => Promise<FieldResult>;
 
 export type ExecuteRunDependencies = {
   repository: RunRepository;
@@ -87,7 +89,10 @@ async function defaultSleep(delayMs: number): Promise<void> {
 
 function safeFilename(filename: string): string {
   const basename = filename.split(/[\\/]/).at(-1) ?? "document";
-  const sanitized = basename.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120);
+  const sanitized = basename
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 120);
   return sanitized || "document";
 }
 
@@ -127,7 +132,10 @@ function moneyValues(value: string): MoneyValue[] {
   });
 }
 
-function normalizeFieldValue(field: RequestedField, value: string): string | null {
+function normalizeFieldValue(
+  field: RequestedField,
+  value: string,
+): string | null {
   const cleaned = optionalText(value);
   if (!cleaned) return null;
   if (isMoneyField(field)) {
@@ -140,17 +148,23 @@ function normalizeFieldValue(field: RequestedField, value: string): string | nul
 }
 
 function comparisonToken(field: RequestedField, value: string): string {
-  if (isIdentifierField(field)) return comparable(value).replace(/[^a-z0-9]/g, "");
+  if (isIdentifierField(field))
+    return comparable(value).replace(/[^a-z0-9]/g, "");
   return comparable(value)
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
-function valuesMatch(field: RequestedField, left: string, right: string): boolean {
+function valuesMatch(
+  field: RequestedField,
+  left: string,
+  right: string,
+): boolean {
   if (isMoneyField(field)) {
     const leftMoney = moneyValues(left)[0];
     const rightMoney = moneyValues(right)[0];
-    if (!leftMoney || !rightMoney || leftMoney.amount !== rightMoney.amount) return false;
+    if (!leftMoney || !rightMoney || leftMoney.amount !== rightMoney.amount)
+      return false;
     return (
       leftMoney.currency === rightMoney.currency ||
       leftMoney.currency === null ||
@@ -171,7 +185,8 @@ function evidenceSupportsValue(
     return moneyValues(evidence).some(
       (candidate) =>
         candidate.amount === expected.amount &&
-        (expected.currency === null || candidate.currency === expected.currency),
+        (expected.currency === null ||
+          candidate.currency === expected.currency),
     );
   }
   const valueToken = comparisonToken(field, normalizedValue);
@@ -194,7 +209,9 @@ function deterministicFieldResult(
   const normalizedValue = extractedValue
     ? normalizeFieldValue(input.requestedField, extractedValue)
     : null;
-  const providerNormalizedValue = optionalText(input.extractedField.normalizedValue);
+  const providerNormalizedValue = optionalText(
+    input.extractedField.normalizedValue,
+  );
   const evidence = optionalText(input.extractedField.evidence);
   let evaluatorStatus: FieldResult["evaluatorStatus"];
 
@@ -205,7 +222,10 @@ function deterministicFieldResult(
     !valuesMatch(input.requestedField, normalizedValue, providerNormalizedValue)
   ) {
     evaluatorStatus = "conflict";
-  } else if (!evidence || !evidenceSupportsValue(input.requestedField, normalizedValue, evidence)) {
+  } else if (
+    !evidence ||
+    !evidenceSupportsValue(input.requestedField, normalizedValue, evidence)
+  ) {
     evaluatorStatus = "conflict";
   } else if (candidate?.evaluatorStatus === "conflict") {
     evaluatorStatus = "conflict";
@@ -225,7 +245,9 @@ function deterministicFieldResult(
   };
 }
 
-async function defaultEvaluateField(input: FieldEvaluatorInput): Promise<FieldResult> {
+async function defaultEvaluateField(
+  input: FieldEvaluatorInput,
+): Promise<FieldResult> {
   return deterministicFieldResult(input);
 }
 
@@ -237,7 +259,10 @@ function compareFieldWithReference(
   if (referenceValue === undefined || referenceValue === null) {
     return { ...field, referenceMatch: null };
   }
-  const normalizedReference = normalizeFieldValue(requestedField, referenceValue);
+  const normalizedReference = normalizeFieldValue(
+    requestedField,
+    referenceValue,
+  );
   const referenceMatch =
     field.normalizedValue !== null &&
     normalizedReference !== null &&
@@ -254,23 +279,35 @@ function compareFieldWithReference(
   };
 }
 
-function publicError(error: unknown, stage: RunStatus): { code: string; message: string } {
+function publicError(
+  error: unknown,
+  stage: RunStatus,
+): { code: string; message: string } {
   if (error instanceof PersistenceWriteError) {
-    return { code: "workflow_failed", message: "The run could not be completed safely." };
+    return {
+      code: "workflow_failed",
+      message: "The run could not be completed safely.",
+    };
   }
   if (error instanceof ProviderRequestError) {
     const messages: Record<string, string> = {
-      provider_rate_limited: "The selected provider is temporarily rate limited.",
+      provider_rate_limited:
+        "The selected provider is temporarily rate limited.",
       provider_unavailable: "The selected provider is temporarily unavailable.",
       provider_auth_failed: "Live provider access is not configured.",
       provider_request_rejected: "The selected provider rejected this request.",
-      live_provider_disabled: "Live processing is disabled. A recorded replay remains available.",
-      live_provider_key_missing: "Live processing is not configured. A recorded replay remains available.",
-      provider_schema_mismatch: "The provider response did not pass the extraction contract.",
+      live_provider_disabled:
+        "Live processing is disabled. A recorded replay remains available.",
+      live_provider_key_missing:
+        "Live processing is not configured. A recorded replay remains available.",
+      provider_schema_mismatch:
+        "The provider response did not pass the extraction contract.",
     };
     return {
       code: error.safeCode,
-      message: messages[error.safeCode] ?? "The selected provider could not complete this run.",
+      message:
+        messages[error.safeCode] ??
+        "The selected provider could not complete this run.",
     };
   }
   if (error instanceof Error && error.name === "ZodError") {
@@ -280,14 +317,21 @@ function publicError(error: unknown, stage: RunStatus): { code: string; message:
     };
   }
   if (stage === "storing") {
-    return { code: "storage_unavailable", message: "The document could not be stored safely." };
+    return {
+      code: "storage_unavailable",
+      message: "The document could not be stored safely.",
+    };
   }
-  return { code: "workflow_failed", message: "The run could not be completed safely." };
+  return {
+    code: "workflow_failed",
+    message: "The run could not be completed safely.",
+  };
 }
 
 async function extractWithOneRetry(
   provider: ExtractionProvider,
   input: ExecuteRunInput,
+  onDispatch: () => void,
   onRetry: (error: ProviderRequestError) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<{ response: ProviderExtractionResponse; retryCount: number }> {
@@ -295,6 +339,7 @@ async function extractWithOneRetry(
   for (;;) {
     try {
       signal?.throwIfAborted();
+      onDispatch();
       return {
         response: await provider.extract({
           document: {
@@ -324,19 +369,26 @@ export async function* executeRun(
   dependencies: ExecuteRunDependencies,
 ): AsyncGenerator<RunEvent> {
   const clock = dependencies.clock ?? defaultClock;
-  const processingClock = dependencies.processingClock ?? defaultProcessingClock;
+  const processingClock =
+    dependencies.processingClock ?? defaultProcessingClock;
   const idSource = dependencies.idSource ?? defaultIdSource;
-  const credentialSource = dependencies.deletionCredentialSource ?? createDeletionCredential;
+  const credentialSource =
+    dependencies.deletionCredentialSource ?? createDeletionCredential;
   const evaluator = dependencies.evaluateField ?? defaultEvaluateField;
   const sleep = dependencies.sleep ?? defaultSleep;
   const signal = dependencies.abortSignal;
   const runId = idSource();
   const createdAtDate = clock();
   const createdAt = createdAtDate.toISOString();
-  const expiresAt = new Date(createdAtDate.getTime() + RETENTION_MS).toISOString();
+  const expiresAt = new Date(
+    createdAtDate.getTime() + RETENTION_MS,
+  ).toISOString();
   const delayMs = Math.min(
     MAX_REPLAY_STAGE_DELAY_MS,
-    Math.max(0, dependencies.replayStageDelayMs ?? DEFAULT_REPLAY_STAGE_DELAY_MS),
+    Math.max(
+      0,
+      dependencies.replayStageDelayMs ?? DEFAULT_REPLAY_STAGE_DELAY_MS,
+    ),
   );
   let stageCount = 0;
   let runCreated = false;
@@ -346,10 +398,17 @@ export async function* executeRun(
   let billableCostUsd: number | null = null;
   let quotaSettlementStarted = false;
   let quotaSettlementAccepted = false;
+  let providerDispatchStarted = false;
   const stepDurations: Record<string, number> = {};
 
   const releaseQuotaReservation = async (): Promise<void> => {
-    if (!dependencies.quotaReservation || quotaSettlementStarted) return;
+    if (
+      !dependencies.quotaReservation ||
+      quotaSettlementStarted ||
+      providerDispatchStarted
+    ) {
+      return;
+    }
     try {
       await dependencies.quotaReservation.repository.releaseLiveReservation(
         dependencies.quotaReservation.reservationId,
@@ -370,7 +429,8 @@ export async function* executeRun(
           billableCostUsd,
         );
       quotaSettlementAccepted =
-        settlement.status === "settled" || settlement.status === "already_settled";
+        settlement.status === "settled" ||
+        settlement.status === "already_settled";
       return quotaSettlementAccepted;
     } catch {
       return false;
@@ -380,7 +440,11 @@ export async function* executeRun(
   const announce = async (stage: RunStatus): Promise<RunEvent> => {
     signal?.throwIfAborted();
     currentStage = stage;
-    if (dependencies.provider.executionMode === "recorded" && stageCount > 0 && delayMs > 0) {
+    if (
+      dependencies.provider.executionMode === "recorded" &&
+      stageCount > 0 &&
+      delayMs > 0
+    ) {
       await sleep(delayMs);
       signal?.throwIfAborted();
     }
@@ -389,13 +453,18 @@ export async function* executeRun(
       try {
         await dependencies.repository.setStatus(runId, stage);
       } catch (error) {
-        throw new PersistenceWriteError("run_status_write_failed", { cause: error });
+        throw new PersistenceWriteError("run_status_write_failed", {
+          cause: error,
+        });
       }
     }
     return { type: "stage", stage, timestamp: clock().toISOString() };
   };
 
-  const appendStage = async (stage: RunStatus, startedAt: number): Promise<void> => {
+  const appendStage = async (
+    stage: RunStatus,
+    startedAt: number,
+  ): Promise<void> => {
     signal?.throwIfAborted();
     const durationMs = Math.max(0, processingClock() - startedAt);
     stepDurations[stage] = durationMs;
@@ -411,21 +480,34 @@ export async function* executeRun(
   };
 
   const totalProcessingLatency = (): number =>
-    Object.values(stepDurations).reduce((total, duration) => total + duration, 0);
+    Object.values(stepDurations).reduce(
+      (total, duration) => total + duration,
+      0,
+    );
 
-  signal?.throwIfAborted();
-  yield await announce("validating");
-  const validationStartedAt = processingClock();
-  currentStageStartedAt = validationStartedAt;
-  const validation = validateUpload({
-    bytes: input.file.bytes,
-    filename: safeFilename(input.file.filename),
-    reportedType: input.file.mediaType,
-    requestedFields: input.requestedFields.map((field) => field.label),
-    consent: input.consent,
-    pageCount: input.file.pageCount,
-    sourceType: input.sourceType,
-  });
+  let validation: ReturnType<typeof validateUpload>;
+  let validationStartedAt: number;
+  try {
+    signal?.throwIfAborted();
+    yield await announce("validating");
+    validationStartedAt = processingClock();
+    currentStageStartedAt = validationStartedAt;
+    validation = validateUpload({
+      bytes: input.file.bytes,
+      filename: safeFilename(input.file.filename),
+      reportedType: input.file.mediaType,
+      requestedFields: input.requestedFields.map((field) => field.label),
+      consent: input.consent,
+      pageCount: input.file.pageCount,
+      sourceType: input.sourceType,
+    });
+  } catch (error) {
+    if (signal?.aborted) {
+      await releaseQuotaReservation();
+      return;
+    }
+    throw error;
+  }
   if (!validation.valid) {
     await releaseQuotaReservation();
     yield {
@@ -495,26 +577,31 @@ export async function* executeRun(
     yield await announce("extracting");
     const extractionStartedAt = processingClock();
     currentStageStartedAt = extractionStartedAt;
-    const { response, retryCount: completedRetryCount } = await extractWithOneRetry(
-      dependencies.provider,
-      input,
-      async (error) => {
-        retryCount = 1;
-        const step: RunStepRecord = {
-          kind: "retry",
-          stage: "extracting",
-          timestamp: clock().toISOString(),
-          durationMs: null,
-          safeCode: error.safeCode,
-        };
-        await dependencies.repository.appendStep(runId, step);
-      },
-      signal,
-    );
+    const { response, retryCount: completedRetryCount } =
+      await extractWithOneRetry(
+        dependencies.provider,
+        input,
+        () => {
+          providerDispatchStarted = true;
+        },
+        async (error) => {
+          retryCount = 1;
+          const step: RunStepRecord = {
+            kind: "retry",
+            stage: "extracting",
+            timestamp: clock().toISOString(),
+            durationMs: null,
+            safeCode: error.safeCode,
+          };
+          await dependencies.repository.appendStep(runId, step);
+        },
+        signal,
+      );
     billableCostUsd =
       dependencies.provider.executionMode === "live"
         ? estimateRunCost({
             provider: dependencies.provider.provider,
+            model: dependencies.provider.model,
             inputTokens: response.usage.inputTokens,
             outputTokens: response.usage.outputTokens,
           })
@@ -632,7 +719,10 @@ export async function* executeRun(
     }
     const safe = publicError(error, currentStage);
     if (currentStageStartedAt !== null) {
-      stepDurations[currentStage] = Math.max(0, processingClock() - currentStageStartedAt);
+      stepDurations[currentStage] = Math.max(
+        0,
+        processingClock() - currentStageStartedAt,
+      );
       currentStageStartedAt = null;
     } else if (stepDurations[currentStage] === undefined) {
       stepDurations[currentStage] = 0;
