@@ -43,6 +43,12 @@ describe("validateUpload", () => {
     ).toEqual({ valid: true, errors: [] });
   });
 
+  it("bypasses custom consent and field-count rules for an explicit synthetic upload", () => {
+    expect(
+      validateUpload(upload({ sourceType: "synthetic", requestedFields: [], consent: false })),
+    ).toEqual({ valid: true, errors: [] });
+  });
+
   it("rejects empty, unsupported and MIME-signature-mismatched files", () => {
     expect(validateUpload(upload({ bytes: new Uint8Array() })).errors).toContain("empty_file");
     expect(validateUpload(upload({ bytes: new Uint8Array([0x47, 0x49, 0x46]) })).errors).toContain(
@@ -67,5 +73,12 @@ describe("validateUpload", () => {
       validateUpload(upload({ requestedFields: ["Invoice Number", " invoice   number "] })).errors,
     ).toContain("duplicate_field");
     expect(validateUpload(upload({ consent: false })).errors).toContain("consent_required");
+  });
+
+  it("applies consent and field-count rules to an explicit custom upload", () => {
+    expect(validateUpload(upload({ requestedFields: [], consent: false }))).toMatchObject({
+      valid: false,
+      errors: expect.arrayContaining(["field_count", "consent_required"]),
+    });
   });
 });

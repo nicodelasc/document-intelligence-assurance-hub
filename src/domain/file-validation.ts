@@ -31,7 +31,7 @@ export function validateUpload(input: {
   requestedFields: string[];
   consent: boolean;
   pageCount?: number;
-  sourceType?: "synthetic" | "custom";
+  sourceType: "synthetic" | "custom";
 }): UploadValidation {
   const errors: UploadValidationError[] = [];
   const format = detectFormat(input.bytes);
@@ -42,7 +42,7 @@ export function validateUpload(input: {
   if (format && input.reportedType !== expectedMime(format)) errors.push("mime_mismatch");
   if (format === "pdf" && (input.pageCount ?? 1) > MAX_PDF_PAGES) errors.push("pdf_page_limit");
 
-  if ((input.sourceType ?? "custom") === "custom") {
+  if (input.sourceType === "custom") {
     if (input.requestedFields.length < 2 || input.requestedFields.length > 3) errors.push("field_count");
 
     const labels = input.requestedFields.map(normalizedLabel);
