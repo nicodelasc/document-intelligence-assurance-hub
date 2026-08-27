@@ -330,7 +330,9 @@ export async function* executeRun(
   let currentStage: RunStatus = "validating";
   let currentStageStartedAt: number | null = null;
   let retryCount = 0;
+  let billableCostUsd: number | null = null;
   let quotaSettlementStarted = false;
+  let quotaSettlementAccepted = false;
   const stepDurations: Record<string, number> = {};
 
   const releaseQuotaReservation = async (): Promise<void> => {
@@ -341,6 +343,24 @@ export async function* executeRun(
       );
     } catch {
       // Quota cleanup must not expose persistence details in the public event stream.
+    }
+  };
+
+  const settleBillableCost = async (): Promise<boolean> => {
+    if (!dependencies.quotaReservation || billableCostUsd === null) return true;
+    if (quotaSettlementStarted) return quotaSettlementAccepted;
+    quotaSettlementStarted = true;
+    try {
+      const settlement =
+        await dependencies.quotaReservation.repository.settleLiveReservation(
+          dependencies.quotaReservation.reservationId,
+          billableCostUsd,
+        );
+      quotaSettlementAccepted =
+        settlement.status === "settled" || settlement.status === "already_settled";
+      return quotaSettlementAccepted;
+    } catch {
+      return false;
     }
   };
 
@@ -436,9 +456,9 @@ export async function* executeRun(
     return;
   }
   runCreated = true;
-  await appendStage("validating", validationStartedAt);
 
   try {
+    await appendStage("validating", validationStartedAt);
     yield await announce("storing");
     const storageStartedAt = processingClock();
     currentStageStartedAt = storageStartedAt;
@@ -467,6 +487,14 @@ export async function* executeRun(
         await dependencies.repository.appendStep(runId, step);
       },
     );
+    billableCostUsd =
+      dependencies.provider.executionMode === "live"
+        ? estimateRunCost({
+            provider: dependencies.provider.provider,
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+          })
+        : null;
     retryCount = completedRetryCount;
     await appendStage("extracting", extractionStartedAt);
 
@@ -523,23 +551,10 @@ export async function* executeRun(
     yield await announce("publishing");
     const publishingStartedAt = processingClock();
     currentStageStartedAt = publishingStartedAt;
-    const estimatedCostUsd =
-      dependencies.provider.executionMode === "live"
-        ? estimateRunCost({
-            provider: dependencies.provider.provider,
-            inputTokens: response.usage.inputTokens,
-            outputTokens: response.usage.outputTokens,
-          })
-        : 0;
+    const estimatedCostUsd = billableCostUsd ?? 0;
     if (dependencies.quotaReservation) {
       if (dependencies.provider.executionMode === "live") {
-        quotaSettlementStarted = true;
-        const settlement =
-          await dependencies.quotaReservation.repository.settleLiveReservation(
-            dependencies.quotaReservation.reservationId,
-            estimatedCostUsd,
-          );
-        if (settlement.status !== "settled" && settlement.status !== "already_settled") {
+        if (!(await settleBillableCost())) {
           throw new Error("quota_settlement_failed");
         }
       } else {
@@ -568,6 +583,7 @@ export async function* executeRun(
       timestamp: clock().toISOString(),
     };
   } catch (error) {
+    if (billableCostUsd !== null) await settleBillableCost();
     await releaseQuotaReservation();
     const safe = publicError(error, currentStage);
     if (currentStageStartedAt !== null) {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { FieldResult, Provider } from "@/domain/types";
-import { InMemoryRunRepository } from "@/server/repositories/run-repository";
+import {
+  InMemoryRunRepository,
+  type RunStepRecord,
+} from "@/server/repositories/run-repository";
 import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
 import { deleteRunNow, hashDeletionToken } from "@/server/security/deletion-token";
 import { InMemoryDocumentStore } from "@/server/storage/document-store";
@@ -308,6 +311,54 @@ describe("executeRun", () => {
     expect(JSON.stringify(events)).not.toContain("DATABASE_URL");
   });
 
+  it("protects the first post-create trace write and releases a nonbillable reservation", async () => {
+    class FirstTraceWriteFailsRepository extends InMemoryRunRepository {
+      private appendAttempts = 0;
+
+      override async appendStep(runId: string, step: RunStepRecord): Promise<void> {
+        this.appendAttempts += 1;
+        if (this.appendAttempts === 1) throw new Error("first-trace-write-debug-payload");
+        await super.appendStep(runId, step);
+      }
+    }
+    let providerAttempts = 0;
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-pre-provider-failure");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    const selected = provider({
+      extract: async () => {
+        providerAttempts += 1;
+        return extraction;
+      },
+    });
+    const { value } = dependencies(selected);
+    value.repository = new FirstTraceWriteFailsRepository();
+    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+
+    const events = await collect(input, value);
+
+    expect(providerAttempts).toBe(0);
+    expect(events.filter((event) => event.type === "failed")).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+      runId: "run-123",
+      deletionToken: "delete-once",
+    });
+    expect(JSON.stringify(events)).not.toContain("first-trace-write-debug-payload");
+    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
   it("still emits the provider-safe terminal event when failure telemetry cannot be written", async () => {
     class FailingFailureWriteRepository extends InMemoryRunRepository {
       override async markFailed(): Promise<void> {
@@ -445,6 +496,80 @@ describe("executeRun", () => {
       reservedSpendUsd: 1,
     });
     expect(JSON.stringify(events)).not.toContain("quota-database-unavailable");
+  });
+
+  it("settles billable cost once when parallel verification fails after extraction", async () => {
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-verification-failure");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    const { value } = dependencies(provider());
+    value.evaluateField = async () => {
+      throw new Error("verification-debug-payload");
+    };
+    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+      deletionToken: "delete-once",
+    });
+    expect(JSON.stringify(events)).not.toContain("verification-debug-payload");
+    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+      globalSpendUsd: 0.000075,
+      reservedSpendUsd: 0,
+    });
+    await expect(
+      quotas.settleLiveReservation(reservation.reservationId, 0.5),
+    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.000075 });
+  });
+
+  it("settles billable cost once when extraction trace persistence fails", async () => {
+    class ExtractionTraceFailsRepository extends InMemoryRunRepository {
+      override async appendStep(runId: string, step: RunStepRecord): Promise<void> {
+        if (step.kind === "stage" && step.stage === "extracting") {
+          throw new Error("extraction-trace-debug-payload");
+        }
+        await super.appendStep(runId, step);
+      }
+    }
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-trace-failure");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    const { value } = dependencies(provider());
+    value.repository = new ExtractionTraceFailsRepository();
+    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+      deletionToken: "delete-once",
+    });
+    expect(JSON.stringify(events)).not.toContain("extraction-trace-debug-payload");
+    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+      globalSpendUsd: 0.000075,
+      reservedSpendUsd: 0,
+    });
+    await expect(
+      quotas.settleLiveReservation(reservation.reservationId, 0.5),
+    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.000075 });
   });
 
   it("replaces equivalent provider normalization with a server-owned canonical value", async () => {
