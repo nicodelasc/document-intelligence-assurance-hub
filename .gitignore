@@ -11,4 +11,5 @@ premium-audit.json
 .env.*
 !.env.example
 *.log
+*.tsbuildinfo
 
