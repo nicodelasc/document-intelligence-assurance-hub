@@ -11,9 +11,21 @@ import {
   safeJsonResponse,
 } from "@/server/http/responses";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
+import { invalidateMetricsCache } from "@/server/http/metrics-handler";
 import { createHash } from "node:crypto";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function* invalidateMetricsAfterRun<T>(
+  events: AsyncIterable<T>,
+  repository: object,
+): AsyncGenerator<T> {
+  try {
+    for await (const event of events) yield event;
+  } finally {
+    invalidateMetricsCache(repository);
+  }
+}
 
 type RunPreflight = {
   sourceType: "synthetic" | "custom";
@@ -229,30 +241,33 @@ export async function handleRunsPost(
       );
     }
 
-    const events = container.execute(
-      {
-        sourceType: input.sourceType,
-        file: input.file,
-        requestedFields: input.requestedFields,
-        consent: input.consent,
-        referenceData: input.referenceData,
-      },
-      {
-        repository: container.repository,
-        quotaReservation:
-          quota.reservationId === null
-            ? undefined
-            : {
-                repository: container.quotaRepository,
-                reservationId: quota.reservationId,
-              },
-        documentStore: container.documentStore,
-        provider,
-        idSource: () => claimedRunId!,
-        abortSignal: abortController.signal,
-        clock: container.clock,
-        replayStageDelayMs: container.replayStageDelayMs,
-      },
+    const events = invalidateMetricsAfterRun(
+      container.execute(
+        {
+          sourceType: input.sourceType,
+          file: input.file,
+          requestedFields: input.requestedFields,
+          consent: input.consent,
+          referenceData: input.referenceData,
+        },
+        {
+          repository: container.repository,
+          quotaReservation:
+            quota.reservationId === null
+              ? undefined
+              : {
+                  repository: container.quotaRepository,
+                  reservationId: quota.reservationId,
+                },
+          documentStore: container.documentStore,
+          provider,
+          idSource: () => claimedRunId!,
+          abortSignal: abortController.signal,
+          clock: container.clock,
+          replayStageDelayMs: container.replayStageDelayMs,
+        },
+      ),
+      container.repository,
     );
     workflowStarted = true;
     return attachBucketCookie(

@@ -125,6 +125,33 @@ describe("GET /api/metrics", () => {
     expect(await second.text()).toBe(await first.text());
   });
 
+  it("refreshes cached metrics after a streamed run completes", async () => {
+    const container = createTestContainer();
+    const before = (await (
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
+    ).json()) as { summary: { totalRuns: number } };
+
+    await (await handleRunsPost(syntheticRequest(), container)).text();
+
+    const after = (await (
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics", {
+          headers: {
+            cookie:
+              "diah_browser=metrics-after-run-browser-token-1234567890123456",
+          },
+        }),
+        container,
+      )
+    ).json()) as { summary: { totalRuns: number } };
+
+    expect(before.summary.totalRuns).toBe(0);
+    expect(after.summary.totalRuns).toBe(1);
+  });
+
   it("coalesces concurrent aggregate snapshots", async () => {
     const container = createTestContainer();
     let aggregateReads = 0;
