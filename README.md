@@ -37,6 +37,7 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 - Clear requires every requested field to pass deterministic checks and any supplied reference comparison.
 - Provider failures use stable public error codes. Hidden provider details are not returned.
 - Live mode has per-browser limits, global limits and a parsed daily model budget.
+- Connected mode enforces deployment-wide minute ceilings in Neon for submissions, documents, metrics, run lists and active traces. Rotating the anonymous cookie does not bypass each resource's global ceiling.
 - Duplicate submissions use a durable idempotency claim when Neon is connected.
 - Documents are private in Blob and are served only through active same-origin routes.
 - Cancellation propagates through the response stream, workflow and provider request.
@@ -80,10 +81,12 @@ npm run audit:dependencies
 
 ## Connected persistence
 
-Production requires `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` together. Create a Neon database then apply `migrations/0001_assurance_hub.sql` before starting the application. Create a private Vercel Blob store and keep its token server-side. Do not expose either value through a `NEXT_PUBLIC_` variable.
+Production requires `DATABASE_URL` and `BLOB_READ_WRITE_TOKEN` together. Create a Neon database then apply every migration in numeric order before starting the application. Create a private Vercel Blob store and keep its token server-side. Do not expose either value through a `NEXT_PUBLIC_` variable.
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_assurance_hub.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_provider_lifecycle.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_public_resource_controls.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -115,15 +118,15 @@ The prototype does not provide user accounts or private per-user run visibility.
 
 ## API routes
 
-| Method   | Route                     | Purpose                                                                   |
-| -------- | ------------------------- | ------------------------------------------------------------------------- |
-| `POST`   | `/api/runs`               | Validate quota then stream one assurance run. Requires `Idempotency-Key`. |
-| `GET`    | `/api/runs`               | List bounded active public run summaries.                                 |
-| `GET`    | `/api/runs/:id`           | Read one public-safe active run.                                          |
-| `DELETE` | `/api/runs/:id`           | Tombstone details with the one-time deletion token.                       |
-| `GET`    | `/api/runs/:id/document`  | Serve one active document through a no-store same-origin response.        |
-| `GET`    | `/api/metrics`            | Return public-safe operational and recorded benchmark aggregates.         |
-| `GET`    | `/api/cron/purge-expired` | Tombstone expired details and retry physical cleanup.                     |
+| Method   | Route                     | Purpose                                                                                                                   |
+| -------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/runs`               | Validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
+| `GET`    | `/api/runs`               | List bounded active public run summaries.                                                                                 |
+| `GET`    | `/api/runs/:id`           | Read one public-safe active run.                                                                                          |
+| `DELETE` | `/api/runs/:id`           | Tombstone details with the one-time deletion token.                                                                       |
+| `GET`    | `/api/runs/:id/document`  | Serve one active document through a no-store same-origin response.                                                        |
+| `GET`    | `/api/metrics`            | Return public-safe operational and recorded benchmark aggregates.                                                         |
+| `GET`    | `/api/cron/purge-expired` | Tombstone expired details and retry physical cleanup.                                                                     |
 
 ## Deployment readiness
 

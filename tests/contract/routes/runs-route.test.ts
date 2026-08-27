@@ -37,17 +37,19 @@ describe("POST /api/runs", () => {
         requestId: "request-test-1",
       },
     });
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("rejects an oversized custom file before storage", async () => {
-    const container = createTestContainer();
+    const container = createTestContainer({ liveModeEnabled: true });
     const bytes = new Uint8Array(3 * 1024 * 1024 + 1);
     bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const request = formRequest([
       ["sourceType", "custom"],
       ["provider", "openai"],
-      ["executionMode", "recorded"],
+      ["executionMode", "live"],
       ["requestedField", "Invoice number"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
@@ -57,10 +59,12 @@ describe("POST /api/runs", () => {
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(413);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "file_too_large",
-    );
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("file_too_large");
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("enforces the absolute multipart cap without trusting Content-Length", async () => {
@@ -87,13 +91,17 @@ describe("POST /api/runs", () => {
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(413);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "request_too_large",
-    );
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("request_too_large");
     expect(fixtureReads).toBe(0);
     expect(workflowCalls).toBe(0);
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
-    expect(await container.quotaRepository.snapshot(container.clock())).toMatchObject({
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
+    expect(
+      await container.quotaRepository.snapshot(container.clock()),
+    ).toMatchObject({
       customUploadsByBucket: {},
       liveRunsByBucket: {},
     });
@@ -105,6 +113,7 @@ describe("POST /api/runs", () => {
       abuseControl: {
         allowRunSubmission: async () => false,
         allowDocumentRead: async () => true,
+        allowPublicRead: async () => true,
       },
       async loadSyntheticDocument() {
         fixtureReads += 1;
@@ -115,11 +124,117 @@ describe("POST /api/runs", () => {
     const response = await handleRunsPost(syntheticRequest(), container);
 
     expect(response.status).toBe(429);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "run_request_rate_limited",
-    );
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("run_request_rate_limited");
     expect(fixtureReads).toBe(0);
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
+  });
+
+  it("requires complete multipart preflight metadata before consuming the body", async () => {
+    let bodyReads = 0;
+    const request = new Request("http://local.test/api/runs", {
+      method: "POST",
+      headers: {
+        "content-type": "multipart/form-data; boundary=unused",
+        "idempotency-key": "test-missing-run-preflight",
+      },
+      body: "--unused--",
+    });
+    const requestBody = request.body;
+    Object.defineProperty(request, "body", {
+      get: () => {
+        bodyReads += 1;
+        return requestBody;
+      },
+    });
+
+    const response = await handleRunsPost(request, createTestContainer());
+
+    expect(response.status).toBe(400);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("invalid_run_preflight");
+    expect(bodyReads).toBe(0);
+  });
+
+  it("rejects a disabled live preflight without consuming multipart bytes", async () => {
+    let formDataReads = 0;
+    const request = new Request("http://local.test/api/runs", {
+      method: "POST",
+      headers: {
+        "content-type": "multipart/form-data; boundary=unused",
+        "idempotency-key": "test-disabled-live-preflight",
+        "x-run-source-type": "custom",
+        "x-run-execution-mode": "live",
+      },
+      body: "--unused--",
+    });
+    Object.defineProperty(request, "formData", {
+      value: async () => {
+        formDataReads += 1;
+        throw new Error("multipart_body_must_not_be_consumed");
+      },
+    });
+
+    const response = await handleRunsPost(request, createTestContainer());
+
+    expect(response.status).toBe(503);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("live_disabled");
+    expect(formDataReads).toBe(0);
+  });
+
+  it("rejects a recorded custom preflight without consuming multipart bytes", async () => {
+    let formDataReads = 0;
+    const request = new Request("http://local.test/api/runs", {
+      method: "POST",
+      headers: {
+        "content-type": "multipart/form-data; boundary=unused",
+        "idempotency-key": "test-recorded-custom-preflight",
+        "x-run-source-type": "custom",
+        "x-run-execution-mode": "recorded",
+      },
+      body: "--unused--",
+    });
+    Object.defineProperty(request, "formData", {
+      value: async () => {
+        formDataReads += 1;
+        throw new Error("multipart_body_must_not_be_consumed");
+      },
+    });
+
+    const response = await handleRunsPost(request, createTestContainer());
+
+    expect(response.status).toBe(409);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("recorded_custom_unavailable");
+    expect(formDataReads).toBe(0);
+  });
+
+  it("keeps multipart values authoritative when preflight metadata disagrees", async () => {
+    const base = syntheticRequest();
+    const request = new Request(base, {
+      headers: {
+        ...Object.fromEntries(base.headers),
+        "x-run-source-type": "synthetic",
+        "x-run-execution-mode": "live",
+      },
+    });
+
+    const response = await handleRunsPost(
+      request,
+      createTestContainer({ liveModeEnabled: true }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("run_preflight_mismatch");
   });
 
   it("claims a concurrent idempotency key once before quota and provider work", async () => {
@@ -148,35 +263,48 @@ describe("POST /api/runs", () => {
     ]);
     await Promise.all(responses.map((response) => response.text()));
 
-    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      200, 409,
+    ]);
     expect(providerCreations).toBe(1);
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(1);
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(1);
   });
 
   it("uses the PDF bytes for page count instead of a form field", async () => {
-    const container = createTestContainer();
+    const container = createTestContainer({ liveModeEnabled: true });
     const request = formRequest([
       ["sourceType", "custom"],
       ["provider", "anthropic"],
-      ["executionMode", "recorded"],
+      ["executionMode", "live"],
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
       ["pageCount", "1"],
-      ["document", new Blob([makePdf(6)], { type: "application/pdf" }), "six-pages.pdf"],
+      [
+        "document",
+        new Blob([makePdf(6)], { type: "application/pdf" }),
+        "six-pages.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(400);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "pdf_page_limit",
-    );
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("pdf_page_limit");
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it.each([
-    { entries: [["requestedField", "Invoice total"]] as Array<[string, string]>, code: "field_count" },
+    {
+      entries: [["requestedField", "Invoice total"]] as Array<[string, string]>,
+      code: "field_count",
+    },
     {
       entries: [
         ["requestedField", "Invoice total"],
@@ -184,21 +312,30 @@ describe("POST /api/runs", () => {
       ] as Array<[string, string]>,
       code: "consent_required",
     },
-  ])("enforces custom field count and consent: $code", async ({ entries, code }) => {
-    const container = createTestContainer();
-    const request = formRequest([
-      ["sourceType", "custom"],
-      ["provider", "openai"],
-      ["executionMode", "recorded"],
-      ...entries,
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
-    ]);
+  ])(
+    "enforces custom field count and consent: $code",
+    async ({ entries, code }) => {
+      const container = createTestContainer({ liveModeEnabled: true });
+      const request = formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["executionMode", "live"],
+        ...entries,
+        [
+          "document",
+          new Blob([makePdf(1)], { type: "application/pdf" }),
+          "invoice.pdf",
+        ],
+      ]);
 
-    const response = await handleRunsPost(request, container);
+      const response = await handleRunsPost(request, container);
 
-    expect(response.status).toBe(400);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(code);
-  });
+      expect(response.status).toBe(400);
+      expect(
+        (await readJson<{ error: { code: string } }>(response)).error.code,
+      ).toBe(code);
+    },
+  );
 
   it("rejects colliding generated custom field keys before quota and storage", async () => {
     const container = createTestContainer({ liveModeEnabled: true });
@@ -208,17 +345,25 @@ describe("POST /api/runs", () => {
       ["requestedField", "Invoice-total"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      [
+        "document",
+        new Blob([makePdf(1)], { type: "application/pdf" }),
+        "invoice.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(400);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "duplicate_field_key",
-    );
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
-    expect(await container.quotaRepository.snapshot(container.clock())).toMatchObject({
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("duplicate_field_key");
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
+    expect(
+      await container.quotaRepository.snapshot(container.clock()),
+    ).toMatchObject({
       customUploadsByBucket: {},
     });
   });
@@ -231,10 +376,12 @@ describe("POST /api/runs", () => {
     );
 
     expect(response.status).toBe(400);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "sample_not_found",
-    );
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("sample_not_found");
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("rejects live mode without silently falling back to recorded mode", async () => {
@@ -249,9 +396,9 @@ describe("POST /api/runs", () => {
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(503);
-    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
-      "live_disabled",
-    );
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("live_disabled");
   });
 
   it("defaults custom uploads to live mode and rejects them before storage when disabled", async () => {
@@ -268,17 +415,25 @@ describe("POST /api/runs", () => {
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      [
+        "document",
+        new Blob([makePdf(1)], { type: "application/pdf" }),
+        "invoice.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(503);
-    const body = await readJson<{ error: { code: string; message: string } }>(response);
+    const body = await readJson<{ error: { code: string; message: string } }>(
+      response,
+    );
     expect(body.error.code).toBe("live_disabled");
     expect(body.error.message).toContain("synthetic recorded replay");
     expect(providerCreations).toBe(0);
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("rejects explicit recorded mode for custom uploads without fabricating extraction", async () => {
@@ -290,23 +445,31 @@ describe("POST /api/runs", () => {
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      [
+        "document",
+        new Blob([makePdf(1)], { type: "application/pdf" }),
+        "invoice.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
 
     expect(response.status).toBe(409);
-    const body = await readJson<{ error: { code: string; message: string } }>(response);
+    const body = await readJson<{ error: { code: string; message: string } }>(
+      response,
+    );
     expect(body.error.code).toBe("recorded_custom_unavailable");
     expect(body.error.message).toContain("synthetic recorded replay");
-    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("passes an enabled custom live run through the selected injected provider and quota reservation", async () => {
     const selected: Array<{ provider: string; mode: string }> = [];
     const provider: ExtractionProvider = {
       provider: "anthropic",
-      model: "claude-haiku-4-5-test-double",
+      model: "claude-haiku-4-5",
       promptVersion: "live-contract-test.v1",
       executionMode: "live",
       async extract(input) {
@@ -339,23 +502,40 @@ describe("POST /api/runs", () => {
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      [
+        "document",
+        new Blob([makePdf(1)], { type: "application/pdf" }),
+        "invoice.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
     const events = await readLines(response);
-    const completed = events.at(-1) as { type: string; runId: string; executionMode: string };
+    const completed = events.at(-1) as {
+      type: string;
+      runId: string;
+      executionMode: string;
+    };
 
-    expect(completed).toMatchObject({ type: "completed", executionMode: "live" });
-    expect(selected).toEqual([{ provider: "anthropic", mode: "live" }]);
-    expect(
-      await container.repository.readPublicRun(completed.runId, container.clock()),
-    ).toMatchObject({
-      provider: "anthropic",
-      model: "claude-haiku-4-5-test-double",
+    expect(completed).toMatchObject({
+      type: "completed",
       executionMode: "live",
     });
-    expect((await container.quotaRepository.snapshot(container.clock())).globalSpendUsd).toBeGreaterThan(0);
+    expect(selected).toEqual([{ provider: "anthropic", mode: "live" }]);
+    expect(
+      await container.repository.readPublicRun(
+        completed.runId,
+        container.clock(),
+      ),
+    ).toMatchObject({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      executionMode: "live",
+    });
+    expect(
+      (await container.quotaRepository.snapshot(container.clock()))
+        .globalSpendUsd,
+    ).toBeGreaterThan(0);
   });
 
   it("returns a post-create deletion receipt when live mode is enabled without a provider key", async () => {
@@ -377,7 +557,11 @@ describe("POST /api/runs", () => {
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+      [
+        "document",
+        new Blob([makePdf(1)], { type: "application/pdf" }),
+        "invoice.pdf",
+      ],
     ]);
 
     const response = await handleRunsPost(request, container);
@@ -404,11 +588,16 @@ describe("POST /api/runs", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(events.every((event) => runEventSchema.safeParse(event).success)).toBe(true);
+    expect(
+      events.every((event) => runEventSchema.safeParse(event).success),
+    ).toBe(true);
     expect(
       events
-        .filter((event): event is RunEvent & { type: "stage" } =>
-          typeof event === "object" && event !== null && (event as RunEvent).type === "stage",
+        .filter(
+          (event): event is RunEvent & { type: "stage" } =>
+            typeof event === "object" &&
+            event !== null &&
+            (event as RunEvent).type === "stage",
         )
         .map((event) => event.stage),
     ).toEqual([
@@ -420,7 +609,9 @@ describe("POST /api/runs", () => {
       "deciding",
       "publishing",
     ]);
-    expect(events.filter((event) => JSON.stringify(event).includes("deletionToken"))).toHaveLength(1);
+    expect(
+      events.filter((event) => JSON.stringify(event).includes("deletionToken")),
+    ).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({
       type: "completed",
       outcome: "clear",
@@ -441,10 +632,15 @@ describe("POST /api/runs", () => {
 
     const response = await handleRunsPost(syntheticRequest(), container);
     const text = await response.text();
-    const events = text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as unknown);
+    const events = text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as unknown);
 
     expect(events).toHaveLength(2);
-    expect(events.every((event) => runEventSchema.safeParse(event).success)).toBe(true);
+    expect(
+      events.every((event) => runEventSchema.safeParse(event).success),
+    ).toBe(true);
     expect(events.at(-1)).toEqual({
       type: "failed",
       code: "stream_failed",
@@ -485,6 +681,32 @@ describe("POST /api/runs", () => {
 });
 
 describe("GET /api/runs", () => {
+  it("rate limits list reads before querying public history", async () => {
+    const container = createTestContainer();
+    let listReads = 0;
+    const listPublicRuns = container.repository.listPublicRuns.bind(
+      container.repository,
+    );
+    container.repository.listPublicRuns = async (...input) => {
+      listReads += 1;
+      return listPublicRuns(...input);
+    };
+    container.abuseControl = {
+      allowRunSubmission: async () => true,
+      allowDocumentRead: async () => true,
+      allowPublicRead: async () => false,
+    };
+
+    const response = await handleRunsGet(
+      new Request("http://local.test/api/runs"),
+      container,
+    );
+
+    expect(response.status).toBe(429);
+    expect(listReads).toBe(0);
+    expect(response.headers.get("set-cookie")).toContain("diah_browser=");
+  });
+
   it("lists anonymous rows without uploader credentials", async () => {
     const container = createTestContainer();
     const postResponse = await handleRunsPost(syntheticRequest(), container);
@@ -519,14 +741,19 @@ describe("GET /api/runs", () => {
       "invoice-total-mismatch",
       "missing-purchase-order",
     ]) {
-      await (await handleRunsPost(syntheticRequest(sampleId), container)).text();
+      await (
+        await handleRunsPost(syntheticRequest(sampleId), container)
+      ).text();
     }
 
     const response = await handleRunsGet(
       new Request("http://local.test/api/runs?limit=999&offset=1"),
       container,
     );
-    const body = (await response.json()) as { runs: unknown[]; pagination: Record<string, number> };
+    const body = (await response.json()) as {
+      runs: unknown[];
+      pagination: Record<string, number>;
+    };
 
     expect(body.runs).toHaveLength(2);
     expect(body.pagination).toEqual({ limit: 50, offset: 1, returned: 2 });
@@ -544,7 +771,9 @@ describe("GET /api/runs", () => {
     const cookie = "diah_browser=bounded-browser-token-12345678901234567890";
     const request = () => {
       const base = syntheticRequest();
-      return new Request(base, { headers: { ...Object.fromEntries(base.headers), cookie } });
+      return new Request(base, {
+        headers: { ...Object.fromEntries(base.headers), cookie },
+      });
     };
 
     await (await handleRunsPost(request(), container)).text();
@@ -552,9 +781,9 @@ describe("GET /api/runs", () => {
     const denied = await handleRunsPost(request(), container);
 
     expect(denied.status).toBe(429);
-    expect((await readJson<{ error: { code: string } }>(denied)).error.code).toBe(
-      "recorded_run_limit",
-    );
+    expect(
+      (await readJson<{ error: { code: string } }>(denied)).error.code,
+    ).toBe("recorded_run_limit");
   });
 
   it("enforces the global custom-upload ceiling across rotated browser cookies", async () => {
@@ -570,7 +799,8 @@ describe("GET /api/runs", () => {
       async createProvider(input) {
         return {
           provider: input.provider,
-          model: input.provider === "openai" ? "gpt-5-mini" : "claude-haiku-4-5",
+          model:
+            input.provider === "openai" ? "gpt-5-mini" : "claude-haiku-4-5",
           promptVersion: "live-cookie-limit-test.v1",
           executionMode: "live",
           async extract(request) {
@@ -599,7 +829,11 @@ describe("GET /api/runs", () => {
         ["requestedField", "Vendor name"],
         ["requestedField", "Invoice total"],
         ["consent", "true"],
-        ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+        [
+          "document",
+          new Blob([makePdf(1)], { type: "application/pdf" }),
+          "invoice.pdf",
+        ],
       ]);
       return new Request(base, {
         headers: { ...Object.fromEntries(base.headers), cookie },
@@ -624,8 +858,8 @@ describe("GET /api/runs", () => {
     );
 
     expect(denied.status).toBe(429);
-    expect((await readJson<{ error: { code: string } }>(denied)).error.code).toBe(
-      "global_custom_upload_limit",
-    );
+    expect(
+      (await readJson<{ error: { code: string } }>(denied)).error.code,
+    ).toBe("global_custom_upload_limit");
   });
 });

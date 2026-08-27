@@ -6,6 +6,7 @@ import {
   safeJsonResponse,
 } from "@/server/http/responses";
 import { purgeExpiredRuns } from "@/server/storage/document-store";
+import { invalidateMetricsCache } from "@/server/http/metrics-handler";
 
 function exactSecretMatch(candidate: string | null, expected: string): boolean {
   if (candidate === null) return false;
@@ -49,6 +50,7 @@ export async function handlePurgeExpiredGet(
       container.documentStore,
       container.clock(),
     );
+    invalidateMetricsCache(container.repository);
     return safeJsonResponse(
       {
         purge: {

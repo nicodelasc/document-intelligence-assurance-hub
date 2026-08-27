@@ -6,13 +6,17 @@ import {
   safeJsonResponse,
 } from "@/server/http/responses";
 import { deleteRunNow } from "@/server/security/deletion-token";
+import {
+  attachBucketCookie,
+  resolveAnonymousBucket,
+} from "@/server/http/anonymous-bucket";
 
 function validRunId(id: string): boolean {
   return /^[A-Za-z0-9_-]{1,128}$/.test(id);
 }
 
 export async function handleRunGet(
-  _request: Request,
+  request: Request,
   parameters: { id: string },
   container: HttpContainer,
 ): Promise<Response> {
@@ -26,29 +30,58 @@ export async function handleRunGet(
       headers: noIndexHeaders,
     });
   }
+  const bucket = resolveAnonymousBucket(request, {
+    tokenSource: container.bucketTokenSource,
+    secure: process.env.NODE_ENV === "production",
+  });
+  const respond = (response: Response) => attachBucketCookie(response, bucket);
   try {
+    if (
+      !(await container.abuseControl.allowPublicRead({
+        bucket: bucket.protectedBucket,
+        resource: "run_detail",
+        resourceId: parameters.id,
+        now: container.clock(),
+      }))
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "run_detail_rate_limited",
+          message: "This public trace has been requested too frequently. Retry shortly.",
+          requestId,
+          status: 429,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
     const run = await container.repository.readPublicRun(parameters.id, container.clock());
     if (!run) {
-      return safeErrorResponse({
-        code: "run_not_found",
-        message: "The requested run is unavailable.",
-        requestId,
-        status: 404,
-        headers: noIndexHeaders,
-      });
+      return respond(
+        safeErrorResponse({
+          code: "run_not_found",
+          message: "The requested run is unavailable.",
+          requestId,
+          status: 404,
+          headers: noIndexHeaders,
+        }),
+      );
     }
-    return safeJsonResponse(
-      { run: serializePublicRunDetail(run) },
-      { status: 200, headers: noIndexHeaders },
+    return respond(
+      safeJsonResponse(
+        { run: serializePublicRunDetail(run) },
+        { status: 200, headers: noIndexHeaders },
+      ),
     );
   } catch {
-    return safeErrorResponse({
-      code: "run_unavailable",
-      message: "The requested run is temporarily unavailable.",
-      requestId,
-      status: 503,
-      headers: noIndexHeaders,
-    });
+    return respond(
+      safeErrorResponse({
+        code: "run_unavailable",
+        message: "The requested run is temporarily unavailable.",
+        requestId,
+        status: 503,
+        headers: noIndexHeaders,
+      }),
+    );
   }
 }
 

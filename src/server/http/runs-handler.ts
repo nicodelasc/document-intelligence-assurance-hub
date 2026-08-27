@@ -15,6 +15,31 @@ import { createHash } from "node:crypto";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
+type RunPreflight = {
+  sourceType: "synthetic" | "custom";
+  executionMode: "recorded" | "live";
+};
+
+function runPreflight(request: Request): RunPreflight | null | "invalid" {
+  const sourceType = request.headers.get("x-run-source-type");
+  const executionMode = request.headers.get("x-run-execution-mode");
+  if (sourceType === null && executionMode === null) {
+    return request.headers
+      .get("content-type")
+      ?.toLocaleLowerCase()
+      .startsWith("multipart/form-data")
+      ? "invalid"
+      : null;
+  }
+  if (
+    (sourceType !== "synthetic" && sourceType !== "custom") ||
+    (executionMode !== "recorded" && executionMode !== "live")
+  ) {
+    return "invalid";
+  }
+  return { sourceType, executionMode };
+}
+
 function idempotentRunId(idempotencyKey: string): string {
   return `run_${createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 48)}`;
 }
@@ -81,7 +106,52 @@ export async function handleRunsPost(
         bucket,
       );
     }
+    const preflight = runPreflight(request);
+    if (preflight === "invalid") {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "invalid_run_preflight",
+          message: "Run admission metadata is incomplete or invalid.",
+          requestId,
+          status: 400,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
+    if (preflight?.sourceType === "custom" && preflight.executionMode === "recorded") {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "recorded_custom_unavailable",
+          message:
+            "Recorded mode cannot extract a custom document. Choose a synthetic recorded replay or enable live processing.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
+    if (preflight?.executionMode === "live" && !container.liveModeEnabled) {
+      return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
+    }
     const input = await parseRunMultipart(request, container);
+    if (
+      preflight &&
+      (preflight.sourceType !== input.sourceType ||
+        preflight.executionMode !== input.executionMode)
+    ) {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "run_preflight_mismatch",
+          message: "Run admission metadata does not match the multipart request.",
+          requestId,
+          status: 400,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
     if (input.sourceType === "custom" && input.executionMode === "recorded") {
       return attachBucketCookie(
         safeErrorResponse({
@@ -223,7 +293,29 @@ export async function handleRunsGet(
   container: HttpContainer,
 ): Promise<Response> {
   const requestId = container.requestIdSource();
+  const bucket = resolveAnonymousBucket(request, {
+    tokenSource: container.bucketTokenSource,
+    secure: process.env.NODE_ENV === "production",
+  });
+  const respond = (response: Response) => attachBucketCookie(response, bucket);
   try {
+    if (
+      !(await container.abuseControl.allowPublicRead({
+        bucket: bucket.protectedBucket,
+        resource: "run_list",
+        now: container.clock(),
+      }))
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "run_list_rate_limited",
+          message: "Run history has been requested too frequently. Retry shortly.",
+          requestId,
+          status: 429,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
     const url = new URL(request.url);
     const rawLimit = url.searchParams.get("limit");
     const rawOffset = url.searchParams.get("offset");
@@ -236,13 +328,15 @@ export async function handleRunsGet(
       requestedOffset < 0 ||
       requestedOffset > 10_000
     ) {
-      return safeErrorResponse({
-        code: "invalid_pagination",
-        message: "Pagination values must be bounded non-negative integers.",
-        requestId,
-        status: 400,
-        headers: noIndexHeaders,
-      });
+      return respond(
+        safeErrorResponse({
+          code: "invalid_pagination",
+          message: "Pagination values must be bounded non-negative integers.",
+          requestId,
+          status: 400,
+          headers: noIndexHeaders,
+        }),
+      );
     }
     const limit = Math.min(50, requestedLimit);
     const runs = await container.repository.listPublicRuns(container.clock(), {
@@ -250,20 +344,24 @@ export async function handleRunsGet(
       offset: requestedOffset,
       includeDetails: false,
     });
-    return safeJsonResponse(
-      {
-        runs: runs.map(serializePublicRunListRow),
-        pagination: { limit, offset: requestedOffset, returned: runs.length },
-      },
-      { status: 200, headers: noIndexHeaders },
+    return respond(
+      safeJsonResponse(
+        {
+          runs: runs.map(serializePublicRunListRow),
+          pagination: { limit, offset: requestedOffset, returned: runs.length },
+        },
+        { status: 200, headers: noIndexHeaders },
+      ),
     );
   } catch {
-    return safeErrorResponse({
-      code: "runs_unavailable",
-      message: "Run history is temporarily unavailable.",
-      requestId,
-      status: 503,
-      headers: noIndexHeaders,
-    });
+    return respond(
+      safeErrorResponse({
+        code: "runs_unavailable",
+        message: "Run history is temporarily unavailable.",
+        requestId,
+        status: 503,
+        headers: noIndexHeaders,
+      }),
+    );
   }
 }

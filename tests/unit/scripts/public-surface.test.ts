@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { scanText } from "../../../scripts/verify-public-surface.mjs";
+import {
+  scanOrigin,
+  scanText,
+} from "../../../scripts/verify-public-surface.mjs";
 
 describe("public-surface verifier", () => {
   it("reports credential values without treating safe environment names as leaks", () => {
@@ -36,5 +39,63 @@ describe("public-surface verifier", () => {
         "unsupported impact claim",
       ]),
     );
+  });
+
+  it("scans JSON APIs and bounded active details without fetching raw documents", async () => {
+    const requested: string[] = [];
+    const activeRuns = Array.from({ length: 12 }, (_, index) => ({
+      id: `run_${index}`,
+      status: "completed",
+    }));
+    const safeHeaders = {
+      "cache-control": "no-store",
+      "content-type": "application/json",
+      "x-robots-tag": "noindex, nofollow",
+    };
+    const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
+      const url = new URL(String(input));
+      requested.push(`${url.pathname}${url.search}`);
+      if (["/", "/workbench", "/operations"].includes(url.pathname)) {
+        return new Response("<html><body>Safe page</body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url.pathname === "/api/runs") {
+        return new Response(JSON.stringify({ runs: activeRuns }), {
+          headers: safeHeaders,
+        });
+      }
+      if (url.pathname === "/api/metrics") {
+        return new Response(JSON.stringify({ summary: { totalRuns: 12 } }), {
+          headers: safeHeaders,
+        });
+      }
+      if (/^\/api\/runs\/run_\d+$/.test(url.pathname)) {
+        const suffix = url.pathname.split("_").at(-1);
+        return new Response(
+          JSON.stringify({
+            run: {
+              id: `run_${suffix}`,
+              documentUrl: `/api/runs/run_${suffix}/document`,
+              ...(suffix === "0" ? { documentKey: "runs/private/document" } : {}),
+            },
+          }),
+          { headers: safeHeaders },
+        );
+      }
+      throw new Error(`unexpected_fetch ${url.href}`);
+    };
+
+    const findings = await scanOrigin("https://portfolio.example", fetcher);
+
+    expect(findings.map((finding) => finding.category)).toContain(
+      "internal storage locator",
+    );
+    expect(requested).toContain("/api/runs?limit=50");
+    expect(requested).toContain("/api/metrics");
+    expect(requested.filter((path) => /^\/api\/runs\/run_\d+$/.test(path))).toHaveLength(
+      8,
+    );
+    expect(requested.some((path) => path.endsWith("/document"))).toBe(false);
   });
 });

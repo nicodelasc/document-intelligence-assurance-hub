@@ -52,10 +52,24 @@ export function formRequest(
     if (typeof value === "string") form.append(key, value);
     else form.append(key, value, filename);
   }
+  const sourceType = entries.find(([key]) => key === "sourceType")?.[1];
+  const suppliedExecutionMode = entries.find(
+    ([key]) => key === "executionMode",
+  )?.[1];
+  const executionMode =
+    suppliedExecutionMode ?? (sourceType === "custom" ? "live" : "recorded");
   return new Request("http://local.test/api/runs", {
     method: "POST",
     body: form,
-    headers: { "Idempotency-Key": idempotencyKey },
+    headers: {
+      "Idempotency-Key": idempotencyKey,
+      ...(typeof sourceType === "string"
+        ? { "X-Run-Source-Type": sourceType }
+        : {}),
+      ...(typeof executionMode === "string"
+        ? { "X-Run-Execution-Mode": executionMode }
+        : {}),
+    },
   });
 }
 

@@ -25,6 +25,31 @@ async function completedRun(container: ReturnType<typeof createTestContainer>) {
 }
 
 describe("run detail retention", () => {
+  it("rate limits trace reads before querying run details", async () => {
+    const container = createTestContainer();
+    let detailReads = 0;
+    const readPublicRun = container.repository.readPublicRun.bind(container.repository);
+    container.repository.readPublicRun = async (...input) => {
+      detailReads += 1;
+      return readPublicRun(...input);
+    };
+    container.abuseControl = {
+      allowRunSubmission: async () => true,
+      allowDocumentRead: async () => true,
+      allowPublicRead: async () => false,
+    };
+
+    const response = await handleRunGet(
+      new Request("http://local.test/api/runs/run-public"),
+      { id: "run-public" },
+      container,
+    );
+
+    expect(response.status).toBe(429);
+    expect(detailReads).toBe(0);
+    expect(response.headers.get("set-cookie")).toContain("diah_browser=");
+  });
+
   it("returns active trace details without a deletion credential", async () => {
     const container = createTestContainer();
     const completed = await completedRun(container);
@@ -162,6 +187,7 @@ describe("document streaming", () => {
       abuseControl: {
         allowRunSubmission: async () => true,
         allowDocumentRead: async () => false,
+        allowPublicRead: async () => true,
       },
     });
 

@@ -84,7 +84,24 @@ export function scanPaths(paths) {
   );
 }
 
-async function scanOrigin(origin) {
+const MAX_ORIGIN_RUN_DETAILS = 8;
+
+function activeRunIds(payload) {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.runs)) {
+    return [];
+  }
+  return payload.runs
+    .flatMap((run) => {
+      if (!run || typeof run !== "object") return [];
+      if (run.status === "expired" || run.status === "deleted") return [];
+      return typeof run.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(run.id)
+        ? [run.id]
+        : [];
+    })
+    .slice(0, MAX_ORIGIN_RUN_DETAILS);
+}
+
+export async function scanOrigin(origin, fetchImpl = fetch) {
   const base = new URL(origin);
   const pending = [
     new URL("/", base),
@@ -98,7 +115,7 @@ async function scanOrigin(origin) {
     const url = pending.shift();
     if (!url || visited.has(url.href)) continue;
     visited.add(url.href);
-    const response = await fetch(url, { redirect: "error" });
+    const response = await fetchImpl(url, { redirect: "error" });
     if (!response.ok)
       throw new Error(
         `public_surface_fetch_failed ${response.status} ${url.href}`,
@@ -111,6 +128,42 @@ async function scanOrigin(origin) {
         if (asset.origin === base.origin) pending.push(asset);
       }
     }
+  }
+
+  const runsUrl = new URL("/api/runs?limit=50", base);
+  const runsResponse = await fetchImpl(runsUrl, { redirect: "error" });
+  if (!runsResponse.ok) {
+    throw new Error(
+      `public_surface_fetch_failed ${runsResponse.status} ${runsUrl.href}`,
+    );
+  }
+  const runsText = await runsResponse.text();
+  findings.push(...scanText(runsText, runsUrl.href));
+  let runsPayload;
+  try {
+    runsPayload = JSON.parse(runsText);
+  } catch {
+    throw new Error(`public_surface_invalid_json ${runsUrl.href}`);
+  }
+
+  const metricsUrl = new URL("/api/metrics", base);
+  const metricsResponse = await fetchImpl(metricsUrl, { redirect: "error" });
+  if (!metricsResponse.ok) {
+    throw new Error(
+      `public_surface_fetch_failed ${metricsResponse.status} ${metricsUrl.href}`,
+    );
+  }
+  findings.push(...scanText(await metricsResponse.text(), metricsUrl.href));
+
+  for (const runId of activeRunIds(runsPayload)) {
+    const detailUrl = new URL(`/api/runs/${encodeURIComponent(runId)}`, base);
+    const detailResponse = await fetchImpl(detailUrl, { redirect: "error" });
+    if (!detailResponse.ok) {
+      throw new Error(
+        `public_surface_fetch_failed ${detailResponse.status} ${detailUrl.href}`,
+      );
+    }
+    findings.push(...scanText(await detailResponse.text(), detailUrl.href));
   }
   return findings;
 }

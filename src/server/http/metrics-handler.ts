@@ -7,6 +7,20 @@ import {
   safeErrorResponse,
   safeJsonResponse,
 } from "@/server/http/responses";
+import {
+  attachBucketCookie,
+  resolveAnonymousBucket,
+} from "@/server/http/anonymous-bucket";
+
+const METRICS_CACHE_TTL_MS = 15_000;
+const metricsCache = new WeakMap<
+  object,
+  { expiresAt: number; payload?: unknown; pending?: Promise<unknown> }
+>();
+
+export function invalidateMetricsCache(repository: object): void {
+  metricsCache.delete(repository);
+}
 
 function ratio(numerator: number, denominator: number): number {
   return denominator > 0 ? numerator / denominator : 0;
@@ -118,13 +132,54 @@ function recordedBenchmark() {
 }
 
 export async function handleMetricsGet(
-  _request: Request,
+  request: Request,
   container: HttpContainer,
 ): Promise<Response> {
   const requestId = container.requestIdSource();
+  const bucket = resolveAnonymousBucket(request, {
+    tokenSource: container.bucketTokenSource,
+    secure: process.env.NODE_ENV === "production",
+  });
+  const respond = (response: Response) => attachBucketCookie(response, bucket);
   try {
     const now = container.clock();
-    const [aggregate, runs, cleanupBacklog] = await Promise.all([
+    if (
+      !(await container.abuseControl.allowPublicRead({
+        bucket: bucket.protectedBucket,
+        resource: "metrics",
+        now,
+      }))
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "metrics_rate_limited",
+          message: "Operational metrics have been requested too frequently. Retry shortly.",
+          requestId,
+          status: 429,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    const cached = metricsCache.get(container.repository);
+    if (
+      cached &&
+      cached.payload !== undefined &&
+      cached.expiresAt > now.getTime()
+    ) {
+      return respond(
+        safeJsonResponse(cached.payload, { status: 200, headers: noIndexHeaders }),
+      );
+    }
+    if (cached?.pending) {
+      return respond(
+        safeJsonResponse(await cached.pending, {
+          status: 200,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    const pending = (async () => {
+      const [aggregate, runs, cleanupBacklog] = await Promise.all([
       container.repository.aggregateAnonymousUsage(),
       container.repository.listPublicRuns(now, {
         limit: 100,
@@ -133,37 +188,38 @@ export async function handleMetricsGet(
       }),
       container.repository.countCleanupBacklog(now),
     ]);
-    const latencies = runs.flatMap((run) =>
-      run.latencyMs === null ? [] : [run.latencyMs],
-    );
-    const reviewRuns =
-      (aggregate.outcomeCounts.needs_review ?? 0) +
-      (aggregate.outcomeCounts.incomplete ?? 0) +
-      (aggregate.outcomeCounts.conflict ?? 0) +
-      (aggregate.outcomeCounts.not_found ?? 0);
-    const liveRuns = runs.filter((run) => run.executionMode === "live").length;
-    const recordedRuns = runs.filter((run) => run.executionMode === "recorded").length;
-    const activeRuns = runs.filter(
-      (run) => run.status !== "expired" && run.status !== "deleted",
-    );
-    const nextHour = now.getTime() + 60 * 60 * 1000;
-    const averageModelCostPerRunUsd = ratio(
-      aggregate.estimatedCostUsd,
-      aggregate.completedRuns,
-    );
-    const illustrativeUsdToSgd = 1.35;
-    const resourceInputs = {
-      documents: 200,
-      fields: 3,
-      manualMinutesPerField: 2,
-      assistedMinutesPerField: 0.5,
-      loadedHourlyCost: 50,
-      averageModelCostPerRun: averageModelCostPerRunUsd * illustrativeUsdToSgd,
-    };
-    const resourceResult = calculateResourceScenario(resourceInputs);
+      const latencies = runs.flatMap((run) =>
+        run.latencyMs === null ? [] : [run.latencyMs],
+      );
+      const reviewRuns =
+        (aggregate.outcomeCounts.needs_review ?? 0) +
+        (aggregate.outcomeCounts.incomplete ?? 0) +
+        (aggregate.outcomeCounts.conflict ?? 0) +
+        (aggregate.outcomeCounts.not_found ?? 0);
+      const liveRuns = runs.filter((run) => run.executionMode === "live").length;
+      const recordedRuns = runs.filter(
+        (run) => run.executionMode === "recorded",
+      ).length;
+      const activeRuns = runs.filter(
+        (run) => run.status !== "expired" && run.status !== "deleted",
+      );
+      const nextHour = now.getTime() + 60 * 60 * 1000;
+      const averageModelCostPerRunUsd = ratio(
+        aggregate.estimatedCostUsd,
+        aggregate.completedRuns,
+      );
+      const illustrativeUsdToSgd = 1.35;
+      const resourceInputs = {
+        documents: 200,
+        fields: 3,
+        manualMinutesPerField: 2,
+        assistedMinutesPerField: 0.5,
+        loadedHourlyCost: 50,
+        averageModelCostPerRun: averageModelCostPerRunUsd * illustrativeUsdToSgd,
+      };
+      const resourceResult = calculateResourceScenario(resourceInputs);
 
-    return safeJsonResponse(
-      {
+      return {
         generatedAt: now.toISOString(),
         summary: {
           totalRuns: aggregate.totalRuns,
@@ -224,16 +280,36 @@ export async function handleMetricsGet(
           illustrative: true,
           label: "Illustrative scenario, not measured savings",
         },
-      },
-      { status: 200, headers: noIndexHeaders },
+      };
+    })();
+    metricsCache.set(container.repository, { expiresAt: 0, pending });
+    let payload: unknown;
+    try {
+      payload = await pending;
+      if (metricsCache.get(container.repository)?.pending === pending) {
+        metricsCache.set(container.repository, {
+          expiresAt: now.getTime() + METRICS_CACHE_TTL_MS,
+          payload,
+        });
+      }
+    } catch (error) {
+      if (metricsCache.get(container.repository)?.pending === pending) {
+        metricsCache.delete(container.repository);
+      }
+      throw error;
+    }
+    return respond(
+      safeJsonResponse(payload, { status: 200, headers: noIndexHeaders }),
     );
   } catch {
-    return safeErrorResponse({
-      code: "metrics_unavailable",
-      message: "Operational metrics are temporarily unavailable.",
-      requestId,
-      status: 503,
-      headers: noIndexHeaders,
-    });
+    return respond(
+      safeErrorResponse({
+        code: "metrics_unavailable",
+        message: "Operational metrics are temporarily unavailable.",
+        requestId,
+        status: 503,
+        headers: noIndexHeaders,
+      }),
+    );
   }
 }

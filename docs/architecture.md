@@ -20,7 +20,7 @@ flowchart LR
   Provider -. disabled by default .-> Anthropic[Anthropic API]
 ```
 
-The browser submits a document choice and requested fields. The route validates the request before document parsing then applies submission limits, quota limits and one idempotency claim. A cancellation signal travels from the response stream through the workflow to the selected provider.
+The browser sends non-sensitive source and execution-mode admission headers with the multipart request. The route applies a minute-window submission limit before multipart parsing and rejects impossible custom modes without reading the body. Multipart values remain authoritative and must exactly match the admission headers. After complete server-side file validation the route applies daily quotas and one idempotency claim. A cancellation signal travels from the response stream through the workflow to the selected provider.
 
 Exactly one provider port is selected for a run. Recorded mode returns deterministic fixture output without a network model call. Live mode calls the selected direct provider adapter only when the global switch and its server-side credential are present.
 
@@ -31,6 +31,8 @@ Field evaluators normalize values then check evidence and compare optional refer
 Local keyless mode uses process-memory run, quota and document adapters. It is ephemeral and intended for review.
 
 Connected mode uses Neon for runs, traces, quota reservations, idempotency claims and cleanup jobs. Private Vercel Blob stores document bytes. Database and Blob configuration must be present together. Connected production also requires a strong purge-route secret before request handling starts. Production live mode requires Neon even when the controlled in-memory override is set.
+
+The connected HTTP container also uses an atomic Neon minute-window limiter for submissions, active-document reads, metrics, public run lists and active run details. Every resource has a per-bucket limit and a deployment-wide global limit. The global row is locked before the caller bucket so rotated cookies and parallel serverless instances share one ceiling. Metrics reuse one 15-second in-process snapshot and coalesce concurrent aggregation while the Neon gate bounds total cross-instance work.
 
 Schema changes run through versioned migration files. Routine request handling issues data queries only.
 
@@ -47,6 +49,7 @@ Before dispatch Neon atomically reserves the higher worst-case cost across the s
 - Raw deletion tokens are browser-held capabilities. Only hashes are persisted.
 - Document locators, deletion hashes, full prompts and provider error bodies stay server-side.
 - Public responses contain bounded safe fields and no-store headers where document bytes are involved.
+- The public-surface verifier scans pages, run-list JSON, metrics JSON and at most eight active trace responses. It never fetches raw document URLs as text.
 
 ## Retention sequence
 

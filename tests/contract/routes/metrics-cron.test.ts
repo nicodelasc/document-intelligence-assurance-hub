@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { handleMetricsGet } from "@/server/http/metrics-handler";
+import {
+  handleMetricsGet,
+  invalidateMetricsCache,
+} from "@/server/http/metrics-handler";
 import { handlePurgeExpiredGet } from "@/server/http/cron-handler";
 import { handleRunsPost } from "@/server/http/runs-handler";
 import { createTestContainer, readLines, syntheticRequest } from "./test-support";
@@ -67,6 +70,144 @@ function expectFiniteNumbers(value: unknown): void {
 }
 
 describe("GET /api/metrics", () => {
+  it("rate limits aggregate reads before any metrics query", async () => {
+    const container = createTestContainer();
+    let aggregateReads = 0;
+    const aggregateAnonymousUsage =
+      container.repository.aggregateAnonymousUsage.bind(container.repository);
+    container.repository.aggregateAnonymousUsage = async () => {
+      aggregateReads += 1;
+      return aggregateAnonymousUsage();
+    };
+    container.abuseControl = {
+      allowRunSubmission: async () => true,
+      allowDocumentRead: async () => true,
+      allowPublicRead: async () => false,
+    };
+
+    const response = await handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+
+    expect(response.status).toBe(429);
+    expect(aggregateReads).toBe(0);
+    expect(response.headers.get("set-cookie")).toContain("diah_browser=");
+  });
+
+  it("reuses one short-lived aggregate snapshot", async () => {
+    const container = createTestContainer();
+    let aggregateReads = 0;
+    const aggregateAnonymousUsage =
+      container.repository.aggregateAnonymousUsage.bind(container.repository);
+    container.repository.aggregateAnonymousUsage = async () => {
+      aggregateReads += 1;
+      return aggregateAnonymousUsage();
+    };
+
+    const first = await handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    const second = await handleMetricsGet(
+      new Request("http://local.test/api/metrics", {
+        headers: {
+          cookie:
+            "diah_browser=metrics-cache-browser-token-12345678901234567890",
+        },
+      }),
+      container,
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(aggregateReads).toBe(1);
+    expect(await second.text()).toBe(await first.text());
+  });
+
+  it("coalesces concurrent aggregate snapshots", async () => {
+    const container = createTestContainer();
+    let aggregateReads = 0;
+    let announceStarted: () => void = () => undefined;
+    let releaseAggregate: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = () => resolve();
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseAggregate = () => resolve();
+    });
+    const aggregateAnonymousUsage =
+      container.repository.aggregateAnonymousUsage.bind(container.repository);
+    container.repository.aggregateAnonymousUsage = async () => {
+      aggregateReads += 1;
+      announceStarted();
+      await released;
+      return aggregateAnonymousUsage();
+    };
+
+    const first = handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    await started;
+    const second = handleMetricsGet(
+      new Request("http://local.test/api/metrics", {
+        headers: {
+          cookie:
+            "diah_browser=metrics-concurrent-browser-token-1234567890123456",
+        },
+      }),
+      container,
+    );
+    releaseAggregate();
+    const responses = await Promise.all([first, second]);
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(aggregateReads).toBe(1);
+  });
+
+  it("does not restore a cache entry invalidated during aggregation", async () => {
+    const container = createTestContainer();
+    let aggregateReads = 0;
+    let announceStarted: () => void = () => undefined;
+    let releaseAggregate: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = () => resolve();
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseAggregate = () => resolve();
+    });
+    const aggregateAnonymousUsage =
+      container.repository.aggregateAnonymousUsage.bind(container.repository);
+    container.repository.aggregateAnonymousUsage = async () => {
+      aggregateReads += 1;
+      if (aggregateReads === 1) {
+        announceStarted();
+        await released;
+      }
+      return aggregateAnonymousUsage();
+    };
+
+    const first = handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    await started;
+    invalidateMetricsCache(container.repository);
+    releaseAggregate();
+    expect((await first).status).toBe(200);
+    expect(
+      (
+        await handleMetricsGet(
+          new Request("http://local.test/api/metrics"),
+          container,
+        )
+      ).status,
+    ).toBe(200);
+
+    expect(aggregateReads).toBe(2);
+  });
+
   it("returns finite zero-denominator metrics and labeled recorded benchmarks", async () => {
     const container = createTestContainer();
     const response = await handleMetricsGet(

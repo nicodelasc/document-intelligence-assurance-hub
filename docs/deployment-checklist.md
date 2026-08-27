@@ -20,15 +20,19 @@ Run through a trusted terminal or the Neon SQL editor. Never paste the connectio
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_assurance_hub.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_provider_lifecycle.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_public_resource_controls.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
 - [ ] `0001_assurance_hub` appears exactly once.
 - [ ] `0002_provider_lifecycle` appears exactly once.
+- [ ] `0003_public_resource_controls` appears exactly once.
 - [ ] Reapplying the migration succeeds.
 - [ ] `document_cleanup_jobs` and `run_submission_claims` exist.
 - [ ] `reserve_daily_quota` and `settle_daily_quota` exist.
 - [ ] `model_budget_reservations.expires_at` exists and pending leases are reclaimed after 15 minutes.
+- [ ] `public_rate_limit_windows` and `consume_public_resource_limit` exist.
+- [ ] Parallel requests from rotated test cookies stop at the configured global minute ceiling.
 - [ ] A normal application request produces no schema DDL.
 
 ## Configure the deployment

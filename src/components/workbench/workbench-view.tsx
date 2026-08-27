@@ -284,7 +284,11 @@ export function WorkbenchView() {
       const response = await fetch("/api/runs", {
         method: "POST",
         body: form,
-        headers: { "Idempotency-Key": crypto.randomUUID() },
+        headers: {
+          "Idempotency-Key": crypto.randomUUID(),
+          "X-Run-Source-Type": source,
+          "X-Run-Execution-Mode": source === "synthetic" ? "recorded" : "live",
+        },
         signal: controller.signal,
       });
       const terminal = await consumeNdjson(response, { onEvent: (event) => onStreamEvent(event, requestId) });

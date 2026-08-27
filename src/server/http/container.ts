@@ -26,6 +26,7 @@ import { createRecordedExtractionProvider } from "@/server/workflow/recorded-pro
 import type { ExecutionMode } from "@/server/repositories/run-repository";
 import { syntheticInvoices } from "@/domain/fixtures";
 import {
+  createNeonAbuseControl,
   InMemoryAbuseControl,
   type AbuseControl,
 } from "@/server/security/abuse-control";
@@ -124,7 +125,9 @@ export function createDefaultHttpContainer(
     documentStore: blobToken
       ? createVercelBlobDocumentStore({ token: blobToken })
       : new InMemoryDocumentStore(),
-    abuseControl: new InMemoryAbuseControl(),
+    abuseControl: databaseUrl
+      ? createNeonAbuseControl({ databaseUrl })
+      : new InMemoryAbuseControl(),
     clock: () => new Date(),
     requestIdSource: randomUUID,
     bucketTokenSource: defaultBucketTokenSource,

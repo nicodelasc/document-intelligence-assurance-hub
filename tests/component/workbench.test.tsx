@@ -222,7 +222,7 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
-  it("surfaces a deletion receipt from a failed terminal event", async () => {
+  it("sends custom preflight metadata with a failed terminal event", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (!init?.method) return emptyHistory();
@@ -253,6 +253,12 @@ describe("Workbench request lifecycle", () => {
     const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
     expect(new Headers(postCall?.[1]?.headers).get("idempotency-key")).toMatch(
       /^[A-Za-z0-9_-]{16,128}$/,
+    );
+    expect(new Headers(postCall?.[1]?.headers).get("x-run-source-type")).toBe(
+      "custom",
+    );
+    expect(new Headers(postCall?.[1]?.headers).get("x-run-execution-mode")).toBe(
+      "live",
     );
   });
 

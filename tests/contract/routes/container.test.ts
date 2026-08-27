@@ -10,6 +10,7 @@ describe("HTTP persistence container", () => {
 
     expect(container.repository.constructor.name).toBe("InMemoryRunRepository");
     expect(container.documentStore.constructor.name).toBe("InMemoryDocumentStore");
+    expect(container.abuseControl.constructor.name).toBe("InMemoryAbuseControl");
   });
 
   it("constructs both lazy connected ports when database and Blob are configured", () => {
@@ -22,6 +23,7 @@ describe("HTTP persistence container", () => {
 
     expect(container.repository.constructor.name).not.toBe("InMemoryRunRepository");
     expect(container.documentStore.constructor.name).not.toBe("InMemoryDocumentStore");
+    expect(container.abuseControl.constructor.name).not.toBe("InMemoryAbuseControl");
   });
 
   it.each([
