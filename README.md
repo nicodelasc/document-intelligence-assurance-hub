@@ -91,19 +91,19 @@ PowerShell users can replace `$DATABASE_URL` with `$env:DATABASE_URL`. The migra
 
 ## Environment variables
 
-| Variable                        | Required             | Purpose                                                                                                                         |
-| ------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `AI_LIVE_ENABLED`               | Yes                  | Global model kill switch. Keep `false` until live acceptance passes.                                                            |
-| `OPENAI_MODEL`                  | No                   | OpenAI model ID. The safe default is `gpt-5-mini`.                                                                              |
-| `ANTHROPIC_MODEL`               | No                   | Anthropic model ID. The safe default is `claude-haiku-4-5`.                                                                     |
-| `OPENAI_API_KEY`                | Live OpenAI only     | Server-side provider credential.                                                                                                |
-| `ANTHROPIC_API_KEY`             | Live Anthropic only  | Server-side provider credential.                                                                                                |
-| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget. Invalid values stop startup.                                                                      |
-| `DATABASE_URL`                  | Production           | Server-side Neon connection string.                                                                                             |
-| `BLOB_READ_WRITE_TOKEN`         | Production           | Server-side private Blob credential.                                                                                            |
-| `CRON_SECRET`                   | Production           | Bearer secret for the purge route.                                                                                              |
-| `PUBLIC_SITE_URL`               | Rollout              | Stable public origin used by rollout tooling.                                                                                   |
-| `ALLOW_IN_MEMORY_PERSISTENCE`   | Local exception only | Allows a production build to run without durable adapters for controlled smoke tests. Live production mode still requires Neon. |
+| Variable                        | Required             | Purpose                                                                                                                     |
+| ------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `AI_LIVE_ENABLED`               | Yes                  | Global model kill switch. Keep `false` until live acceptance passes.                                                        |
+| `OPENAI_MODEL`                  | No                   | OpenAI model ID. The safe default is `gpt-5-mini`.                                                                          |
+| `ANTHROPIC_MODEL`               | No                   | Anthropic model ID. The safe default is `claude-haiku-4-5`.                                                                 |
+| `OPENAI_API_KEY`                | Live OpenAI only     | Server-side provider credential.                                                                                            |
+| `ANTHROPIC_API_KEY`             | Live Anthropic only  | Server-side provider credential.                                                                                            |
+| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget. Invalid values stop startup.                                                                  |
+| `DATABASE_URL`                  | Production           | Server-side Neon connection string.                                                                                         |
+| `BLOB_READ_WRITE_TOKEN`         | Production           | Server-side private Blob credential.                                                                                        |
+| `CRON_SECRET`                   | Connected production | Random bearer secret of at least 32 characters with no whitespace. Weak or missing values stop request-serving startup.     |
+| `PUBLIC_SITE_URL`               | Rollout              | Stable public origin used by rollout tooling.                                                                               |
+| `ALLOW_IN_MEMORY_PERSISTENCE`   | Local exception only | Allows recorded synthetic production smoke tests without durable adapters. Custom uploads and live mode remain unavailable. |
 
 Never commit environment files or paste secret values into logs, issues or recordings.
 

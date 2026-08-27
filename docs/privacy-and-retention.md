@@ -20,11 +20,11 @@ Deletion and expiry use the following order:
 4. Attempt Blob deletion.
 5. Retry failed Blob cleanup through the hourly purge.
 
-Logical access denial is immediate. Physical cleanup can lag when Blob is unavailable. The tombstone remains the access-control boundary during that delay.
+Logical access denial is immediate. Physical cleanup can lag when Blob is unavailable. The tombstone remains the access-control boundary during that delay. Document reads recheck the tombstone and expiry after Blob retrieval before returning bytes.
 
 ## Storage boundary
 
-Connected document storage is private Vercel Blob. Objects are never linked directly to a public client. The app serves active bytes only through a same-origin route with no-store and cross-origin protection headers.
+Connected document storage is private Vercel Blob. Objects are never linked directly to a public client. The app serves active bytes only through a same-origin route with no-store and cross-origin protection headers. The document route permits framing by the same application origin only while ordinary pages deny framing.
 
 Neon stores run state, public-safe trace data, quota reservations, idempotency claims and cleanup jobs. Environment credentials remain server-side.
 

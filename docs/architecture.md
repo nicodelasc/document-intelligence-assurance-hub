@@ -30,9 +30,15 @@ Field evaluators normalize values then check evidence and compare optional refer
 
 Local keyless mode uses process-memory run, quota and document adapters. It is ephemeral and intended for review.
 
-Connected mode uses Neon for runs, traces, quota reservations, idempotency claims and cleanup jobs. Private Vercel Blob stores document bytes. Database and Blob configuration must be present together. Production live mode requires Neon even when the controlled in-memory override is set.
+Connected mode uses Neon for runs, traces, quota reservations, idempotency claims and cleanup jobs. Private Vercel Blob stores document bytes. Database and Blob configuration must be present together. Connected production also requires a strong purge-route secret before request handling starts. Production live mode requires Neon even when the controlled in-memory override is set.
 
 Schema changes run through versioned migration files. Routine request handling issues data queries only.
+
+## Live provider lifecycle
+
+Live adapters accept only `gpt-5-mini` for OpenAI and `claude-haiku-4-5` for Anthropic so displayed costs always use the dated model-specific rate table. Each SDK call disables built-in retries, caps structured output at 2,000 tokens and composes the browser cancellation signal with a 45-second server deadline. The workflow owns the single permitted retry.
+
+Before dispatch Neon atomically reserves the higher worst-case cost across the supported model context windows for two provider attempts. A dispatch that may have reached a provider keeps its reservation instead of declaring the attempt free. Pending reservations use a 15-minute lease and a later atomic quota request reclaims stale leases. Early validation, storage and client-abort paths release their reservation because no provider dispatch occurred.
 
 ## Trust boundaries
 
@@ -44,4 +50,4 @@ Schema changes run through versioned migration files. Routine request handling i
 
 ## Retention sequence
 
-At expiry or Delete now the repository first marks details deleted and removes public detail access. It then records a cleanup job before requesting Blob deletion. A failed Blob delete leaves the logical tombstone in place. The hourly purge retries durable cleanup jobs.
+At expiry or Delete now the repository first marks details deleted and removes public detail access. It then records a cleanup job before requesting Blob deletion. A failed Blob delete leaves the logical tombstone in place. Late workflow writes are conditioned on the active tombstone row so they cannot restore deleted detail. The document route rechecks current state and expiry after Blob retrieval before it returns bytes. The hourly purge retries durable cleanup jobs.

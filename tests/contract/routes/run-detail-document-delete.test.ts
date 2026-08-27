@@ -174,6 +174,76 @@ describe("document streaming", () => {
     expect(response.status).toBe(429);
     expect(storageReads).toBe(0);
   });
+
+  it("denies bytes when Delete now tombstones the run during the Blob read", async () => {
+    const base = createTestContainer();
+    const completed = await completedRun(base);
+    const container = createTestContainer({
+      repository: base.repository,
+      documentStore: {
+        ...base.documentStore,
+        fetchActiveDocument: async (input) => {
+          const document = await base.documentStore.fetchActiveDocument(input);
+          await base.repository.deleteDetailedData(
+            completed.runId,
+            "2026-08-27T00:00:01.000Z",
+          );
+          return document;
+        },
+      },
+    });
+
+    const response = await handleRunDocumentGet(
+      new Request(
+        `http://local.test/api/runs/${completed.runId}/document`,
+      ),
+      { id: completed.runId },
+      container,
+    );
+
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(await response.json()).toMatchObject({
+      error: { code: "document_unavailable" },
+    });
+  });
+
+  it("denies bytes when retention expires during the Blob read", async () => {
+    let now = new Date("2026-08-27T00:00:00.000Z");
+    const base = createTestContainer({ clock: () => now });
+    const completed = await completedRun(base);
+    const container = createTestContainer({
+      clock: () => now,
+      repository: base.repository,
+      documentStore: {
+        ...base.documentStore,
+        fetchActiveDocument: async (input) => {
+          const document = await base.documentStore.fetchActiveDocument(input);
+          now = new Date("2026-08-28T00:00:00.000Z");
+          return document;
+        },
+      },
+    });
+
+    const response = await handleRunDocumentGet(
+      new Request(
+        `http://local.test/api/runs/${completed.runId}/document`,
+      ),
+      { id: completed.runId },
+      container,
+    );
+
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe(
+      "private, no-store, max-age=0",
+    );
+    expect(await response.json()).toMatchObject({
+      error: { code: "document_unavailable" },
+    });
+  });
 });
 
 describe("DELETE /api/runs/[id]", () => {

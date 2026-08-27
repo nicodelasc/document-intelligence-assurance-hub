@@ -9,7 +9,10 @@ describe("deployment security headers", () => {
     const rules = await nextConfig.headers();
     const catchAll = rules.find((rule) => rule.source === "/(.*)");
     const headers = new Map(
-      catchAll?.headers.map((header) => [header.key.toLowerCase(), header.value]),
+      catchAll?.headers.map((header) => [
+        header.key.toLowerCase(),
+        header.value,
+      ]),
     );
     const csp = headers.get("content-security-policy") ?? "";
 
@@ -23,5 +26,29 @@ describe("deployment security headers", () => {
     expect(csp).toContain("connect-src 'self'");
     expect(csp).not.toContain("unsafe-eval");
     expect(csp).not.toMatch(/(?:^|\s)\*(?:\s|;|$)/);
+  });
+
+  it("allows the exact document route to render only inside the same origin", async () => {
+    if (typeof nextConfig.headers !== "function") {
+      throw new Error("security headers are not configured");
+    }
+    const rules = await nextConfig.headers();
+    const catchAllIndex = rules.findIndex((rule) => rule.source === "/(.*)");
+    const documentIndex = rules.findIndex(
+      (rule) => rule.source === "/api/runs/:id/document",
+    );
+    const documentHeaders = new Map(
+      rules[documentIndex]?.headers.map((header) => [
+        header.key.toLowerCase(),
+        header.value,
+      ]),
+    );
+    const csp = documentHeaders.get("content-security-policy") ?? "";
+
+    expect(catchAllIndex).toBeGreaterThanOrEqual(0);
+    expect(documentIndex).toBeGreaterThan(catchAllIndex);
+    expect(documentHeaders.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).not.toContain("frame-ancestors 'none'");
   });
 });

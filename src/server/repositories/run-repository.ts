@@ -478,28 +478,41 @@ class NeonRunRepository implements RunRepository {
 
   async setStatus(runId: string, status: RunStatus): Promise<void> {
     const driver = await this.readyDriver();
-    await driver.query("UPDATE runs SET status = $2 WHERE id = $1", [runId, status]);
+    await driver.query(
+      "UPDATE runs SET status = $2 WHERE id = $1 AND details_deleted = false",
+      [runId, status],
+    );
   }
 
   async appendStep(runId: string, step: RunStepRecord): Promise<void> {
     const driver = await this.readyDriver();
-    await driver.query("INSERT INTO run_steps (run_id, step_json) VALUES ($1, $2::jsonb)", [
-      runId,
-      JSON.stringify(step),
-    ]);
+    await driver.query(
+      `WITH active_run AS (
+        SELECT id FROM runs
+        WHERE id = $1 AND details_deleted = false FOR UPDATE
+      )
+      INSERT INTO run_steps (run_id, step_json)
+      SELECT id, $2::jsonb FROM active_run`,
+      [runId, JSON.stringify(step)],
+    );
   }
 
   async saveResults(runId: string, result: SaveRunResultsInput): Promise<void> {
     const driver = await this.readyDriver();
     await driver.query(
-      `WITH saved AS (
-        INSERT INTO run_results (run_id, result_json) VALUES ($1, $2::jsonb)
+      `WITH active_run AS (
+        SELECT id FROM runs
+        WHERE id = $1 AND details_deleted = false FOR UPDATE
+      ), saved AS (
+        INSERT INTO run_results (run_id, result_json)
+        SELECT id, $2::jsonb FROM active_run
         ON CONFLICT (run_id) DO UPDATE SET result_json = EXCLUDED.result_json
+        RETURNING run_id
       )
       UPDATE runs SET status = 'completed', outcome = $3, usage = $4::jsonb,
         estimated_cost_usd = $5, retry_count = $6, latency_ms = $7,
         step_durations = $8::jsonb, was_completed = true
-      WHERE id = $1`,
+      FROM saved WHERE runs.id = saved.run_id`,
       [
         runId,
         JSON.stringify(result),
@@ -523,11 +536,17 @@ class NeonRunRepository implements RunRepository {
       safeCode: input.safeCode,
     };
     await driver.query(
-      `WITH saved AS (
-        INSERT INTO run_steps (run_id, step_json) VALUES ($1, $2::jsonb)
+      `WITH active_run AS (
+        SELECT id FROM runs
+        WHERE id = $1 AND details_deleted = false FOR UPDATE
+      ), saved AS (
+        INSERT INTO run_steps (run_id, step_json)
+        SELECT id, $2::jsonb FROM active_run
+        RETURNING run_id
       )
       UPDATE runs SET status = 'failed', retry_count = $3, latency_ms = $4,
-        step_durations = $5::jsonb, was_failed = true WHERE id = $1`,
+        step_durations = $5::jsonb, was_failed = true
+      FROM saved WHERE runs.id = saved.run_id`,
       [
         runId,
         JSON.stringify(step),

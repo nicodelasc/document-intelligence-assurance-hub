@@ -260,6 +260,127 @@ describe("InMemoryRunRepository", () => {
     ]);
   });
 
+  it("keeps a Neon tombstone immutable when a late status update arrives", async () => {
+    const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queries.push({ sql, parameters });
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await repository.setStatus("run-neon", "extracting");
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toMatch(
+      /UPDATE runs SET status = \$2 WHERE id = \$1 AND details_deleted = false/,
+    );
+    expect(queries[0].parameters).toEqual(["run-neon", "extracting"]);
+  });
+
+  it("skips a late Neon step when the active tombstone row is unavailable", async () => {
+    const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queries.push({ sql, parameters });
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await repository.appendStep("run-neon", {
+      kind: "stage",
+      stage: "extracting",
+      timestamp: createdAt,
+      durationMs: 20,
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toMatch(
+      /SELECT id FROM runs\s+WHERE id = \$1 AND details_deleted = false FOR UPDATE/,
+    );
+    expect(queries[0].sql).toMatch(
+      /INSERT INTO run_steps \(run_id, step_json\)[\s\S]+SELECT id, \$2::jsonb FROM active_run/,
+    );
+  });
+
+  it("skips late Neon results when the active tombstone row is unavailable", async () => {
+    const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queries.push({ sql, parameters });
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await repository.saveResults("run-neon", {
+      fields,
+      outcome: "clear",
+      usage: { inputTokens: 100, outputTokens: 25 },
+      estimatedCostUsd: 0.000075,
+      retryCount: 0,
+      latencyMs: 420,
+      stepDurations: { extracting: 220 },
+      completedAt: "2026-08-27T00:00:02.000Z",
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toMatch(
+      /SELECT id FROM runs\s+WHERE id = \$1 AND details_deleted = false FOR UPDATE/,
+    );
+    expect(queries[0].sql).toMatch(
+      /INSERT INTO run_results \(run_id, result_json\)[\s\S]+SELECT id, \$2::jsonb FROM active_run/,
+    );
+    expect(queries[0].sql).toMatch(
+      /UPDATE runs SET[\s\S]+FROM saved[\s\S]+WHERE runs.id = saved.run_id/,
+    );
+  });
+
+  it("skips a late Neon failure when the active tombstone row is unavailable", async () => {
+    const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queries.push({ sql, parameters });
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await repository.markFailed("run-neon", {
+      timestamp: "2026-08-27T00:00:02.000Z",
+      safeCode: "provider_unavailable",
+      failedStage: "failed",
+      retryCount: 1,
+      latencyMs: 400,
+      stepDurations: { extracting: 375 },
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toMatch(
+      /SELECT id FROM runs\s+WHERE id = \$1 AND details_deleted = false FOR UPDATE/,
+    );
+    expect(queries[0].sql).toMatch(
+      /INSERT INTO run_steps \(run_id, step_json\)[\s\S]+SELECT id, \$2::jsonb FROM active_run/,
+    );
+    expect(queries[0].sql).toMatch(
+      /UPDATE runs SET[\s\S]+FROM saved[\s\S]+WHERE runs.id = saved.run_id/,
+    );
+  });
+
   it("returns a bounded in-memory summary window without trace details", async () => {
     const repository = new InMemoryRunRepository();
     for (let index = 0; index < 5; index += 1) {

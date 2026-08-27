@@ -98,6 +98,19 @@ export async function handleRunDocumentGet(
       now: recheckNow,
     });
     if (!document) return respond(unavailableDocument(requestId, 404));
+    const postFetchNow = container.clock();
+    const postFetchRun = await container.repository.readPublicRun(
+      parameters.id,
+      postFetchNow,
+    );
+    if (!postFetchRun) return respond(unavailableDocument(requestId, 404));
+    if (
+      postFetchRun.status === "expired" ||
+      postFetchRun.status === "deleted" ||
+      Date.parse(postFetchRun.expiresAt) <= postFetchNow.getTime()
+    ) {
+      return respond(unavailableDocument(requestId, 410));
+    }
     const headers = new Headers(documentNoStoreHeaders);
     headers.set("content-type", mediaType);
     headers.set("content-length", String(document.sizeBytes));

@@ -15,6 +15,11 @@ const contentSecurityPolicy = [
   "worker-src 'self' blob:",
 ].join("; ");
 
+const sameOriginDocumentContentSecurityPolicy = contentSecurityPolicy.replace(
+  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
+);
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -30,6 +35,16 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
+      {
+        source: "/api/runs/:id/document",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: sameOriginDocumentContentSecurityPolicy,
+          },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
       },
     ];
