@@ -28,7 +28,7 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Run assurance check" }).click();
   await expect(page.getByText(token)).toBeVisible();
-  await page.getByRole("button", { name: "Delete now" }).click();
+  await page.getByRole("button", { name: "Delete run run_mock_delete" }).click();
   await expect(page.getByRole("alertdialog")).not.toContainText(token);
   await expect(page.getByRole("alertdialog")).not.toContainText("hash");
   await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();

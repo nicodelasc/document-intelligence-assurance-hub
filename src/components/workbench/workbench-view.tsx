@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { FileText, ShieldCheck } from "lucide-react";
 import type { FieldResult, Outcome, Provider, RunEvent, RunStatus } from "@/domain/types";
 import { recordedRunResults, syntheticInvoices } from "@/domain/fixtures";
 import { Button, EmptyState, KeylessNotice, LiveRegion, RulePanel, StatusMark } from "@/components/ui/primitives";
 import { DangerDialog } from "@/components/ui/dialog";
-import { ComparisonLedger, CustomUploadFields, ProviderSelector, type ComparableRun, type CustomUploadState } from "./workbench-controls";
+import { ComparisonLedger, CustomUploadFields, ProviderSelector, type ComparableRun, type CustomUploadHandle, type CustomUploadState } from "./workbench-controls";
 import { consumeNdjson } from "./run-stream";
 
 const traceStages: Array<{ key: RunStatus; label: string }> = [
@@ -35,6 +35,9 @@ const outcomeLabel: Record<Outcome, string> = {
 };
 
 type TraceState = Record<string, { status: "idle" | "active" | "pass" | "error"; duration: number | null }>;
+type DeletionReceipt = { runId: string; token: string; expiresAt: string };
+
+const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
 function freshTrace(): TraceState {
   return Object.fromEntries(traceStages.map((stage) => [stage.key, { status: "idle", duration: null }]));
@@ -46,6 +49,74 @@ function safeStoreDeletion(runId: string, token: string, expiresAt: string) {
   } catch {
     // Browser storage can be unavailable. The one-time receipt remains visible in this session.
   }
+}
+
+function removeStoredDeletion(runId: string) {
+  try {
+    localStorage.removeItem(`assurance-delete:${runId}`);
+  } catch {
+    // Storage cleanup is best effort. A missing browser store does not block server deletion.
+  }
+}
+
+function restoreDeletionReceipts(now = Date.now()): DeletionReceipt[] {
+  const restored: DeletionReceipt[] = [];
+  try {
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith("assurance-delete:")) continue;
+      const runId = key.slice("assurance-delete:".length);
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? "null") as Partial<DeletionReceipt> | null;
+        if (!parsed || typeof parsed.token !== "string" || typeof parsed.expiresAt !== "string" || Date.parse(parsed.expiresAt) <= now) {
+          localStorage.removeItem(key);
+          continue;
+        }
+        restored.push({ runId, token: parsed.token, expiresAt: parsed.expiresAt });
+      } catch {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    return [];
+  }
+  return restored.sort((left, right) => Date.parse(left.expiresAt) - Date.parse(right.expiresAt));
+}
+
+function comparisonValue(field: FieldResult): string {
+  return `Extracted: ${field.extractedValue ?? "Not found"} · Normalized: ${field.normalizedValue ?? "Not found"}`;
+}
+
+function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
+  if (!payload || typeof payload !== "object") return null;
+  const run = (payload as { run?: unknown }).run;
+  if (!run || typeof run !== "object") return null;
+  const record = run as Record<string, unknown>;
+  if (record.status === "expired" || record.status === "deleted") return null;
+  if (typeof record.id !== "string" || (record.provider !== "openai" && record.provider !== "anthropic")) return null;
+  if (record.executionMode !== "recorded" && record.executionMode !== "live") return null;
+  if (typeof record.outcome !== "string" || !outcomes.has(record.outcome as Outcome)) return null;
+  const details = record.details && typeof record.details === "object" ? record.details as Record<string, unknown> : null;
+  const result = details?.result && typeof details.result === "object" ? details.result as Record<string, unknown> : null;
+  const rawFields = Array.isArray(result?.fields) ? result.fields : [];
+  const fields = rawFields.filter((candidate): candidate is FieldResult => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const item = candidate as Record<string, unknown>;
+    return typeof item.key === "string" && typeof item.label === "string" && typeof item.evaluatorStatus === "string";
+  });
+  if (!fields.length) return null;
+  return {
+    id: record.id,
+    provider: record.provider,
+    model: typeof record.model === "string" ? record.model : "Unavailable",
+    executionMode: record.executionMode,
+    requestedFields: fields.map((field) => field.label),
+    values: fields.map(comparisonValue),
+    evidence: fields.map((field) => field.evidence ?? "No evidence found"),
+    evaluator: fields.map((field) => field.evaluatorStatus),
+    latencyMs: typeof record.latencyMs === "number" ? record.latencyMs : typeof result?.latencyMs === "number" ? result.latencyMs : 0,
+    outcome: record.outcome as Outcome,
+  };
 }
 
 export function WorkbenchView() {
@@ -60,18 +131,79 @@ export function WorkbenchView() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState("");
   const [liveMessage, setLiveMessage] = useState("Ready for a recorded replay.");
+  const [outcomeFocusVersion, setOutcomeFocusVersion] = useState(0);
   const [history, setHistory] = useState<ComparableRun[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
   const [leftId, setLeftId] = useState("");
   const [rightId, setRightId] = useState("");
-  const [deletionReceipt, setDeletionReceipt] = useState<{ runId: string; token: string; expiresAt: string } | null>(null);
+  const [deletionReceipts, setDeletionReceipts] = useState<DeletionReceipt[]>([]);
+  const [selectedDeletionId, setSelectedDeletionId] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef(0);
   const runButtonRef = useRef<HTMLButtonElement>(null);
+  const outcomeHeadingRef = useRef<HTMLHeadingElement>(null);
+  const customUploadRef = useRef<CustomUploadHandle>(null);
   const startedRef = useRef(0);
   const lastStageRef = useRef<{ key: RunStatus; at: number } | null>(null);
+  const fieldAccumulatorRef = useRef<{ requestId: number; fields: Map<string, FieldResult> }>({ requestId: 0, fields: new Map() });
+  const selectedDeletionReceipt = deletionReceipts.find((receipt) => receipt.runId === selectedDeletionId) ?? null;
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (active) setDeletionReceipts(restoreDeletionReceipts());
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function hydrateHistory() {
+      try {
+        const response = await fetch("/api/runs?limit=12", { signal: controller.signal });
+        if (!response.ok) throw new Error("history_unavailable");
+        const payload = await response.json() as { runs?: unknown };
+        const summaries = Array.isArray(payload.runs) ? payload.runs : [];
+        const activeIds = summaries.flatMap((candidate) => {
+          if (!candidate || typeof candidate !== "object") return [];
+          const record = candidate as Record<string, unknown>;
+          if (record.status === "expired" || record.status === "deleted" || typeof record.id !== "string") return [];
+          return [record.id];
+        }).slice(0, 8);
+        const settled = await Promise.allSettled(activeIds.map(async (runId) => {
+          const detailResponse = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { signal: controller.signal });
+          if (!detailResponse.ok) throw new Error("detail_unavailable");
+          return comparableFromPublicPayload(await detailResponse.json());
+        }));
+        if (controller.signal.aborted) return;
+        const hydrated = settled.flatMap((entry) => entry.status === "fulfilled" && entry.value ? [entry.value] : []);
+        setHistory((current) => [...current, ...hydrated.filter((run) => !current.some((existing) => existing.id === run.id))]);
+        setHistoryError(settled.some((entry) => entry.status === "rejected") ? "Some active run details could not be loaded safely." : "");
+      } catch (reason) {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setHistoryError("Active public run history is temporarily unavailable.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      }
+    }
+    queueMicrotask(() => void hydrateHistory());
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => () => {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (outcomeFocusVersion > 0) outcomeHeadingRef.current?.focus();
+  }, [outcomeFocusVersion]);
 
   useEffect(() => {
     if (!custom.file) {
@@ -102,24 +234,37 @@ export function WorkbenchView() {
       const label = traceStages.find((stage) => stage.key === event.stage)?.label ?? event.stage;
       setLiveMessage(`${label} stage started.`);
     } else if (event.type === "field") {
+      if (fieldAccumulatorRef.current.requestId === requestId) {
+        fieldAccumulatorRef.current.fields.set(event.field.key, event.field);
+      }
       setFields((current) => [...current.filter((field) => field.key !== event.field.key), event.field]);
     }
   }, []);
 
+  function rememberDeletionReceipt(runId: string, token: string) {
+    const receipt = { runId, token, expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString() };
+    safeStoreDeletion(receipt.runId, receipt.token, receipt.expiresAt);
+    setDeletionReceipts((current) => [receipt, ...current.filter((candidate) => candidate.runId !== receipt.runId)]);
+  }
+
   async function runAssurance() {
     if (running) return;
-    if (source === "custom" && !custom.valid) {
-      setError("Complete the document, field labels and consent before running a custom check.");
-      document.getElementById("custom-document")?.focus();
-      return;
+    setRunning(true);
+    if (source === "custom") {
+      const customValid = await customUploadRef.current?.validate();
+      if (!customValid) {
+        setError("Complete the document, field labels and consent before running a custom check.");
+        setRunning(false);
+        return;
+      }
     }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const requestId = ++requestRef.current;
+    fieldAccumulatorRef.current = { requestId, fields: new Map() };
     startedRef.current = performance.now();
     lastStageRef.current = null;
-    setRunning(true);
     setError("");
     setOutcome(null);
     setFields([]);
@@ -140,6 +285,9 @@ export function WorkbenchView() {
       const terminal = await consumeNdjson(response, { onEvent: (event) => onStreamEvent(event, requestId) });
       if (requestId !== requestRef.current) return;
       const elapsed = performance.now() - startedRef.current;
+      if (source === "custom" && terminal.runId && terminal.deletionToken) {
+        rememberDeletionReceipt(terminal.runId, terminal.deletionToken);
+      }
       if (terminal.type === "failed") {
         setError(terminal.message);
         setLiveMessage(`Run stopped. ${terminal.message}`);
@@ -152,25 +300,23 @@ export function WorkbenchView() {
       });
       setOutcome(terminal.outcome);
       setLiveMessage(`Run complete. Outcome: ${outcomeLabel[terminal.outcome]}.`);
-      const completedFields = fields.length ? fields : fixture.fields;
+      const streamedFields = fieldAccumulatorRef.current.requestId === requestId ? [...fieldAccumulatorRef.current.fields.values()] : [];
+      const completedFields = streamedFields.length ? streamedFields : source === "synthetic" ? fixture.fields : [];
+      setFields(completedFields);
       const comparable: ComparableRun = {
         id: terminal.runId,
         provider,
         model: provider === "openai" ? "GPT-5 mini" : "Claude Haiku 4.5",
         executionMode: terminal.executionMode,
         requestedFields: completedFields.map((field) => field.label),
-        values: completedFields.map((field) => field.normalizedValue ?? "Not found"),
+        values: completedFields.map(comparisonValue),
         evidence: completedFields.map((field) => field.evidence ?? "No evidence found"),
         evaluator: completedFields.map((field) => field.evaluatorStatus),
         latencyMs: Math.round(elapsed),
         outcome: terminal.outcome,
       };
       setHistory((current) => [comparable, ...current.filter((run) => run.id !== comparable.id)]);
-      if (source === "custom" && terminal.deletionToken) {
-        const receipt = { runId: terminal.runId, token: terminal.deletionToken, expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString() };
-        setDeletionReceipt(receipt);
-        safeStoreDeletion(receipt.runId, receipt.token, receipt.expiresAt);
-      }
+      setOutcomeFocusVersion((current) => current + 1);
     } catch (reason) {
       if (requestId !== requestRef.current) return;
       if (reason instanceof DOMException && reason.name === "AbortError") {
@@ -199,15 +345,16 @@ export function WorkbenchView() {
   }
 
   async function deleteRun() {
-    if (!deletionReceipt) return;
+    if (!selectedDeletionReceipt) return;
     setDeleting(true);
     setDeleteError("");
     try {
-      const response = await fetch(`/api/runs/${encodeURIComponent(deletionReceipt.runId)}`, { method: "DELETE", headers: { "x-delete-token": deletionReceipt.token } });
+      const response = await fetch(`/api/runs/${encodeURIComponent(selectedDeletionReceipt.runId)}`, { method: "DELETE", headers: { "x-delete-token": selectedDeletionReceipt.token } });
       if (!response.ok) throw new Error("Deletion could not be confirmed. Retry with the same browser-held token.");
-      try { localStorage.removeItem(`assurance-delete:${deletionReceipt.runId}`); } catch { /* no-op */ }
-      setHistory((current) => current.filter((run) => run.id !== deletionReceipt.runId));
-      setDeletionReceipt(null);
+      removeStoredDeletion(selectedDeletionReceipt.runId);
+      setHistory((current) => current.filter((run) => run.id !== selectedDeletionReceipt.runId));
+      setDeletionReceipts((current) => current.filter((receipt) => receipt.runId !== selectedDeletionReceipt.runId));
+      setSelectedDeletionId("");
       setDeleteDialogOpen(false);
       setLiveMessage("Run deleted.");
     } catch (reason) {
@@ -234,7 +381,7 @@ export function WorkbenchView() {
             </fieldset>
             {source === "synthetic" ? (
               <fieldset className="sample-list"><legend>Choose a sample</legend>{syntheticInvoices.map((sample) => <label key={sample.id} className={sampleId === sample.id ? "selected-control" : ""}><input type="radio" name="sample" value={sample.id} checked={sampleId === sample.id} onChange={() => setSampleId(sample.id)} /><span><strong>{sampleCopy[sample.id].title}</strong><small>{sampleCopy[sample.id].description}</small></span></label>)}</fieldset>
-            ) : <CustomUploadFields onReadyChange={setCustom} />}
+            ) : <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} />}
           </RulePanel>
 
           <section className="document-work-area">
@@ -251,22 +398,24 @@ export function WorkbenchView() {
               <ol className="trace-list">{traceStages.map((stage) => { const state = trace[stage.key]; return <li key={stage.key} className={state.status === "active" ? "trace-active" : ""}><StatusMark status={state.status} /><span><strong>{stage.label}</strong><small>{state.status === "active" ? "In progress" : state.status === "pass" ? "Completed" : "Pending"}</small></span><time>{state.duration === null ? "—" : `${(state.duration / 1000).toFixed(1)} s`}</time></li>; })}</ol>
             </RulePanel>
             <RulePanel title="Result and extracted fields">
-              {!outcome ? <EmptyState title="Awaiting a run">Field evidence will appear here without shifting the trace.</EmptyState> : <ResultLedger outcome={outcome} fields={fields.length ? fields : fixture.fields} />}
+              {!outcome ? <EmptyState title="Awaiting a run">Field evidence will appear here without shifting the trace.</EmptyState> : <ResultLedger outcome={outcome} fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []} headingRef={outcomeHeadingRef} />}
             </RulePanel>
           </aside>
         </div>
       </form>
 
       <section className="history-band" aria-labelledby="history-heading">
-        <header><div><h2 id="history-heading">Public run history</h2><p>Active details remain visible for less than 24 hours.</p></div><span>{history.length} runs in this browser session</span></header>
-        {!history.length ? <EmptyState title="No runs to compare">Complete two recorded replays to compare their evidence and outcomes.</EmptyState> : (
+        <header><div><h2 id="history-heading">Public run history</h2><p>Active details remain visible for less than 24 hours.</p></div><span>{history.length} active public runs</span></header>
+        {historyLoading ? <p className="history-status" role="status">Loading active public runs…</p> : null}
+        {historyError ? <div className="inline-error history-error" role="alert" aria-label="Public run history unavailable">{historyError}</div> : null}
+        {!historyLoading && !history.length ? <EmptyState title="No active public runs">Complete two recorded replays to compare their evidence and outcomes.</EmptyState> : history.length ? (
           <div className="comparison-controls"><label>Run A<select value={leftId} onChange={(event) => setLeftId(event.target.value)}><option value="">Select run A</option>{history.map((run) => <option value={run.id} key={run.id}>{run.id}</option>)}</select></label><label>Run B<select value={rightId} onChange={(event) => setRightId(event.target.value)}><option value="">Select run B</option>{history.map((run) => <option value={run.id} key={run.id}>{run.id}</option>)}</select></label></div>
-        )}
+        ) : null}
         <ComparisonLedger runs={history} leftId={leftId} rightId={rightId} />
       </section>
 
-      {deletionReceipt ? <aside className="deletion-receipt" aria-labelledby="deletion-receipt-title"><ShieldCheck aria-hidden="true" /><div><h2 id="deletion-receipt-title">Early deletion is available</h2><p>This one-time deletion token is stored only in this browser until expiry. It is never placed in a URL.</p><output className="mono">{deletionReceipt.token}</output></div><Button type="button" intent="danger" onClick={() => setDeleteDialogOpen(true)}>Delete now</Button></aside> : null}
-      <DangerDialog open={deleteDialogOpen} title="Delete this public run?" description="The raw file and detailed trace will be permanently removed. This action cannot be undone." objectName={deletionReceipt?.runId ?? ""} busy={deleting} error={deleteError} onCancel={() => setDeleteDialogOpen(false)} onConfirm={deleteRun} />
+      {deletionReceipts.length ? <section className="deletion-receipts" aria-labelledby="deletion-receipts-title"><h2 id="deletion-receipts-title" className="sr-only">Browser-held deletion receipts</h2>{deletionReceipts.map((receipt) => <aside className="deletion-receipt" key={receipt.runId}><ShieldCheck aria-hidden="true" /><div><h3>Early deletion is available</h3><p>This one-time deletion token is stored only in this browser until expiry. It is never placed in a URL.</p><output className="mono">{receipt.token}</output><small className="mono">Run: {receipt.runId}</small></div><Button type="button" intent="danger" aria-label={`Delete run ${receipt.runId}`} onClick={() => { setSelectedDeletionId(receipt.runId); setDeleteError(""); setDeleteDialogOpen(true); }}>Delete now</Button></aside>)}</section> : null}
+      <DangerDialog open={deleteDialogOpen} title="Delete this public run?" description="The raw file and detailed trace will be permanently removed. This action cannot be undone." objectName={selectedDeletionReceipt?.runId ?? ""} busy={deleting} error={deleteError} onCancel={() => { setDeleteDialogOpen(false); setSelectedDeletionId(""); }} onConfirm={deleteRun} />
     </main>
   );
 }
@@ -298,7 +447,7 @@ function DocumentPreview({ source, sampleId, selectedInvoice, custom, previewUrl
   );
 }
 
-function ResultLedger({ outcome, fields }: { outcome: Outcome; fields: FieldResult[] }) {
+function ResultLedger({ outcome, fields, headingRef }: { outcome: Outcome; fields: FieldResult[]; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const custom = outcome === "evidence_consistent" || outcome === "conflict" || outcome === "not_found";
-  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3>{outcomeLabel[outcome]}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from a recorded replay."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
+  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{outcomeLabel[outcome]}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from a recorded replay."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
 }

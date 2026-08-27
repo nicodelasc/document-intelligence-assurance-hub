@@ -1,7 +1,7 @@
 import type { UploadValidation, UploadValidationError } from "./types";
 
-const MAX_FILE_BYTES = 3 * 1024 * 1024;
-const MAX_PDF_PAGES = 5;
+export const MAX_FILE_BYTES = 3 * 1024 * 1024;
+export const MAX_PDF_PAGES = 5;
 
 type SupportedFormat = "pdf" | "png" | "jpeg";
 

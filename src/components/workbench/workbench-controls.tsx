@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Outcome, Provider } from "@/domain/types";
+import { MAX_FILE_BYTES, validateUpload } from "@/domain/file-validation";
 import { Button } from "@/components/ui/primitives";
 
 export type CustomUploadState = {
@@ -10,6 +11,43 @@ export type CustomUploadState = {
   consent: boolean;
   valid: boolean;
 };
+
+export type CustomUploadHandle = {
+  validate: () => Promise<boolean>;
+};
+
+const fileValidationMessage: Record<string, string> = {
+  empty_file: "Choose a non-empty document.",
+  unsupported_format: "Upload a PDF, PNG or JPG document.",
+  mime_mismatch: "The file type does not match its content. Choose the original PDF, PNG or JPG file.",
+  file_too_large: "The document must be 3 MB or smaller.",
+  pdf_page_limit: "PDF documents must contain no more than five pages.",
+};
+
+async function validateDocument(file: File): Promise<string> {
+  if (file.size > MAX_FILE_BYTES) return fileValidationMessage.file_too_large;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const looksLikePdf = bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+  let pageCount: number | undefined;
+  if (looksLikePdf) {
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      pageCount = (await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false })).getPageCount();
+    } catch {
+      return "The PDF structure could not be validated. Choose an unencrypted PDF with up to five pages.";
+    }
+  }
+  const validation = validateUpload({
+    bytes,
+    filename: file.name,
+    reportedType: file.type,
+    requestedFields: [],
+    consent: false,
+    pageCount,
+    sourceType: "synthetic",
+  });
+  return validation.valid ? "" : fileValidationMessage[validation.errors[0]] ?? "The document could not be validated.";
+}
 
 export function ProviderSelector({ value, onChange }: { value: Provider; onChange: (provider: Provider) => void }) {
   return (
@@ -27,29 +65,54 @@ export function ProviderSelector({ value, onChange }: { value: Provider; onChang
   );
 }
 
-export function CustomUploadFields({ onReadyChange }: { onReadyChange: (state: CustomUploadState) => void }) {
+export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange: (state: CustomUploadState) => void }>(function CustomUploadFields({ onReadyChange }, ref) {
   const [file, setFile] = useState<File | null>(null);
   const [fields, setFields] = useState(["", ""]);
   const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [fileValid, setFileValid] = useState(false);
+  const [fileChecking, setFileChecking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fieldRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const selectionRef = useRef(0);
 
-  const valid = Boolean(file && fields.every((field) => field.trim()) && new Set(fields.map((field) => field.trim().toLowerCase())).size === fields.length && consent);
+  const valid = Boolean(file && fileValid && !fileChecking && fields.every((field) => field.trim()) && new Set(fields.map((field) => field.trim().toLowerCase())).size === fields.length && consent);
 
   useEffect(() => {
     onReadyChange({ file, fields, consent, valid });
   }, [consent, fields, file, onReadyChange, valid]);
 
-  function validate() {
+  const selectFile = useCallback(async (selected: File | null) => {
+    const selectionId = ++selectionRef.current;
+    setFile(selected);
+    setFileValid(false);
+    setErrors((current) => ({ ...current, file: "" }));
+    if (!selected) return;
+    setFileChecking(true);
+    const message = await validateDocument(selected);
+    if (selectionId !== selectionRef.current) return;
+    setFileChecking(false);
+    setFileValid(!message);
+    setErrors((current) => ({ ...current, file: message }));
+  }, []);
+
+  const validate = useCallback(async () => {
     const next: Record<string, string> = {};
     if (!file) next.file = "Choose one PDF, PNG or JPG document.";
+    else {
+      setFileChecking(true);
+      next.file = await validateDocument(file);
+      setFileChecking(false);
+      setFileValid(!next.file);
+      if (!next.file) delete next.file;
+    }
+    const seen = new Map<string, number>();
     fields.forEach((field, index) => {
       if (!field.trim()) next[`field-${index}`] = "Enter a reviewer-defined field label.";
+      const normalized = field.trim().toLowerCase();
+      if (normalized && seen.has(normalized)) next[`field-${index}`] = "Field labels must be unique.";
+      else if (normalized) seen.set(normalized, index);
     });
-    if (new Set(fields.map((field) => field.trim().toLowerCase()).filter(Boolean)).size !== fields.filter((field) => field.trim()).length) {
-      next["field-1"] = "Field labels must be unique.";
-    }
     if (!consent) next.consent = "Consent is required before a custom upload can be sent.";
     setErrors(next);
     if (next.file) fileRef.current?.focus();
@@ -58,18 +121,21 @@ export function CustomUploadFields({ onReadyChange }: { onReadyChange: (state: C
       if (index >= 0) fieldRefs.current[index]?.focus();
       else if (next.consent) document.getElementById("upload-consent")?.focus();
     }
-  }
+    return Object.keys(next).length === 0;
+  }, [consent, fields, file]);
+
+  useImperativeHandle(ref, () => ({ validate }), [validate]);
 
   return (
     <div className="custom-fields">
       <div
         className="drop-zone"
+        aria-busy={fileChecking}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
           const selected = event.dataTransfer.files[0] ?? null;
-          setFile(selected);
-          setErrors((current) => ({ ...current, file: "" }));
+          void selectFile(selected);
         }}
       >
         <label htmlFor="custom-document" className="button button--neutral">Choose document</label>
@@ -80,11 +146,11 @@ export function CustomUploadFields({ onReadyChange }: { onReadyChange: (state: C
           aria-label="Document file"
           type="file"
           accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
           aria-invalid={Boolean(errors.file)}
           aria-describedby="file-limits file-error"
         />
-        <span>{file ? file.name : "Drop one file here or use the picker"}</span>
+        <span>{fileChecking ? "Checking document…" : file ? file.name : "Drop one file here or use the picker"}</span>
         <small id="file-limits">PDF, PNG or JPG · Maximum 3 MB · PDFs up to five pages</small>
         <span id="file-error" className="field-error">{errors.file}</span>
       </div>
@@ -97,7 +163,10 @@ export function CustomUploadFields({ onReadyChange }: { onReadyChange: (state: C
               ref={(node) => { fieldRefs.current[index] = node; }}
               id={`review-field-${index}`}
               value={field}
-              onChange={(event) => setFields((current) => current.map((value, fieldIndex) => fieldIndex === index ? event.target.value : value))}
+              onChange={(event) => {
+                setFields((current) => current.map((value, fieldIndex) => fieldIndex === index ? event.target.value : value));
+                setErrors((current) => ({ ...current, [`field-${index}`]: "" }));
+              }}
               aria-invalid={Boolean(errors[`field-${index}`])}
               aria-describedby={`review-field-error-${index}`}
             />
@@ -111,15 +180,15 @@ export function CustomUploadFields({ onReadyChange }: { onReadyChange: (state: C
         )}
       </fieldset>
       <label className="consent-row" htmlFor="upload-consent">
-        <input id="upload-consent" type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} aria-describedby="consent-warning consent-error" />
+        <input id="upload-consent" type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); setErrors((current) => ({ ...current, consent: "" })); }} aria-describedby="consent-warning consent-error" />
         <span>I understand that the raw file and result will be publicly visible for less than 24 hours.</span>
       </label>
       <p id="consent-warning" className="privacy-warning">Do not upload personal, confidential, client or regulated data.</p>
       <span id="consent-error" className="field-error">{errors.consent}</span>
-      <Button type="button" intent="neutral" onClick={validate}>Validate custom upload</Button>
+      <Button type="button" intent="neutral" onClick={() => void validate()} busy={fileChecking}>Validate custom upload</Button>
     </div>
   );
-}
+});
 
 export type ComparableRun = {
   id: string;

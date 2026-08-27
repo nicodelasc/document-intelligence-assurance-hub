@@ -92,10 +92,11 @@ export function OperationsDashboard() {
           </div>
         </RulePanel>
         <RulePanel title="Provider usage">
-          <p className="claim-label">Recorded benchmark reference · not live billed usage</p>
+          <p className="claim-label">Public run usage · benchmark coverage is separate</p>
           <dl className="usage-list"><div><dt>Input tokens</dt><dd>{number.format(usage.inputTokens)}</dd></div><div><dt>Output tokens</dt><dd>{number.format(usage.outputTokens)}</dd></div><div><dt>Estimated API cost</dt><dd>{usd.format(usage.estimatedApiCostUsd)}</dd></div></dl>
-          <div className="provider-bars" aria-label="Provider split text summary"><span>OpenAI <strong>{usage.providerSplit.openai || benchmark.providerCoverage.openai} recorded references</strong></span><progress max={Math.max(1, benchmark.recordedRuns)} value={usage.providerSplit.openai || benchmark.providerCoverage.openai} /><span>Anthropic <strong>{usage.providerSplit.anthropic || benchmark.providerCoverage.anthropic} recorded references</strong></span><progress max={Math.max(1, benchmark.recordedRuns)} value={usage.providerSplit.anthropic || benchmark.providerCoverage.anthropic} /></div>
-          <p className="chart-summary">Text summary: Six recorded fixture-provider combinations support comparison. Token counts and costs remain zero until a public run records usage.</p>
+          <div className="provider-bars" aria-label="Public provider split text summary"><span>OpenAI {usage.providerSplit.openai} public runs</span><progress max={Math.max(1, summary.totalRuns)} value={usage.providerSplit.openai} /><span>Anthropic {usage.providerSplit.anthropic} public runs</span><progress max={Math.max(1, summary.totalRuns)} value={usage.providerSplit.anthropic} /></div>
+          <p className="benchmark-coverage">Benchmark coverage: OpenAI {benchmark.providerCoverage.openai} · Anthropic {benchmark.providerCoverage.anthropic}</p>
+          <p className="chart-summary">Text summary: Public run counts remain independent from the six recorded fixture-provider benchmark combinations.</p>
         </RulePanel>
         <RulePanel title="Synthetic benchmark quality">
           <p className="claim-label">Recorded benchmark data · six fixture-provider combinations</p>

@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -9,10 +9,22 @@ test("captures approved desktop and mobile evidence", async ({ page }) => {
     await page.setViewportSize({ width: 1536, height: 1024 });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`/${route}`);
+    if (route === "operations") {
+      await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+    } else {
+      await expect(page.getByText("Loading active public runs…")).toBeHidden();
+    }
+    await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
     await page.screenshot({ path: join(output, `${route}-1536x1024.png`), fullPage: false });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`/${route}`);
+    if (route === "operations") {
+      await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+    } else {
+      await expect(page.getByText("Loading active public runs…")).toBeHidden();
+    }
+    await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
     await page.screenshot({ path: join(output, `${route}-390x844-reduced-motion.png`), fullPage: false });
   }
 });
