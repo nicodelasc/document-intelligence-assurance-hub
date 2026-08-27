@@ -88,10 +88,28 @@ test("picker and drop validation block invalid custom documents before POST", as
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
 
-  await page.getByLabel("Document file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("plain") });
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByText("Choose document", { exact: true }).click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("plain") });
+  const pointerOnlyPickerFocus = await page.locator(".drop-zone").evaluate((dropZone) => getComputedStyle(dropZone).outlineStyle);
+  expect(pointerOnlyPickerFocus).toBe("none");
   await page.getByRole("button", { name: "Run assurance check" }).click();
   await expect(page.getByText("Upload a PDF, PNG or JPG document.")).toBeVisible();
   await expect(page.getByLabel("Document file")).toBeFocused();
+  const visiblePickerFocus = await page.locator(".drop-zone").evaluate((dropZone) => {
+    const style = getComputedStyle(dropZone);
+    return {
+      outlineColor: style.outlineColor,
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+    };
+  });
+  expect(visiblePickerFocus).toEqual({
+    outlineColor: "rgb(21, 94, 239)",
+    outlineStyle: "solid",
+    outlineWidth: "2px",
+  });
 
   await page.locator(".drop-zone").evaluate((dropZone) => {
     const bytes = new Uint8Array(3 * 1024 * 1024 + 1);

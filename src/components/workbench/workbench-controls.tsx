@@ -72,6 +72,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [fileValid, setFileValid] = useState(false);
   const [fileChecking, setFileChecking] = useState(false);
+  const [fileFocusProxy, setFileFocusProxy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const fieldRefs = useRef<Array<HTMLInputElement | null>>([]);
   const selectionRef = useRef(0);
@@ -84,6 +85,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
 
   const selectFile = useCallback(async (selected: File | null) => {
     const selectionId = ++selectionRef.current;
+    setFileFocusProxy(false);
     setFile(selected);
     setFileValid(false);
     setErrors((current) => ({ ...current, file: "" }));
@@ -115,7 +117,10 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
     });
     if (!consent) next.consent = "Consent is required before a custom upload can be sent.";
     setErrors(next);
-    if (next.file) fileRef.current?.focus();
+    if (next.file) {
+      setFileFocusProxy(true);
+      fileRef.current?.focus();
+    }
     else {
       const index = fields.findIndex((_, fieldIndex) => next[`field-${fieldIndex}`]);
       if (index >= 0) fieldRefs.current[index]?.focus();
@@ -129,7 +134,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
   return (
     <div className="custom-fields">
       <div
-        className="drop-zone"
+        className={`drop-zone${fileFocusProxy ? " drop-zone--focus-proxy" : ""}`}
         aria-busy={fileChecking}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -138,7 +143,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
           void selectFile(selected);
         }}
       >
-        <label htmlFor="custom-document" className="button button--neutral">Choose document</label>
+        <label htmlFor="custom-document" className="button button--neutral" onPointerDown={() => setFileFocusProxy(false)}>Choose document</label>
         <input
           ref={fileRef}
           id="custom-document"
@@ -147,6 +152,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
           type="file"
           accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
           onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
+          onBlur={() => setFileFocusProxy(false)}
           aria-invalid={Boolean(errors.file)}
           aria-describedby="file-limits file-error"
         />
