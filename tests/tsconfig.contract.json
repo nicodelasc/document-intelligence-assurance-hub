@@ -5,7 +5,10 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@/*": ["../src/*"]
+    }
   },
-  "include": ["types/**/*.ts"]
+  "include": ["types/**/*.ts", "contract/routes/**/*.ts"]
 }
