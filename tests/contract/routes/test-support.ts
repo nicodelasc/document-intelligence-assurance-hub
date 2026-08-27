@@ -6,6 +6,9 @@ import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import { executeRun } from "@/server/workflow/execute-run";
 import type { HttpContainer } from "@/server/http/container";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
+import { InMemoryAbuseControl } from "@/server/security/abuse-control";
+
+let idempotencySequence = 0;
 
 export function createTestContainer(
   overrides: Partial<HttpContainer> = {},
@@ -14,6 +17,7 @@ export function createTestContainer(
     repository: new InMemoryRunRepository(),
     quotaRepository: new InMemoryQuotaRepository(),
     documentStore: new InMemoryDocumentStore(),
+    abuseControl: new InMemoryAbuseControl(),
     clock: () => new Date("2026-08-27T00:00:00.000Z"),
     requestIdSource: () => "request-test-1",
     bucketTokenSource: () => "test-browser-bucket-token-with-enough-entropy-1234567890",
@@ -39,25 +43,33 @@ export function createTestContainer(
   };
 }
 
-export function formRequest(entries: Array<[string, string | Blob, string?]>): Request {
+export function formRequest(
+  entries: Array<[string, string | Blob, string?]>,
+  idempotencyKey = `test-idempotency-key-${++idempotencySequence}`,
+): Request {
   const form = new FormData();
   for (const [key, value, filename] of entries) {
     if (typeof value === "string") form.append(key, value);
     else form.append(key, value, filename);
   }
-  return new Request("http://local.test/api/runs", { method: "POST", body: form });
+  return new Request("http://local.test/api/runs", {
+    method: "POST",
+    body: form,
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
 }
 
 export function syntheticRequest(
   sampleId = "clean-match",
   provider = "openai",
+  idempotencyKey?: string,
 ): Request {
   return formRequest([
     ["sourceType", "synthetic"],
     ["provider", provider],
     ["sampleId", sampleId],
     ["executionMode", "recorded"],
-  ]);
+  ], idempotencyKey);
 }
 
 export function makePdf(pageCount: number): Uint8Array<ArrayBuffer> {

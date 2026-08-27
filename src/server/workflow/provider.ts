@@ -31,6 +31,7 @@ export type ProviderDocument = {
 export type ProviderExtractionInput = {
   document: ProviderDocument;
   requestedFields: RequestedField[];
+  signal?: AbortSignal;
 };
 
 export type ProviderExtractionResponse = {

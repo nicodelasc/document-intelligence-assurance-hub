@@ -386,4 +386,28 @@ describe("InMemoryQuotaRepository", () => {
     });
     expect(await quotas.snapshot(now)).toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 1 });
   });
+
+  it("does not run schema DDL during ordinary Neon quota requests", async () => {
+    const statements: string[] = [];
+    const driver: NeonDriver = {
+      async query(sql) {
+        statements.push(sql.trim());
+        return [{ decision: { decision: "daily_budget" } }];
+      },
+    };
+    const quotas = createNeonQuotaRepository({ databaseUrl: undefined, driver });
+
+    await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now,
+    });
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/^SELECT reserve_daily_quota/);
+    expect(statements[0]).not.toMatch(/\b(?:CREATE|ALTER|DROP)\s/i);
+  });
 });

@@ -11,6 +11,13 @@ import {
   safeJsonResponse,
 } from "@/server/http/responses";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
+import { createHash } from "node:crypto";
+
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+function idempotentRunId(idempotencyKey: string): string {
+  return `run_${createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 48)}`;
+}
 
 function quotaError(reason: string, requestId: string): Response {
   const messages: Record<string, string> = {
@@ -41,7 +48,39 @@ export async function handleRunsPost(
     tokenSource: container.bucketTokenSource,
     secure: process.env.NODE_ENV === "production",
   });
+  let claimedRunId: string | null = null;
+  let workflowStarted = false;
   try {
+    if (
+      !(await container.abuseControl.allowRunSubmission({
+        bucket: bucket.protectedBucket,
+        now: container.clock(),
+      }))
+    ) {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "run_request_rate_limited",
+          message: "Too many run requests were received. Retry shortly.",
+          requestId,
+          status: 429,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
+    const idempotencyKey = request.headers.get("idempotency-key")?.trim();
+    if (!idempotencyKey || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey)) {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "invalid_idempotency_key",
+          message: "Provide one valid idempotency key for this submission.",
+          requestId,
+          status: 400,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
     const input = await parseRunMultipart(request, container);
     if (input.sourceType === "custom" && input.executionMode === "recorded") {
       return attachBucketCookie(
@@ -60,6 +99,26 @@ export async function handleRunsPost(
       return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
     }
 
+    claimedRunId = idempotentRunId(idempotencyKey);
+    const claimNow = container.clock();
+    const claimed = await container.repository.claimRunRequest(
+      claimedRunId,
+      new Date(claimNow.getTime() + IDEMPOTENCY_TTL_MS).toISOString(),
+      claimNow,
+    );
+    if (!claimed) {
+      return attachBucketCookie(
+        safeErrorResponse({
+          code: "duplicate_submission",
+          message: "This submission was already accepted.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+        bucket,
+      );
+    }
+
     const quota = await container.quotaRepository.reserve({
       bucket: bucket.protectedBucket,
       sourceType: input.sourceType,
@@ -69,6 +128,8 @@ export async function handleRunsPost(
       now: container.clock(),
     });
     if (!quota.allowed) {
+      await container.repository.releaseRunRequest(claimedRunId);
+      claimedRunId = null;
       return attachBucketCookie(quotaError(quota.reason, requestId), bucket);
     }
     let provider;
@@ -82,7 +143,20 @@ export async function handleRunsPost(
       if (quota.reservationId) {
         await container.quotaRepository.releaseLiveReservation(quota.reservationId);
       }
+      await container.repository.releaseRunRequest(claimedRunId);
+      claimedRunId = null;
       throw new Error("provider_initialization_failed");
+    }
+
+    const abortController = new AbortController();
+    if (request.signal.aborted) {
+      abortController.abort(request.signal.reason);
+    } else {
+      request.signal.addEventListener(
+        "abort",
+        () => abortController.abort(request.signal.reason),
+        { once: true },
+      );
     }
 
     const events = container.execute(
@@ -104,15 +178,21 @@ export async function handleRunsPost(
               },
         documentStore: container.documentStore,
         provider,
+        idSource: () => claimedRunId!,
+        abortSignal: abortController.signal,
         clock: container.clock,
         replayStageDelayMs: container.replayStageDelayMs,
       },
     );
+    workflowStarted = true;
     return attachBucketCookie(
-      ndjsonRunResponse(events, { clock: container.clock }),
+      ndjsonRunResponse(events, { clock: container.clock, abortController }),
       bucket,
     );
   } catch (error) {
+    if (claimedRunId && !workflowStarted) {
+      await container.repository.releaseRunRequest(claimedRunId).catch(() => undefined);
+    }
     if (error instanceof MultipartInputError) {
       return attachBucketCookie(
         safeErrorResponse({

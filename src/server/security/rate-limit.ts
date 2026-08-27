@@ -3,7 +3,6 @@ import {
   PersistenceConfigurationError,
   type NeonDriver,
 } from "@/server/repositories/run-repository";
-import { neonSchemaStatements } from "@/server/db/schema";
 import { randomUUID } from "node:crypto";
 
 export const DEFAULT_DAILY_MODEL_BUDGET_USD = 3;
@@ -293,7 +292,6 @@ type NeonQuotaOptions = {
 
 class NeonQuotaRepository implements QuotaRepository {
   private driverPromise: Promise<NeonDriver> | null = null;
-  private schemaPromise: Promise<void> | null = null;
 
   constructor(private readonly options: NeonQuotaOptions) {}
 
@@ -443,14 +441,7 @@ class NeonQuotaRepository implements QuotaRepository {
   }
 
   private async readyDriver(): Promise<NeonDriver> {
-    const driver = await this.getDriver();
-    if (!this.schemaPromise) {
-      this.schemaPromise = (async () => {
-        for (const statement of neonSchemaStatements) await driver.query(statement);
-      })();
-    }
-    await this.schemaPromise;
-    return driver;
+    return this.getDriver();
   }
 
   private getDriver(): Promise<NeonDriver> {

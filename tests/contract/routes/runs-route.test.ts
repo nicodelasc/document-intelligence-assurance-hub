@@ -20,7 +20,10 @@ describe("POST /api/runs", () => {
     const response = await handleRunsPost(
       new Request("http://local.test/api/runs", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "test-idempotency-invalid-content",
+        },
         body: "{}",
       }),
       container,
@@ -94,6 +97,60 @@ describe("POST /api/runs", () => {
       customUploadsByBucket: {},
       liveRunsByBucket: {},
     });
+  });
+
+  it("rejects abusive submissions before multipart parsing or fixture reads", async () => {
+    let fixtureReads = 0;
+    const container = createTestContainer({
+      abuseControl: {
+        allowRunSubmission: async () => false,
+        allowDocumentRead: async () => true,
+      },
+      async loadSyntheticDocument() {
+        fixtureReads += 1;
+        return makePdf(1);
+      },
+    });
+
+    const response = await handleRunsPost(syntheticRequest(), container);
+
+    expect(response.status).toBe(429);
+    expect((await readJson<{ error: { code: string } }>(response)).error.code).toBe(
+      "run_request_rate_limited",
+    );
+    expect(fixtureReads).toBe(0);
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(0);
+  });
+
+  it("claims a concurrent idempotency key once before quota and provider work", async () => {
+    let providerCreations = 0;
+    const base = createTestContainer();
+    const container = createTestContainer({
+      repository: base.repository,
+      quotaRepository: base.quotaRepository,
+      documentStore: base.documentStore,
+      async createProvider(input) {
+        providerCreations += 1;
+        return base.createProvider(input);
+      },
+    });
+    const idempotencyKey = "concurrent-idempotency-key-20260827";
+
+    const responses = await Promise.all([
+      handleRunsPost(
+        syntheticRequest("clean-match", "openai", idempotencyKey),
+        container,
+      ),
+      handleRunsPost(
+        syntheticRequest("clean-match", "openai", idempotencyKey),
+        container,
+      ),
+    ]);
+    await Promise.all(responses.map((response) => response.text()));
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(providerCreations).toBe(1);
+    expect((await container.repository.aggregateAnonymousUsage()).totalRuns).toBe(1);
   });
 
   it("uses the PDF bytes for page count instead of a form field", async () => {

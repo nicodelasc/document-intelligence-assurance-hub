@@ -250,6 +250,48 @@ describe("Workbench request lifecycle", () => {
     expect(await screen.findByText("failed_delete_once")).toBeVisible();
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
     expect(screen.getByRole("alert")).toHaveTextContent("temporarily unavailable");
+    const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+    expect(new Headers(postCall?.[1]?.headers).get("idempotency-key")).toMatch(
+      /^[A-Za-z0-9_-]{16,128}$/,
+    );
+  });
+
+  it("renders untrusted field labels and evidence only as text", async () => {
+    const user = userEvent.setup();
+    const hostileLabel = '<img data-private-payload="field" src=x>';
+    const hostileEvidence = '<script data-private-payload="evidence">alert(1)</script>';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (!init?.method) return emptyHistory();
+        return ndjson([
+          {
+            type: "field",
+            field: {
+              ...field("vendor", "Northstar Paperworks", "Northstar Paperworks"),
+              label: hostileLabel,
+              evidence: hostileEvidence,
+            },
+            timestamp: "2026-08-27T00:00:00.000Z",
+          },
+          {
+            type: "completed",
+            outcome: "clear",
+            runId: "run_text_only",
+            executionMode: "recorded",
+            deletionToken: "text_only_delete_token",
+            timestamp: "2026-08-27T00:00:01.000Z",
+          },
+        ]);
+      }),
+    );
+    const view = render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    expect(await screen.findByText(hostileLabel)).toBeVisible();
+    expect(screen.getByText(hostileEvidence)).toBeVisible();
+    expect(view.container.querySelector("[data-private-payload]")).toBeNull();
   });
 
   it("restores every unexpired receipt then deletes one without removing another", async () => {

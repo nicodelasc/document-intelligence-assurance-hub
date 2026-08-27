@@ -32,6 +32,7 @@ export type StructuredGenerationRequest = {
   systemInstruction: string;
   document: ProviderDocument;
   requestedFields: RequestedField[];
+  signal?: AbortSignal;
   tools?: never;
 };
 
@@ -94,6 +95,7 @@ async function defaultStructuredGenerator(
       },
     ],
     output: Output.object({ schema: extractionResultSchema }),
+    abortSignal: input.signal,
   });
 
   return {
@@ -133,6 +135,7 @@ function createLiveExtractionProvider(
           systemInstruction: SYSTEM_INSTRUCTION,
           document: input.document,
           requestedFields: input.requestedFields,
+          signal: input.signal,
         });
         return {
           extraction: validateExtractionForRequest(result.output, input.requestedFields),

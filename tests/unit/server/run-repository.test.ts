@@ -388,3 +388,80 @@ describe("InMemoryRunRepository", () => {
     expect(aggregateSql).not.toContain("SELECT provider, outcome");
   });
 });
+
+describe("Neon migration boundary", () => {
+  it("does not run schema DDL during ordinary repository requests", async () => {
+    const statements: string[] = [];
+    const driver: NeonDriver = {
+      async query(sql) {
+        statements.push(sql.trim());
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await repository.createRun(runRecord("run-migrated"));
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/^INSERT INTO runs/);
+    expect(statements[0]).not.toMatch(/\b(?:CREATE|ALTER|DROP)\s/i);
+  });
+
+  it("persists a logical tombstone before retrying failed Blob cleanup", async () => {
+    const sequence: string[] = [];
+    let cleanupPending = false;
+    const documentKey = "runs/run-neon/document";
+    const driver: NeonDriver = {
+      async query(sql) {
+        if (sql.includes("INSERT INTO document_cleanup_jobs")) {
+          sequence.push("tombstone");
+          cleanupPending = true;
+          return [{ id: "run-neon", cleanup_document_key: documentKey }];
+        }
+        if (sql.includes("AS backlog_count")) {
+          return [{ backlog_count: cleanupPending ? 1 : 0 }];
+        }
+        if (sql.includes("DELETE FROM document_cleanup_jobs")) {
+          cleanupPending = false;
+          return [];
+        }
+        if (sql.includes("FROM document_cleanup_jobs")) {
+          return cleanupPending
+            ? [{ run_id: "run-neon", document_key: documentKey }]
+            : [];
+        }
+        if (sql.includes("expires_at <=")) return [];
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await expect(
+      repository.deleteDetailedData(
+        "run-neon",
+        "2026-08-27T01:00:00.000Z",
+        async () => {
+          sequence.push("blob");
+          throw new Error("blob_temporarily_unavailable");
+        },
+      ),
+    ).resolves.toBe(true);
+    expect(sequence).toEqual(["tombstone", "blob"]);
+    expect(
+      await repository.countCleanupBacklog(new Date("2026-08-27T01:00:00.000Z")),
+    ).toBe(1);
+
+    const retry = await repository.purgeExpiredData(
+      new Date("2026-08-27T02:00:00.000Z"),
+      async () => undefined,
+    );
+    expect(retry).toEqual({
+      purgedRunIds: [],
+      documentKeys: [documentKey],
+      failedRunIds: [],
+    });
+    expect(
+      await repository.countCleanupBacklog(new Date("2026-08-27T02:00:00.000Z")),
+    ).toBe(0);
+  });
+});

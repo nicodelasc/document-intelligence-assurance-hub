@@ -28,6 +28,7 @@ export function createRecordedExtractionProvider(input: {
     promptVersion: "recorded-fixture-2026-08-27.v1",
     executionMode: "recorded",
     async extract(request: ProviderExtractionInput): Promise<ProviderExtractionResponse> {
+      request.signal?.throwIfAborted();
       const extraction = {
         fields: request.requestedFields.map((requestedField) => {
           const field = fixture.fields.find((candidate) => candidate.key === requestedField.key);

@@ -4,6 +4,7 @@ import { handlePurgeExpiredGet } from "@/server/http/cron-handler";
 import { handleRunsPost } from "@/server/http/runs-handler";
 import { createTestContainer, readLines, syntheticRequest } from "./test-support";
 import type { Outcome } from "@/domain/types";
+import { InMemoryRunRepository } from "@/server/repositories/run-repository";
 
 async function seedOutcome(
   container: ReturnType<typeof createTestContainer>,
@@ -220,12 +221,15 @@ describe("GET /api/cron/purge-expired", () => {
     expect(afterMetrics.retention.cleanupBacklog).toBe(0);
   });
 
-  it("reports truthful per-item purge failures and leaves them in the backlog", async () => {
+  it("tombstones expired details before reporting a retryable Blob cleanup failure", async () => {
     let now = new Date("2026-08-27T00:00:00.000Z");
     const container = createTestContainer({ clock: () => now });
     await (await handleRunsPost(syntheticRequest(), container)).text();
-    container.documentStore.deleteDocument = async () => {
-      throw new Error("simulated_blob_failure");
+    let blobAvailable = false;
+    const deleteDocument = container.documentStore.deleteDocument.bind(container.documentStore);
+    container.documentStore.deleteDocument = async (key) => {
+      if (!blobAvailable) throw new Error("simulated_blob_failure");
+      return deleteDocument(key);
     };
     now = new Date("2026-08-28T00:00:00.000Z");
 
@@ -238,10 +242,56 @@ describe("GET /api/cron/purge-expired", () => {
     const metrics = (await (
       await handleMetricsGet(new Request("http://local.test/api/metrics"), container)
     ).json()) as { retention: { cleanupBacklog: number } };
+    const listed = await container.repository.listPublicRuns(now, {
+      limit: 10,
+      offset: 0,
+      includeDetails: true,
+    });
 
     expect(await response.json()).toEqual({
-      purge: { purgedRuns: 0, purgedDocuments: 0, safeFailures: 1 },
+      purge: { purgedRuns: 1, purgedDocuments: 0, safeFailures: 1 },
     });
     expect(metrics.retention.cleanupBacklog).toBe(1);
+    expect(listed[0]).toMatchObject({ status: "expired", requestedFields: [] });
+    expect(listed[0].details).toBeUndefined();
+
+    blobAvailable = true;
+    const retry = await handlePurgeExpiredGet(
+      new Request("http://local.test/api/cron/purge-expired", {
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      container,
+    );
+    expect(await retry.json()).toEqual({
+      purge: { purgedRuns: 0, purgedDocuments: 1, safeFailures: 0 },
+    });
+    expect(await container.repository.countCleanupBacklog(now)).toBe(0);
+  });
+
+  it("returns a safe failure when the whole database purge operation is unavailable", async () => {
+    class FailingPurgeRepository extends InMemoryRunRepository {
+      override async purgeExpiredData(): Promise<never> {
+        throw new Error("database_connection_details");
+      }
+    }
+    const container = createTestContainer({
+      repository: new FailingPurgeRepository(),
+    });
+
+    const response = await handlePurgeExpiredGet(
+      new Request("http://local.test/api/cron/purge-expired", {
+        headers: { authorization: "Bearer test-cron-secret" },
+      }),
+      container,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "purge_failed",
+        message: "Expiry cleanup could not complete safely.",
+        requestId: "request-test-1",
+      },
+    });
   });
 });

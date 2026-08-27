@@ -311,6 +311,61 @@ describe("executeRun", () => {
     expect(JSON.stringify(events)).not.toContain("DATABASE_URL");
   });
 
+  it("returns a safe deletion receipt when a post-create status write fails", async () => {
+    class StatusWriteFailsRepository extends InMemoryRunRepository {
+      override async setStatus(): Promise<void> {
+        throw new Error("status-write-private-detail");
+      }
+    }
+    const { value } = dependencies(provider());
+    value.repository = new StatusWriteFailsRepository();
+
+    const events = await collect(input, value);
+
+    expect(events.filter((event) => event.type === "failed")).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+      runId: "run-123",
+      deletionToken: "delete-once",
+    });
+    expect(JSON.stringify(events)).not.toContain("status-write-private-detail");
+  });
+
+  it("settles billable cost and fails safely when the result write fails", async () => {
+    class ResultWriteFailsRepository extends InMemoryRunRepository {
+      override async saveResults(): Promise<void> {
+        throw new Error("result-write-private-detail");
+      }
+    }
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-result-write-failure");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId) throw new Error("reservation_missing");
+    const { value } = dependencies(provider());
+    value.repository = new ResultWriteFailsRepository();
+    value.quotaReservation = { repository: quotas, reservationId: reservation.reservationId };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+      deletionToken: "delete-once",
+    });
+    expect(JSON.stringify(events)).not.toContain("result-write-private-detail");
+    await expect(quotas.snapshot(new Date("2026-08-27T01:00:00.000Z"))).resolves.toMatchObject({
+      globalSpendUsd: 0.000075,
+      reservedSpendUsd: 0,
+    });
+  });
+
   it("protects the first post-create trace write and releases a nonbillable reservation", async () => {
     class FirstTraceWriteFailsRepository extends InMemoryRunRepository {
       private appendAttempts = 0;
@@ -697,5 +752,44 @@ describe("executeRun", () => {
       field: { evaluatorStatus: "conflict", referenceMatch: false },
     });
     expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "needs_review" });
+  });
+
+  it("propagates cancellation to the provider then tombstones the unfinished run", async () => {
+    const controller = new AbortController();
+    let providerStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const selected = provider({
+      extract: async ({ signal }) => {
+        providerStarted();
+        await new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+    const { value, repository, documentStore } = dependencies(selected);
+    value.abortSignal = controller.signal;
+
+    const collecting = collect(input, value);
+    await started;
+    controller.abort();
+    const events = await collecting;
+
+    expect(events.some((event) => event.type === "completed")).toBe(false);
+    expect(
+      await repository.readPublicRun("run-123", new Date("2026-08-27T01:00:00.000Z")),
+    ).toMatchObject({ status: "deleted", requestedFields: [] });
+    await expect(
+      documentStore.fetchActiveDocument({
+        key: "runs/run-123/document",
+        expiresAt: "2026-08-27T23:55:00.000Z",
+        now: new Date("2026-08-27T01:00:00.000Z"),
+      }),
+    ).resolves.toBeNull();
   });
 });

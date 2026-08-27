@@ -45,6 +45,59 @@ describe("HTTP persistence container", () => {
     ).not.toThrow();
   });
 
+  it("requires durable Neon quotas whenever production live mode is enabled", () => {
+    expect(() =>
+      createDefaultHttpContainer({
+        NODE_ENV: "production",
+        AI_LIVE_ENABLED: "true",
+        ALLOW_IN_MEMORY_PERSISTENCE: "true",
+      }),
+    ).toThrowError("production_live_mode_requires_database");
+
+    expect(() =>
+      createDefaultHttpContainer({
+        NODE_ENV: "production",
+        AI_LIVE_ENABLED: "false",
+        ALLOW_IN_MEMORY_PERSISTENCE: "true",
+      }),
+    ).not.toThrow();
+  });
+
+  it.each(["", "0", "-1", "NaN", "Infinity", "3 dollars"])(
+    "rejects an invalid GLOBAL_DAILY_MODEL_BUDGET_USD value of %j",
+    (budget) => {
+      expect(() =>
+        createDefaultHttpContainer({
+          NODE_ENV: "test",
+          GLOBAL_DAILY_MODEL_BUDGET_USD: budget,
+        }),
+      ).toThrowError("invalid_global_daily_model_budget_usd");
+    },
+  );
+
+  it("applies the parsed global budget to the keyless quota adapter", async () => {
+    const container = createDefaultHttpContainer({
+      NODE_ENV: "test",
+      AI_LIVE_ENABLED: "true",
+      GLOBAL_DAILY_MODEL_BUDGET_USD: "1.5",
+    });
+
+    await expect(
+      container.quotaRepository.reserve({
+        bucket: "budget-test",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: 1.51,
+        liveEnabled: true,
+        now: new Date("2026-08-27T00:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
+  });
+
   it("prepares only the selected direct live provider without making a request", async () => {
     const container = createDefaultHttpContainer({
       NODE_ENV: "test",

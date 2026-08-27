@@ -26,6 +26,10 @@ const RETENTION_MS = (23 * 60 + 55) * 60 * 1000;
 const DEFAULT_REPLAY_STAGE_DELAY_MS = 140;
 const MAX_REPLAY_STAGE_DELAY_MS = 500;
 
+class PersistenceWriteError extends Error {
+  readonly name = "PersistenceWriteError";
+}
+
 export type ExecuteRunInput = {
   sourceType: SourceType;
   file: {
@@ -58,6 +62,7 @@ export type ExecuteRunDependencies = {
   evaluateField?: FieldEvaluator;
   sleep?: (delayMs: number) => Promise<void>;
   replayStageDelayMs?: number;
+  abortSignal?: AbortSignal;
   quotaReservation?: {
     repository: QuotaRepository;
     reservationId: string;
@@ -250,6 +255,9 @@ function compareFieldWithReference(
 }
 
 function publicError(error: unknown, stage: RunStatus): { code: string; message: string } {
+  if (error instanceof PersistenceWriteError) {
+    return { code: "workflow_failed", message: "The run could not be completed safely." };
+  }
   if (error instanceof ProviderRequestError) {
     const messages: Record<string, string> = {
       provider_rate_limited: "The selected provider is temporarily rate limited.",
@@ -281,10 +289,12 @@ async function extractWithOneRetry(
   provider: ExtractionProvider,
   input: ExecuteRunInput,
   onRetry: (error: ProviderRequestError) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<{ response: ProviderExtractionResponse; retryCount: number }> {
   let retryCount = 0;
   for (;;) {
     try {
+      signal?.throwIfAborted();
       return {
         response: await provider.extract({
           document: {
@@ -293,6 +303,7 @@ async function extractWithOneRetry(
             bytes: input.file.bytes,
           },
           requestedFields: input.requestedFields,
+          signal,
         }),
         retryCount,
       };
@@ -300,6 +311,7 @@ async function extractWithOneRetry(
       if (retryCount === 0 && isRetryableProviderError(error)) {
         retryCount = 1;
         await onRetry(error as ProviderRequestError);
+        signal?.throwIfAborted();
         continue;
       }
       throw error;
@@ -317,6 +329,7 @@ export async function* executeRun(
   const credentialSource = dependencies.deletionCredentialSource ?? createDeletionCredential;
   const evaluator = dependencies.evaluateField ?? defaultEvaluateField;
   const sleep = dependencies.sleep ?? defaultSleep;
+  const signal = dependencies.abortSignal;
   const runId = idSource();
   const createdAtDate = clock();
   const createdAt = createdAtDate.toISOString();
@@ -365,16 +378,25 @@ export async function* executeRun(
   };
 
   const announce = async (stage: RunStatus): Promise<RunEvent> => {
+    signal?.throwIfAborted();
     currentStage = stage;
     if (dependencies.provider.executionMode === "recorded" && stageCount > 0 && delayMs > 0) {
       await sleep(delayMs);
+      signal?.throwIfAborted();
     }
     stageCount += 1;
-    if (runCreated) await dependencies.repository.setStatus(runId, stage);
+    if (runCreated) {
+      try {
+        await dependencies.repository.setStatus(runId, stage);
+      } catch (error) {
+        throw new PersistenceWriteError("run_status_write_failed", { cause: error });
+      }
+    }
     return { type: "stage", stage, timestamp: clock().toISOString() };
   };
 
   const appendStage = async (stage: RunStatus, startedAt: number): Promise<void> => {
+    signal?.throwIfAborted();
     const durationMs = Math.max(0, processingClock() - startedAt);
     stepDurations[stage] = durationMs;
     currentStageStartedAt = null;
@@ -391,6 +413,7 @@ export async function* executeRun(
   const totalProcessingLatency = (): number =>
     Object.values(stepDurations).reduce((total, duration) => total + duration, 0);
 
+  signal?.throwIfAborted();
   yield await announce("validating");
   const validationStartedAt = processingClock();
   currentStageStartedAt = validationStartedAt;
@@ -486,6 +509,7 @@ export async function* executeRun(
         };
         await dependencies.repository.appendStep(runId, step);
       },
+      signal,
     );
     billableCostUsd =
       dependencies.provider.executionMode === "live"
@@ -512,6 +536,7 @@ export async function* executeRun(
         return deterministicFieldResult(evaluatorInput, candidate);
       }),
     );
+    signal?.throwIfAborted();
     await appendStage("verifying", verificationStartedAt);
 
     yield await announce("comparing");
@@ -585,6 +610,26 @@ export async function* executeRun(
   } catch (error) {
     if (billableCostUsd !== null) await settleBillableCost();
     await releaseQuotaReservation();
+    if (
+      signal?.aborted ||
+      (error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      if (runCreated) {
+        try {
+          await dependencies.repository.deleteDetailedData(
+            runId,
+            clock().toISOString(),
+            async (documentKey) => {
+              await dependencies.documentStore.deleteDocument(documentKey);
+            },
+          );
+        } catch {
+          // The repository tombstone is the access-control boundary.
+        }
+      }
+      return;
+    }
     const safe = publicError(error, currentStage);
     if (currentStageStartedAt !== null) {
       stepDurations[currentStage] = Math.max(0, processingClock() - currentStageStartedAt);

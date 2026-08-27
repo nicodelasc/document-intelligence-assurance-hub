@@ -15,6 +15,7 @@ export const documentNoStoreHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
   "X-Content-Type-Options": "nosniff",
+  "Cross-Origin-Resource-Policy": "same-origin",
   "X-Robots-Tag": "noindex, nofollow",
 } as const;
 
@@ -102,19 +103,28 @@ function allowListedEvent(event: RunEvent): RunEvent {
 
 export function ndjsonRunResponse(
   events: AsyncIterable<RunEvent>,
-  input: { clock: () => Date; headers?: HeadersInit },
+  input: {
+    clock: () => Date;
+    headers?: HeadersInit;
+    abortController?: AbortController;
+  },
 ): Response {
   const encoder = new TextEncoder();
   const headers = new Headers(input.headers);
   headers.set("content-type", "application/x-ndjson; charset=utf-8");
   for (const [key, value] of Object.entries(noIndexHeaders)) headers.set(key, value);
 
+  const iterator = events[Symbol.asyncIterator]();
+  let cancelled = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let terminal = false;
       let deletionReceiptEmitted = false;
       try {
-        for await (const candidate of events) {
+        for (;;) {
+          const next = await iterator.next();
+          if (next.done || cancelled) break;
+          const candidate = next.value;
           if (terminal) break;
           const event = allowListedEvent(candidate);
           const hasDeletionReceipt =
@@ -129,7 +139,7 @@ export function ndjsonRunResponse(
           if (hasDeletionReceipt) deletionReceiptEmitted = true;
           terminal = parsed.type === "completed" || parsed.type === "failed";
         }
-        if (!terminal) {
+        if (!terminal && !cancelled && !input.abortController?.signal.aborted) {
           const incomplete = runEventSchema.parse({
             type: "failed",
             code: "stream_incomplete",
@@ -140,7 +150,7 @@ export function ndjsonRunResponse(
           terminal = true;
         }
       } catch {
-        if (!terminal) {
+        if (!terminal && !cancelled && !input.abortController?.signal.aborted) {
           const failure = runEventSchema.parse({
             type: "failed",
             code: "stream_failed",
@@ -150,8 +160,13 @@ export function ndjsonRunResponse(
           controller.enqueue(encoder.encode(`${safeJsonStringify(failure)}\n`));
         }
       } finally {
-        controller.close();
+        if (!cancelled) controller.close();
       }
+    },
+    async cancel(reason) {
+      cancelled = true;
+      input.abortController?.abort(reason);
+      await iterator.return?.();
     },
   });
 

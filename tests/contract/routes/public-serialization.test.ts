@@ -4,6 +4,8 @@ import {
   serializePublicRunDetail,
   serializePublicRunListRow,
 } from "@/server/http/public-serialization";
+import { ndjsonRunResponse } from "@/server/http/responses";
+import type { RunEvent } from "@/domain/types";
 
 function poisonedRun(): PublicRunRecord {
   return {
@@ -115,5 +117,40 @@ describe("public serializers", () => {
       expiresAt: "2026-08-27T23:55:00.000Z",
       deletedAt: null,
     });
+  });
+
+  it("aborts the workflow iterator when the response stream is cancelled", async () => {
+    const abortController = new AbortController();
+    let iteratorFinalized = false;
+    async function* events(): AsyncGenerator<RunEvent> {
+      try {
+        yield {
+          type: "stage",
+          stage: "validating",
+          timestamp: "2026-08-27T00:00:00.000Z",
+        };
+        await new Promise<never>((_resolve, reject) => {
+          abortController.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      } finally {
+        iteratorFinalized = true;
+      }
+    }
+    const response = ndjsonRunResponse(events(), {
+      clock: () => new Date("2026-08-27T00:00:00.000Z"),
+      abortController,
+    });
+    const reader = response.body!.getReader();
+
+    await reader.read();
+    await reader.cancel("client disconnected");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(abortController.signal.aborted).toBe(true);
+    expect(iteratorFinalized).toBe(true);
   });
 });

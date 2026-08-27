@@ -1,5 +1,4 @@
 import type { FieldResult, Outcome, Provider, RunStatus } from "@/domain/types";
-import { neonSchemaStatements } from "@/server/db/schema";
 
 export type ExecutionMode = "recorded" | "live";
 export type SourceType = "synthetic" | "custom";
@@ -104,6 +103,8 @@ export type PurgeExpiredResult = {
 };
 
 export interface RunRepository {
+  claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean>;
+  releaseRunRequest(runId: string): Promise<void>;
   createRun(record: StoredRunRecord): Promise<void>;
   setStatus(runId: string, status: RunStatus): Promise<void>;
   appendStep(runId: string, step: RunStepRecord): Promise<void>;
@@ -144,6 +145,11 @@ function isExpired(run: InternalRun, now: Date): boolean {
 
 export class InMemoryRunRepository implements RunRepository {
   private readonly runs = new Map<string, InternalRun>();
+  private readonly runRequestClaims = new Map<string, string>();
+  private readonly cleanupJobs = new Map<
+    string,
+    { runId: string; documentKey: string; attempts: number }
+  >();
 
   private readonly aggregate: AnonymousUsageAggregate = {
     totalRuns: 0,
@@ -155,6 +161,21 @@ export class InMemoryRunRepository implements RunRepository {
     providerCounts: { openai: 0, anthropic: 0 },
     outcomeCounts: {},
   };
+
+  async claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean> {
+    for (const [claimedRunId, claimExpiry] of this.runRequestClaims) {
+      if (Date.parse(claimExpiry) <= now.getTime()) {
+        this.runRequestClaims.delete(claimedRunId);
+      }
+    }
+    if (this.runRequestClaims.has(runId)) return false;
+    this.runRequestClaims.set(runId, expiresAt);
+    return true;
+  }
+
+  async releaseRunRequest(runId: string): Promise<void> {
+    this.runRequestClaims.delete(runId);
+  }
 
   async createRun(record: StoredRunRecord): Promise<void> {
     if (this.runs.has(record.id)) throw new Error("run_already_exists");
@@ -244,9 +265,10 @@ export class InMemoryRunRepository implements RunRepository {
   }
 
   async countCleanupBacklog(now: Date): Promise<number> {
-    return [...this.runs.values()].filter(
+    const expiredDetails = [...this.runs.values()].filter(
       (run) => !run.detailsDeleted && isExpired(run, now),
     ).length;
+    return expiredDetails + this.cleanupJobs.size;
   }
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
@@ -266,12 +288,14 @@ export class InMemoryRunRepository implements RunRepository {
   ): Promise<boolean> {
     const run = this.runs.get(runId);
     if (!run || run.detailsDeleted) return false;
-    if (run.record.documentKey && deleteDocument) {
-      await deleteDocument(run.record.documentKey);
-    }
+    const documentKey = run.record.documentKey;
     run.record.status = "deleted";
     run.record.deletedAt = deletedAt;
     this.clearDetails(run);
+    if (documentKey) {
+      this.cleanupJobs.set(runId, { runId, documentKey, attempts: 0 });
+      await this.retryCleanupJob(runId, deleteDocument);
+    }
     return true;
   }
 
@@ -285,21 +309,42 @@ export class InMemoryRunRepository implements RunRepository {
 
     for (const run of this.runs.values()) {
       if (run.detailsDeleted || !isExpired(run, now)) continue;
-      try {
-        if (run.record.documentKey && deleteDocument) {
-          await deleteDocument(run.record.documentKey);
-        }
-      } catch {
-        failedRunIds.push(run.record.id);
-        continue;
-      }
+      const documentKey = run.record.documentKey;
       purgedRunIds.push(run.record.id);
-      if (run.record.documentKey) documentKeys.push(run.record.documentKey);
       run.record.status = "expired";
       this.clearDetails(run);
+      if (documentKey) {
+        this.cleanupJobs.set(run.record.id, {
+          runId: run.record.id,
+          documentKey,
+          attempts: 0,
+        });
+      }
+    }
+
+    for (const job of [...this.cleanupJobs.values()]) {
+      const succeeded = await this.retryCleanupJob(job.runId, deleteDocument);
+      if (succeeded) documentKeys.push(job.documentKey);
+      else failedRunIds.push(job.runId);
     }
 
     return { purgedRunIds, documentKeys, failedRunIds };
+  }
+
+  private async retryCleanupJob(
+    runId: string,
+    deleteDocument?: (documentKey: string) => Promise<void>,
+  ): Promise<boolean> {
+    const job = this.cleanupJobs.get(runId);
+    if (!job) return true;
+    try {
+      if (deleteDocument) await deleteDocument(job.documentKey);
+      this.cleanupJobs.delete(runId);
+      return true;
+    } catch {
+      job.attempts += 1;
+      return false;
+    }
   }
 
   private requireRun(runId: string): InternalRun {
@@ -370,9 +415,28 @@ function asJson<T>(value: unknown): T {
 
 class NeonRunRepository implements RunRepository {
   private driverPromise: Promise<NeonDriver> | null = null;
-  private schemaPromise: Promise<void> | null = null;
 
   constructor(private readonly options: NeonRepositoryOptions) {}
+
+  async claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query(
+      `WITH cleared AS (
+        DELETE FROM run_submission_claims WHERE expires_at <= $3
+      )
+      INSERT INTO run_submission_claims (run_id, claimed_at, expires_at)
+      VALUES ($1, $3, $2)
+      ON CONFLICT (run_id) DO NOTHING
+      RETURNING run_id`,
+      [runId, expiresAt, now.toISOString()],
+    );
+    return rows.length > 0;
+  }
+
+  async releaseRunRequest(runId: string): Promise<void> {
+    const driver = await this.readyDriver();
+    await driver.query("DELETE FROM run_submission_claims WHERE run_id = $1", [runId]);
+  }
 
   async createRun(record: StoredRunRecord): Promise<void> {
     const driver = await this.readyDriver();
@@ -506,7 +570,10 @@ class NeonRunRepository implements RunRepository {
   async countCleanupBacklog(now: Date): Promise<number> {
     const driver = await this.readyDriver();
     const rows = await driver.query(
-      "SELECT COUNT(*) AS backlog_count FROM runs WHERE expires_at <= $1 AND details_deleted = false",
+      `SELECT (
+        (SELECT COUNT(*) FROM runs WHERE expires_at <= $1 AND details_deleted = false) +
+        (SELECT COUNT(*) FROM document_cleanup_jobs)
+      ) AS backlog_count`,
       [now.toISOString()],
     );
     return Number(rows[0]?.backlog_count ?? 0);
@@ -577,23 +644,17 @@ class NeonRunRepository implements RunRepository {
     deleteDocument?: (documentKey: string) => Promise<void>,
   ): Promise<boolean> {
     const driver = await this.readyDriver();
-    const candidates = await driver.query(
-      "SELECT document_key FROM runs WHERE id = $1 AND details_deleted = false",
-      [runId],
+    const documentKey = await this.tombstoneRun(
+      driver,
+      runId,
+      "deleted",
+      deletedAt,
     );
-    const documentKey = candidates[0]?.document_key ? String(candidates[0].document_key) : null;
-    if (documentKey && deleteDocument) await deleteDocument(documentKey);
-    const rows = await driver.query(
-      `WITH removed_steps AS (DELETE FROM run_steps WHERE run_id = $1),
-        removed_result AS (DELETE FROM run_results WHERE run_id = $1)
-      UPDATE runs SET status = 'deleted', deleted_at = $2, document_key = NULL,
-        deletion_token_hash = NULL, details_deleted = true,
-        file_metadata = jsonb_set(file_metadata, '{filename}', '"expired-document"'::jsonb),
-        requested_fields = '[]'::jsonb
-      WHERE id = $1 AND details_deleted = false RETURNING id`,
-      [runId, deletedAt],
-    );
-    return rows.length > 0;
+    if (documentKey === undefined) return false;
+    if (documentKey) {
+      await this.retryCleanupJob(driver, runId, documentKey, deletedAt, deleteDocument);
+    }
+    return true;
   }
 
   async purgeExpiredData(
@@ -602,7 +663,7 @@ class NeonRunRepository implements RunRepository {
   ): Promise<PurgeExpiredResult> {
     const driver = await this.readyDriver();
     const candidates = await driver.query(
-      "SELECT id, document_key FROM runs WHERE expires_at <= $1 AND details_deleted = false ORDER BY id",
+      "SELECT id FROM runs WHERE expires_at <= $1 AND details_deleted = false ORDER BY id",
       [now.toISOString()],
     );
     const purgedRunIds: string[] = [];
@@ -610,40 +671,111 @@ class NeonRunRepository implements RunRepository {
     const failedRunIds: string[] = [];
     for (const candidate of candidates) {
       const runId = String(candidate.id);
-      const documentKey = candidate.document_key ? String(candidate.document_key) : null;
-      let rows: DatabaseRow[];
       try {
-        if (documentKey && deleteDocument) await deleteDocument(documentKey);
-        rows = await driver.query(
-          `WITH removed_steps AS (DELETE FROM run_steps WHERE run_id = $1),
-            removed_result AS (DELETE FROM run_results WHERE run_id = $1)
-          UPDATE runs SET status = 'expired', document_key = NULL, deletion_token_hash = NULL,
-            details_deleted = true,
-            file_metadata = jsonb_set(file_metadata, '{filename}', '"expired-document"'::jsonb),
-            requested_fields = '[]'::jsonb
-          WHERE id = $1 AND details_deleted = false RETURNING id`,
-          [runId],
+        const tombstoned = await this.tombstoneRun(
+          driver,
+          runId,
+          "expired",
+          now.toISOString(),
         );
+        if (tombstoned !== undefined) purgedRunIds.push(runId);
       } catch {
         failedRunIds.push(runId);
-        continue;
       }
-      if (rows.length === 0) continue;
-      purgedRunIds.push(runId);
-      if (documentKey) documentKeys.push(documentKey);
+    }
+
+    const cleanupJobs = await driver.query(
+      `SELECT run_id, document_key FROM document_cleanup_jobs
+      WHERE next_attempt_at <= $1 ORDER BY next_attempt_at, run_id LIMIT 100`,
+      [now.toISOString()],
+    );
+    for (const job of cleanupJobs) {
+      const runId = String(job.run_id);
+      const documentKey = String(job.document_key);
+      const succeeded = await this.retryCleanupJob(
+        driver,
+        runId,
+        documentKey,
+        now.toISOString(),
+        deleteDocument,
+      );
+      if (succeeded) documentKeys.push(documentKey);
+      else if (!failedRunIds.includes(runId)) failedRunIds.push(runId);
     }
     return { purgedRunIds, documentKeys, failedRunIds };
   }
 
-  private async readyDriver(): Promise<NeonDriver> {
-    const driver = await this.getDriver();
-    if (!this.schemaPromise) {
-      this.schemaPromise = (async () => {
-        for (const statement of neonSchemaStatements) await driver.query(statement);
-      })();
+  private async tombstoneRun(
+    driver: NeonDriver,
+    runId: string,
+    status: "deleted" | "expired",
+    timestamp: string,
+  ): Promise<string | null | undefined> {
+    const rows = await driver.query(
+      `WITH target AS (
+        SELECT id, document_key FROM runs
+        WHERE id = $1 AND details_deleted = false FOR UPDATE
+      ), cleanup AS (
+        INSERT INTO document_cleanup_jobs (
+          run_id, document_key, created_at, next_attempt_at
+        )
+        SELECT id, document_key, $3::timestamptz, $3::timestamptz
+        FROM target WHERE document_key IS NOT NULL
+        ON CONFLICT (run_id) DO UPDATE SET
+          document_key = EXCLUDED.document_key,
+          next_attempt_at = LEAST(
+            document_cleanup_jobs.next_attempt_at,
+            EXCLUDED.next_attempt_at
+          )
+        RETURNING run_id
+      ), removed_steps AS (
+        DELETE FROM run_steps WHERE run_id = $1
+      ), removed_result AS (
+        DELETE FROM run_results WHERE run_id = $1
+      ), tombstoned AS (
+        UPDATE runs SET status = $2,
+          deleted_at = CASE WHEN $2 = 'deleted' THEN $3::timestamptz ELSE deleted_at END,
+          document_key = NULL, deletion_token_hash = NULL, details_deleted = true,
+          file_metadata = jsonb_set(file_metadata, '{filename}', '"expired-document"'::jsonb),
+          requested_fields = '[]'::jsonb
+        FROM target WHERE runs.id = target.id
+        RETURNING runs.id, target.document_key
+      )
+      SELECT id, document_key AS cleanup_document_key FROM tombstoned`,
+      [runId, status, timestamp],
+    );
+    if (!rows[0]) return undefined;
+    return rows[0].cleanup_document_key
+      ? String(rows[0].cleanup_document_key)
+      : null;
+  }
+
+  private async retryCleanupJob(
+    driver: NeonDriver,
+    runId: string,
+    documentKey: string,
+    attemptedAt: string,
+    deleteDocument?: (documentKey: string) => Promise<void>,
+  ): Promise<boolean> {
+    try {
+      if (deleteDocument) await deleteDocument(documentKey);
+      await driver.query("DELETE FROM document_cleanup_jobs WHERE run_id = $1", [runId]);
+      return true;
+    } catch {
+      await driver.query(
+        `UPDATE document_cleanup_jobs SET
+          attempt_count = attempt_count + 1,
+          last_attempt_at = $2::timestamptz,
+          next_attempt_at = $2::timestamptz + interval '5 minutes'
+        WHERE run_id = $1`,
+        [runId, attemptedAt],
+      );
+      return false;
     }
-    await this.schemaPromise;
-    return driver;
+  }
+
+  private async readyDriver(): Promise<NeonDriver> {
+    return this.getDriver();
   }
 
   private getDriver(): Promise<NeonDriver> {

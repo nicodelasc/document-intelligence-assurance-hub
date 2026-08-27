@@ -173,4 +173,44 @@ describe("extraction provider contract", () => {
 
     await expect(provider.extract({ document, requestedFields })).rejects.toMatchObject({ name: "ZodError" });
   });
+
+  it.each([
+    [429, "provider_rate_limited"],
+    [503, "provider_unavailable"],
+    [401, "provider_auth_failed"],
+  ] as const)("maps a live adapter HTTP %s failure to %s", async (status, safeCode) => {
+    const provider = createOpenAIExtractionProvider({
+      liveEnabled: true,
+      apiKey: "unit-test-placeholder",
+      generate: async () => {
+        throw { statusCode: status };
+      },
+    });
+
+    await expect(provider.extract({ document, requestedFields })).rejects.toMatchObject({
+      safeCode,
+      httpStatus: status,
+    });
+  });
+
+  it("passes the workflow abort signal into the selected live adapter", async () => {
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+    const provider = createOpenAIExtractionProvider({
+      liveEnabled: true,
+      apiKey: "unit-test-placeholder",
+      generate: async (request) => {
+        observedSignal = request.signal;
+        return {
+          output: validModelOutput,
+          usage: { inputTokens: 1, outputTokens: 1 },
+          latencyMs: 1,
+        };
+      },
+    });
+
+    await provider.extract({ document, requestedFields, signal: controller.signal });
+
+    expect(observedSignal).toBe(controller.signal);
+  });
 });

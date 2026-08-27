@@ -12,4 +12,6 @@ premium-audit.json
 !.env.example
 *.log
 *.tsbuildinfo
+/AGENTS.md
+/CLAUDE.md
 

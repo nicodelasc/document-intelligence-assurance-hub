@@ -3,6 +3,10 @@ import {
   documentNoStoreHeaders,
   safeErrorResponse,
 } from "@/server/http/responses";
+import {
+  attachBucketCookie,
+  resolveAnonymousBucket,
+} from "@/server/http/anonymous-bucket";
 
 function validRunId(id: string): boolean {
   return /^[A-Za-z0-9_-]{1,128}$/.test(id);
@@ -42,17 +46,39 @@ function unavailableDocument(
 }
 
 export async function handleRunDocumentGet(
-  _request: Request,
+  request: Request,
   parameters: { id: string },
   container: HttpContainer,
 ): Promise<Response> {
   const requestId = container.requestIdSource();
-  if (!validRunId(parameters.id)) return unavailableDocument(requestId, 404);
+  const bucket = resolveAnonymousBucket(request, {
+    tokenSource: container.bucketTokenSource,
+    secure: process.env.NODE_ENV === "production",
+  });
+  const respond = (response: Response) => attachBucketCookie(response, bucket);
+  if (!validRunId(parameters.id)) return respond(unavailableDocument(requestId, 404));
   try {
+    if (
+      !(await container.abuseControl.allowDocumentRead({
+        bucket: bucket.protectedBucket,
+        runId: parameters.id,
+        now: container.clock(),
+      }))
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "document_read_rate_limited",
+          message: "This active document has been read too frequently. Retry shortly.",
+          requestId,
+          status: 429,
+          headers: documentNoStoreHeaders,
+        }),
+      );
+    }
     const run = await container.repository.readPublicRun(parameters.id, container.clock());
-    if (!run) return unavailableDocument(requestId, 404);
+    if (!run) return respond(unavailableDocument(requestId, 404));
     if (run.status === "expired" || run.status === "deleted") {
-      return unavailableDocument(requestId, 410);
+      return respond(unavailableDocument(requestId, 410));
     }
     const mediaType = run.file.mediaType;
     if (
@@ -60,18 +86,18 @@ export async function handleRunDocumentGet(
       mediaType !== "image/png" &&
       mediaType !== "image/jpeg"
     ) {
-      return unavailableDocument(requestId, 404);
+      return respond(unavailableDocument(requestId, 404));
     }
     const recheckNow = container.clock();
     if (Date.parse(run.expiresAt) <= recheckNow.getTime()) {
-      return unavailableDocument(requestId, 410);
+      return respond(unavailableDocument(requestId, 410));
     }
     const document = await container.documentStore.fetchActiveDocument({
       key: `runs/${run.id}/document`,
       expiresAt: run.expiresAt,
       now: recheckNow,
     });
-    if (!document) return unavailableDocument(requestId, 404);
+    if (!document) return respond(unavailableDocument(requestId, 404));
     const headers = new Headers(documentNoStoreHeaders);
     headers.set("content-type", mediaType);
     headers.set("content-length", String(document.sizeBytes));
@@ -79,8 +105,8 @@ export async function handleRunDocumentGet(
       "content-disposition",
       `inline; filename="${safeHeaderFilename(run.file.filename, mediaType)}"`,
     );
-    return new Response(Buffer.from(document.bytes), { status: 200, headers });
+    return respond(new Response(Buffer.from(document.bytes), { status: 200, headers }));
   } catch {
-    return unavailableDocument(requestId, 503);
+    return respond(unavailableDocument(requestId, 503));
   }
 }

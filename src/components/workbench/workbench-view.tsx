@@ -281,7 +281,12 @@ export function WorkbenchView() {
       form.set("consent", String(custom.consent));
     }
     try {
-      const response = await fetch("/api/runs", { method: "POST", body: form, signal: controller.signal });
+      const response = await fetch("/api/runs", {
+        method: "POST",
+        body: form,
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        signal: controller.signal,
+      });
       const terminal = await consumeNdjson(response, { onEvent: (event) => onStreamEvent(event, requestId) });
       if (requestId !== requestRef.current) return;
       const elapsed = performance.now() - startedRef.current;

@@ -8,6 +8,7 @@ import {
 } from "@/server/repositories/run-repository";
 import {
   createNeonQuotaRepository,
+  DEFAULT_DAILY_MODEL_BUDGET_USD,
   InMemoryQuotaRepository,
   type QuotaRepository,
 } from "@/server/security/rate-limit";
@@ -24,6 +25,10 @@ import type { ExtractionProvider } from "@/server/workflow/provider";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import type { ExecutionMode } from "@/server/repositories/run-repository";
 import { syntheticInvoices } from "@/domain/fixtures";
+import {
+  InMemoryAbuseControl,
+  type AbuseControl,
+} from "@/server/security/abuse-control";
 
 type SyntheticInvoiceId = (typeof syntheticInvoices)[number]["id"];
 
@@ -41,6 +46,7 @@ export type HttpContainer = {
   repository: RunRepository;
   quotaRepository: QuotaRepository;
   documentStore: DocumentStore;
+  abuseControl: AbuseControl;
   clock: () => Date;
   requestIdSource: () => string;
   bucketTokenSource: () => string;
@@ -57,6 +63,18 @@ export type HttpContainer = {
 
 type Environment = Record<string, string | undefined>;
 
+function parseDailyModelBudget(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_DAILY_MODEL_BUDGET_USD;
+  if (!value.trim()) {
+    throw new HttpContainerConfigurationError("invalid_global_daily_model_budget_usd");
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new HttpContainerConfigurationError("invalid_global_daily_model_budget_usd");
+  }
+  return parsed;
+}
+
 export function createDefaultHttpContainer(
   environment: Environment = process.env,
 ): HttpContainer {
@@ -64,6 +82,10 @@ export function createDefaultHttpContainer(
   const blobToken = environment.BLOB_READ_WRITE_TOKEN;
   const hasDatabase = Boolean(databaseUrl);
   const hasBlob = Boolean(blobToken);
+  const liveModeEnabled = environment.AI_LIVE_ENABLED === "true";
+  const dailyBudgetUsd = parseDailyModelBudget(
+    environment.GLOBAL_DAILY_MODEL_BUDGET_USD,
+  );
   if (hasDatabase !== hasBlob) {
     throw new HttpContainerConfigurationError("connected_persistence_must_be_coherent");
   }
@@ -74,17 +96,22 @@ export function createDefaultHttpContainer(
   ) {
     throw new HttpContainerConfigurationError("production_persistence_required");
   }
-  const liveModeEnabled = environment.AI_LIVE_ENABLED === "true";
+  if (environment.NODE_ENV === "production" && liveModeEnabled && !hasDatabase) {
+    throw new HttpContainerConfigurationError(
+      "production_live_mode_requires_database",
+    );
+  }
   return {
     repository: databaseUrl
       ? createNeonRunRepository({ databaseUrl })
       : new InMemoryRunRepository(),
     quotaRepository: databaseUrl
-      ? createNeonQuotaRepository({ databaseUrl })
-      : new InMemoryQuotaRepository(),
+      ? createNeonQuotaRepository({ databaseUrl, dailyBudgetUsd })
+      : new InMemoryQuotaRepository(dailyBudgetUsd),
     documentStore: blobToken
       ? createVercelBlobDocumentStore({ token: blobToken })
       : new InMemoryDocumentStore(),
+    abuseControl: new InMemoryAbuseControl(),
     clock: () => new Date(),
     requestIdSource: randomUUID,
     bucketTokenSource: defaultBucketTokenSource,

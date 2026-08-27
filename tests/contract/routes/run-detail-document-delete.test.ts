@@ -137,12 +137,42 @@ describe("document streaming", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
     expect(response.headers.get("content-disposition")).toContain("inline");
     expect(response.headers.get("content-disposition")).not.toContain("\r");
     expect(response.headers.get("content-disposition")).not.toContain("\n");
     expect(response.headers.get("content-disposition")).not.toContain("X-Injected");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("rate limits repeated active-document reads before storage access", async () => {
+    const base = createTestContainer();
+    const completed = await completedRun(base);
+    let storageReads = 0;
+    const container = createTestContainer({
+      repository: base.repository,
+      documentStore: {
+        ...base.documentStore,
+        fetchActiveDocument: async (input) => {
+          storageReads += 1;
+          return base.documentStore.fetchActiveDocument(input);
+        },
+      },
+      abuseControl: {
+        allowRunSubmission: async () => true,
+        allowDocumentRead: async () => false,
+      },
+    });
+
+    const response = await handleRunDocumentGet(
+      new Request(`http://local.test/api/runs/${completed.runId}/document`),
+      { id: completed.runId },
+      container,
+    );
+
+    expect(response.status).toBe(429);
+    expect(storageReads).toBe(0);
   });
 });
 
@@ -199,13 +229,17 @@ describe("DELETE /api/runs/[id]", () => {
     });
   });
 
-  it("returns a retriable safe error when authorized deletion cannot reach storage", async () => {
+  it("denies public access immediately and retains cleanup retry when Blob deletion fails", async () => {
     class FailingDeleteStore extends InMemoryDocumentStore {
+      failing = true;
+
       override async deleteDocument(): Promise<boolean> {
-        throw new Error("private_blob_failure");
+        if (this.failing) throw new Error("private_blob_failure");
+        return true;
       }
     }
-    const container = createTestContainer({ documentStore: new FailingDeleteStore() });
+    const documentStore = new FailingDeleteStore();
+    const container = createTestContainer({ documentStore });
     const completed = await completedRun(container);
 
     const response = await handleRunDelete(
@@ -216,11 +250,27 @@ describe("DELETE /api/runs/[id]", () => {
       { id: completed.runId },
       container,
     );
-    const body = (await response.json()) as { error: { code: string; message: string } };
+    const documentResponse = await handleRunDocumentGet(
+      new Request(`http://local.test/api/runs/${completed.runId}/document`),
+      { id: completed.runId },
+      container,
+    );
 
-    expect(response.status).toBe(503);
-    expect(body.error.code).toBe("delete_temporarily_unavailable");
-    expect(body.error.message).not.toContain("private_blob_failure");
-    expect((await container.repository.readPublicRun(completed.runId, container.clock()))?.status).toBe("completed");
+    expect(response.status).toBe(202);
+    expect((await container.repository.readPublicRun(completed.runId, container.clock()))?.status).toBe("deleted");
+    expect(documentResponse.status).toBe(410);
+    expect(await container.repository.countCleanupBacklog(container.clock())).toBe(1);
+
+    documentStore.failing = false;
+    const retry = await container.repository.purgeExpiredData(
+      container.clock(),
+      () => documentStore.deleteDocument().then(() => undefined),
+    );
+    expect(retry).toEqual({
+      purgedRunIds: [],
+      documentKeys: [`runs/${completed.runId}/document`],
+      failedRunIds: [],
+    });
+    expect(await container.repository.countCleanupBacklog(container.clock())).toBe(0);
   });
 });
