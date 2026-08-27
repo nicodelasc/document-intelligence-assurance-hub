@@ -22,4 +22,35 @@ describe("runEventSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("validates comparison, telemetry and one-time uploader completion events", () => {
+    expect(
+      runEventSchema.parse({
+        type: "stage",
+        stage: "comparing",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      }),
+    ).toMatchObject({ type: "stage", stage: "comparing" });
+    expect(
+      runEventSchema.parse({
+        type: "completed",
+        outcome: "clear",
+        runId: "run-123",
+        executionMode: "recorded",
+        deletionToken: "shown-to-uploader-once",
+        timestamp: "2026-08-27T00:00:01.000Z",
+      }),
+    ).toMatchObject({ type: "completed", runId: "run-123", executionMode: "recorded" });
+  });
+
+  it("requires a stable safe code on failure events", () => {
+    expect(
+      runEventSchema.parse({
+        type: "failed",
+        code: "provider_unavailable",
+        message: "The selected provider is temporarily unavailable.",
+        timestamp: "2026-08-27T00:00:00.000Z",
+      }),
+    ).toMatchObject({ type: "failed", code: "provider_unavailable" });
+  });
 });

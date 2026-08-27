@@ -6,7 +6,9 @@ const runStatusSchema = z.enum([
   "storing",
   "extracting",
   "verifying",
+  "comparing",
   "deciding",
+  "publishing",
   "completed",
   "failed",
   "expired",
@@ -38,6 +40,23 @@ const fieldResultSchema = z
 export const runEventSchema: z.ZodType<RunEvent> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stage"), stage: runStatusSchema, timestamp: z.string().datetime() }).strict(),
   z.object({ type: z.literal("field"), field: fieldResultSchema, timestamp: z.string().datetime() }).strict(),
-  z.object({ type: z.literal("completed"), outcome: outcomeSchema, timestamp: z.string().datetime() }).strict(),
-  z.object({ type: z.literal("failed"), message: z.string(), timestamp: z.string().datetime() }).strict(),
+  z
+    .object({
+      type: z.literal("completed"),
+      outcome: outcomeSchema,
+      runId: z.string().min(1),
+      executionMode: z.enum(["recorded", "live"]),
+      deletionToken: z.string().min(1),
+      timestamp: z.string().datetime(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("failed"),
+      code: z.string().min(1).max(80),
+      message: z.string().min(1).max(240),
+      runId: z.string().min(1).optional(),
+      timestamp: z.string().datetime(),
+    })
+    .strict(),
 ]);

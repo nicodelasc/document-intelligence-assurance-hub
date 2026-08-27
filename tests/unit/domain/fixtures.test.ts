@@ -23,4 +23,14 @@ describe("synthetic invoice fixtures", () => {
       expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
     }
   });
+
+  it("exposes the three fixed guided fields for every recorded sample", () => {
+    for (const result of recordedRunResults) {
+      expect(result.fields.map((field) => field.key)).toEqual([
+        "vendor_name",
+        "purchase_order_number",
+        "invoice_total",
+      ]);
+    }
+  });
 });

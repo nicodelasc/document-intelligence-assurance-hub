@@ -5,7 +5,9 @@ export type RunStatus =
   | "storing"
   | "extracting"
   | "verifying"
+  | "comparing"
   | "deciding"
+  | "publishing"
   | "completed"
   | "failed"
   | "expired"
@@ -60,5 +62,12 @@ export interface ResourceScenarioResult {
 export type RunEvent =
   | { type: "stage"; stage: RunStatus; timestamp: string }
   | { type: "field"; field: FieldResult; timestamp: string }
-  | { type: "completed"; outcome: Outcome; timestamp: string }
-  | { type: "failed"; message: string; timestamp: string };
+  | {
+      type: "completed";
+      outcome: Outcome;
+      runId: string;
+      executionMode: "recorded" | "live";
+      deletionToken: string;
+      timestamp: string;
+    }
+  | { type: "failed"; code: string; message: string; runId?: string; timestamp: string };
