@@ -249,3 +249,120 @@ export const recordedRunResults: RecordedRunResult[] = [
     ],
   },
 ];
+
+export type RecordedDocumentRunResult = {
+  fixtureId: (typeof syntheticFixtures)[number]["id"];
+  outcome: Outcome;
+  fields: FieldResult[];
+};
+
+export const recordedDocumentRunResults: RecordedDocumentRunResult[] = [
+  {
+    fixtureId: "invoice-exception-packet",
+    outcome: "needs_review",
+    fields: [
+      {
+        key: "vendor_name",
+        label: "Vendor name",
+        extractedValue: "Northstar Paperworks",
+        normalizedValue: "Northstar Paperworks",
+        evidence: "Vendor name: Northstar Paperworks",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "purchase_order_number",
+        label: "Purchase-order number",
+        extractedValue: "PO-NP-1001",
+        normalizedValue: "PO-NP-1001",
+        evidence: "Purchase-order number: PO-NP-1001",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "invoice_total",
+        label: "Invoice total",
+        extractedValue: "1250.00 SGD",
+        normalizedValue: "1250.00 SGD",
+        evidence: "Invoice total: 1250.00 SGD",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+    ],
+  },
+  {
+    fixtureId: "warehouse-receiving-sheet",
+    outcome: "clear",
+    fields: [
+      {
+        key: "shipment_id",
+        label: "Shipment ID",
+        extractedValue: "SHIP-4018",
+        normalizedValue: "SHIP-4018",
+        evidence: "Shipment ID: SHIP-4018",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "purchase_order_number",
+        label: "Purchase-order number",
+        extractedValue: "PO-WR-4018",
+        normalizedValue: "PO-WR-4018",
+        evidence: "Purchase-order number: PO-WR-4018",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "received_quantity",
+        label: "Received quantity",
+        extractedValue: "48",
+        normalizedValue: "48",
+        evidence: "Received quantity: 48",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+    ],
+  },
+  {
+    fixtureId: "visitor-access-request",
+    outcome: "incomplete",
+    fields: [
+      {
+        key: "visitor_name",
+        label: "Visitor name",
+        extractedValue: "Jordan Lee",
+        normalizedValue: "Jordan Lee",
+        evidence: "Visitor name: Jordan Lee",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "host",
+        label: "Host",
+        extractedValue: "Avery Tan",
+        normalizedValue: "Avery Tan",
+        evidence: "Host: Avery Tan",
+        page: 1,
+        evaluatorStatus: "pass",
+        referenceMatch: true,
+      },
+      {
+        key: "approval_code",
+        label: "Approval code",
+        extractedValue: null,
+        normalizedValue: null,
+        evidence: null,
+        page: null,
+        evaluatorStatus: "not_found",
+        referenceMatch: null,
+      },
+    ],
+  },
+];

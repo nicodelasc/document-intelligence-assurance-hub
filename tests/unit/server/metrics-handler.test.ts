@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { handleMetricsGet } from "@/server/http/metrics-handler";
+import { recordedDocumentRunResults } from "@/domain/fixtures";
+import {
+  calculateRecordedFixtureBenchmark,
+  handleMetricsGet,
+} from "@/server/http/metrics-handler";
 import { createTestContainer } from "../../contract/routes/test-support";
 
 describe("recorded benchmark metrics", () => {
@@ -25,5 +29,26 @@ describe("recorded benchmark metrics", () => {
       ready: 2,
       blocked: 2,
     });
+  });
+
+  it("lowers extraction and evaluator scores for a corrupted document observation", () => {
+    const observations = structuredClone(recordedDocumentRunResults);
+    const invoice = observations.find(
+      (observation) => observation.fixtureId === "invoice-exception-packet",
+    );
+    if (!invoice) throw new Error("Invoice exception fixture observation is required");
+
+    invoice.fields[0] = {
+      ...invoice.fields[0],
+      extractedValue: "Incorrect vendor",
+      normalizedValue: "Incorrect vendor",
+      evaluatorStatus: "conflict",
+      referenceMatch: false,
+    };
+
+    const benchmark = calculateRecordedFixtureBenchmark(observations);
+
+    expect(benchmark.exactMatchRate).toBeLessThan(1);
+    expect(benchmark.evaluatorAgreement).toBeLessThan(1);
   });
 });

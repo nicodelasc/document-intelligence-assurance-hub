@@ -1,4 +1,8 @@
-import { recordedRunResults, syntheticFixtures } from "@/domain/fixtures";
+import {
+  recordedDocumentRunResults,
+  syntheticFixtures,
+  type RecordedDocumentRunResult,
+} from "@/domain/fixtures";
 import { calculateResourceScenario } from "@/domain/resource-model";
 import type { HttpContainer } from "@/server/http/container";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
@@ -49,7 +53,20 @@ function averageDurations(records: Array<Record<string, number>>): Record<string
   );
 }
 
-function recordedBenchmark() {
+function countReplayValues(values: readonly string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>(
+    (counts, value) => ({ ...counts, [value]: (counts[value] ?? 0) + 2 }),
+    {},
+  );
+}
+
+function expectedEvaluatorStatus(value: string | null): "pass" | "not_found" {
+  return value === null ? "not_found" : "pass";
+}
+
+export function calculateRecordedFixtureBenchmark(
+  observations: readonly RecordedDocumentRunResult[] = recordedDocumentRunResults,
+) {
   let exactMatches = 0;
   let totalFields = 0;
   let foundExpectedMissing = 0;
@@ -58,32 +75,30 @@ function recordedBenchmark() {
   let evaluatorComparisons = 0;
   let falseClearCount = 0;
 
-  for (const fixture of [...recordedRunResults, ...recordedRunResults]) {
-    const extractionTruth = fixture.fields.reduce<Record<string, string | null>>(
-      (truth, field) => ({ ...truth, [field.key]: field.extractedValue }),
-      {},
+  for (const fixture of syntheticFixtures) {
+    const observation = observations.find(
+      (candidate) => candidate.fixtureId === fixture.id,
     );
-    const evaluatorTruth = fixture.fields.reduce<Record<string, string>>(
-      (truth, field) => ({ ...truth, [field.key]: field.evaluatorStatus }),
-      {},
-    );
-    for (const field of fixture.fields) {
-      const expectedValue = extractionTruth[field.key];
-      const expectedStatus = evaluatorTruth[field.key];
+    for (const requestedField of fixture.requestedFields) {
+      const expectedValue = fixture.referenceData[requestedField.key] ?? null;
+      const expectedStatus = expectedEvaluatorStatus(expectedValue);
+      const field = observation?.fields.find(
+        (candidate) => candidate.key === requestedField.key,
+      );
       totalFields += 1;
       evaluatorComparisons += 1;
-      if (field.extractedValue === expectedValue) exactMatches += 1;
-      if (field.evaluatorStatus === expectedStatus) evaluatorAgreements += 1;
+      if (field?.extractedValue === expectedValue) exactMatches += 1;
+      if (field?.evaluatorStatus === expectedStatus) evaluatorAgreements += 1;
       if (expectedValue === null) {
         expectedMissing += 1;
-        if (field.extractedValue === null && field.evaluatorStatus === "not_found") {
+        if (field?.extractedValue === null && field.evaluatorStatus === "not_found") {
           foundExpectedMissing += 1;
         }
       }
     }
     if (
-      fixture.outcome === "clear" &&
-      Object.values(evaluatorTruth).some((status) => status !== "pass")
+      observation?.outcome === "clear" &&
+      fixture.expectedOutcome !== "clear"
     ) {
       falseClearCount += 1;
     }
@@ -92,17 +107,17 @@ function recordedBenchmark() {
   return {
     source: "recorded_fixture_replay" as const,
     liveRuns: 0,
-    recordedRuns: recordedRunResults.length * 2,
-    providerCoverage: { openai: recordedRunResults.length, anthropic: recordedRunResults.length },
+    recordedRuns: syntheticFixtures.length * 2,
+    providerCoverage: { openai: syntheticFixtures.length, anthropic: syntheticFixtures.length },
     exactMatchRate: ratio(exactMatches, totalFields),
     missingFieldRecall: ratio(foundExpectedMissing, expectedMissing),
     evaluatorAgreement: ratio(evaluatorAgreements, evaluatorComparisons),
     falseClearCount,
-    expectedOutcomes: Object.fromEntries(
-      syntheticFixtures.map((fixture) => [fixture.expectedOutcome, 2]),
+    expectedOutcomes: countReplayValues(
+      syntheticFixtures.map((fixture) => fixture.expectedOutcome),
     ),
-    actionStatuses: Object.fromEntries(
-      syntheticFixtures.map((fixture) => [fixture.action.status, 2]),
+    actionStatuses: countReplayValues(
+      syntheticFixtures.map((fixture) => fixture.action.status),
     ),
   };
 }
@@ -225,7 +240,7 @@ export async function handleMetricsGet(
           estimatedCost: true,
           pricingAsOf: "2026-08-27",
         },
-        benchmark: recordedBenchmark(),
+        benchmark: calculateRecordedFixtureBenchmark(),
         retention: {
           activePublicUploads: activeRuns.filter(
             (run) => run.sourceType === "custom",
