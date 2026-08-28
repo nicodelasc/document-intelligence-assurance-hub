@@ -1,4 +1,11 @@
-import type { FieldResult, Outcome, Provider, RunStatus } from "@/domain/types";
+import type {
+  ActionProposal,
+  FieldResult,
+  Outcome,
+  Provider,
+  RunStatus,
+} from "@/domain/types";
+import { actionProposalSchema } from "@/domain/run-schema";
 
 export type ExecutionMode = "recorded" | "live";
 export type SourceType = "synthetic" | "custom";
@@ -21,7 +28,7 @@ export type TokenUsage = {
 };
 
 export type RunStepRecord = {
-  kind: "stage" | "field" | "retry" | "decision" | "purge";
+  kind: "stage" | "field" | "retry" | "decision" | "action" | "purge";
   stage: string;
   timestamp: string;
   durationMs: number | null;
@@ -55,6 +62,8 @@ export type StoredRunRecord = {
 export type SaveRunResultsInput = {
   fields: FieldResult[];
   outcome: Outcome;
+  documentInstruction: string | null;
+  action: ActionProposal;
   usage: TokenUsage;
   estimatedCostUsd: number;
   retryCount: number;
@@ -102,6 +111,17 @@ export type PurgeExpiredResult = {
   failedRunIds: string[];
 };
 
+export type StageActionResult =
+  | { status: "staged" | "already_staged"; action: ActionProposal }
+  | {
+      status:
+        | "not_found"
+        | "unavailable"
+        | "blocked"
+        | "expired"
+        | "deleted";
+    };
+
 export interface RunRepository {
   claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean>;
   releaseRunRequest(runId: string): Promise<void>;
@@ -109,6 +129,7 @@ export interface RunRepository {
   setStatus(runId: string, status: RunStatus): Promise<void>;
   appendStep(runId: string, step: RunStepRecord): Promise<void>;
   saveResults(runId: string, result: SaveRunResultsInput): Promise<void>;
+  stageAction(runId: string, now: Date): Promise<StageActionResult>;
   markFailed(runId: string, input: MarkRunFailedInput): Promise<void>;
   readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null>;
   listPublicRuns(now: Date, options?: PublicRunListOptions): Promise<PublicRunRecord[]>;
@@ -223,6 +244,31 @@ export class InMemoryRunRepository implements RunRepository {
       this.aggregate.outcomeCounts[result.outcome] =
         (this.aggregate.outcomeCounts[result.outcome] ?? 0) + 1;
     }
+  }
+
+  async stageAction(runId: string, now: Date): Promise<StageActionResult> {
+    const run = this.runs.get(runId);
+    if (!run) return { status: "not_found" };
+    if (run.detailsDeleted || run.record.status === "deleted") {
+      return { status: "deleted" };
+    }
+    if (isExpired(run, now)) return { status: "expired" };
+    if (run.record.status !== "completed" || !run.result || !run.result.action) {
+      return { status: "unavailable" };
+    }
+    if (run.result.action.status === "blocked") return { status: "blocked" };
+    if (run.result.action.stagedAt !== null) {
+      return { status: "already_staged", action: clone(run.result.action) };
+    }
+    const timestamp = now.toISOString();
+    run.result.action.stagedAt = timestamp;
+    run.steps.push({
+      kind: "action",
+      stage: "action_staged",
+      timestamp,
+      durationMs: null,
+    });
+    return { status: "staged", action: clone(run.result.action) };
   }
 
   async markFailed(runId: string, input: MarkRunFailedInput): Promise<void> {
@@ -524,6 +570,80 @@ class NeonRunRepository implements RunRepository {
         JSON.stringify(result.stepDurations),
       ],
     );
+  }
+
+  async stageAction(runId: string, now: Date): Promise<StageActionResult> {
+    const driver = await this.readyDriver();
+    const timestamp = now.toISOString();
+    const step: RunStepRecord = {
+      kind: "action",
+      stage: "action_staged",
+      timestamp,
+      durationMs: null,
+    };
+    const rows = await driver.query<{
+      decision: unknown;
+      result_json: unknown;
+    }>(
+      `WITH target AS (
+        SELECT runs.id, runs.status, runs.expires_at, runs.details_deleted,
+          result.result_json
+        FROM runs
+        LEFT JOIN run_results AS result ON result.run_id = runs.id
+        WHERE runs.id = $1
+        FOR UPDATE OF runs
+      ), classified AS (
+        SELECT *, CASE
+          WHEN details_deleted OR status = 'deleted' THEN 'deleted'
+          WHEN expires_at <= $2::timestamptz THEN 'expired'
+          WHEN status <> 'completed' OR result_json IS NULL THEN 'unavailable'
+          WHEN result_json -> 'action' IS NULL THEN 'unavailable'
+          WHEN result_json #>> '{action,status}' = 'blocked' THEN 'blocked'
+          WHEN result_json #>> '{action,stagedAt}' IS NOT NULL THEN 'already_staged'
+          ELSE 'staged'
+        END AS decision
+        FROM target
+      ), updated AS (
+        UPDATE run_results AS result
+        SET result_json = jsonb_set(
+          result.result_json,
+          '{action,stagedAt}',
+          to_jsonb($2::text),
+          false
+        )
+        FROM classified
+        WHERE result.run_id = classified.id AND classified.decision = 'staged'
+        RETURNING result.run_id, result.result_json
+      ), inserted AS (
+        INSERT INTO run_steps (run_id, step_json)
+        SELECT run_id, $3::jsonb FROM updated
+        RETURNING run_id
+      )
+      SELECT classified.decision,
+        COALESCE(updated.result_json, classified.result_json) AS result_json
+      FROM classified
+      LEFT JOIN updated ON updated.run_id = classified.id`,
+      [runId, timestamp, JSON.stringify(step)],
+    );
+    const row = rows[0];
+    if (!row) return { status: "not_found" };
+    const decision = String(row.decision) as StageActionResult["status"];
+    if (decision === "staged" || decision === "already_staged") {
+      const result = asJson<SaveRunResultsInput>(row.result_json);
+      return {
+        status: decision,
+        action: actionProposalSchema.parse(result.action),
+      };
+    }
+    if (
+      decision === "unavailable" ||
+      decision === "blocked" ||
+      decision === "expired" ||
+      decision === "deleted"
+    ) {
+      return { status: decision };
+    }
+    throw new Error("stage_action_decision_failed");
   }
 
   async markFailed(runId: string, input: MarkRunFailedInput): Promise<void> {

@@ -1,5 +1,35 @@
 import { z } from "zod";
-import type { RunEvent } from "./types";
+import type { ActionProposal, RunEvent } from "./types";
+
+export const actionProposalSchema: z.ZodType<ActionProposal> = z
+  .object({
+    type: z.enum([
+      "create_ap_exception_case",
+      "stage_inventory_receipt",
+      "create_security_review",
+      "create_document_review_task",
+    ]),
+    title: z.string().min(1).max(160),
+    summary: z.string().min(1).max(600),
+    payload: z
+      .array(
+        z
+          .object({
+            label: z.string().min(1).max(120),
+            value: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(12),
+    instructionEvidence: z.string().max(600).nullable(),
+    page: z.number().int().positive().nullable(),
+    risk: z.enum(["low", "medium", "high"]),
+    status: z.enum(["ready", "needs_review", "blocked"]),
+    reason: z.string().min(1).max(600),
+    stagedAt: z.string().datetime().nullable(),
+  })
+  .strict();
 
 const runStatusSchema = z.enum([
   "validating",

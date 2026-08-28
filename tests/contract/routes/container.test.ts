@@ -127,6 +127,7 @@ describe("HTTP persistence container", () => {
 
     const provider = await container.createProvider({
       provider: "openai",
+      model: "gpt-5.6-luna",
       executionMode: "live",
       sampleId: null,
     });

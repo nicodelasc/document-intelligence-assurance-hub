@@ -4,6 +4,7 @@ import {
   requireSupportedLiveModel,
 } from "@/domain/pricing";
 import type { Provider } from "@/domain/types";
+import { actionProposalSchema } from "@/domain/run-schema";
 import type {
   ExecutionMode,
   RequestedField,
@@ -24,6 +25,11 @@ export const extractedFieldSchema = z
 export const extractionResultSchema = z
   .object({
     fields: z.array(extractedFieldSchema),
+    documentInstruction: z.string().max(600).nullable(),
+    action: actionProposalSchema.refine(
+      (action) => action.stagedAt === null,
+      "Provider action proposals cannot be pre-staged.",
+    ),
   })
   .strict();
 
@@ -118,6 +124,8 @@ export function validateExtractionForRequest(
         throw new ProviderRequestError("provider_schema_mismatch", null);
       return { ...field, key: requestedField.key, label: requestedField.label };
     }),
+    documentInstruction: parsed.documentInstruction,
+    action: parsed.action,
   };
 }
 

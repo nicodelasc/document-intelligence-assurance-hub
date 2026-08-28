@@ -48,6 +48,23 @@ const validModelOutput = {
       page: 1,
     },
   ],
+  documentInstruction: "Corrected received quantity: 48.",
+  action: {
+    type: "stage_inventory_receipt",
+    title: "Stage inventory receipt",
+    summary: "Stage the verified receipt for internal inventory posting.",
+    payload: [
+      { label: "Shipment ID", value: "SHIP-4018" },
+      { label: "Purchase-order number", value: "PO-WR-4018" },
+      { label: "Received quantity", value: "48" },
+    ],
+    instructionEvidence: "Corrected received quantity: 48.",
+    page: 1,
+    risk: "low",
+    status: "ready",
+    reason: "The corrected quantity matches the expected delivery.",
+    stagedAt: null,
+  },
 };
 
 describe("extraction provider contract", () => {
@@ -87,9 +104,26 @@ describe("extraction provider contract", () => {
 
       expect(provider.executionMode).toBe("recorded");
       expect(provider.promptVersion).toBe("recorded-fixture-2026-08-27.v1");
-      expect(extractionResultSchema.parse(result.extraction)).toEqual(
-        validModelOutput,
-      );
+      expect(extractionResultSchema.parse(result.extraction)).toEqual({
+        fields: validModelOutput.fields,
+        documentInstruction: null,
+        action: {
+          type: "create_document_review_task",
+          title: "Prepare document review",
+          summary: "Prepare the extracted fields for an internal dry-run review.",
+          payload: [
+            { label: "Vendor name", value: "Northstar Paperworks" },
+            { label: "Purchase-order number", value: "PO-NP-1001" },
+            { label: "Invoice total", value: "1250.00 SGD" },
+          ],
+          instructionEvidence: null,
+          page: null,
+          risk: "low",
+          status: "needs_review",
+          reason: "The recorded result is prepared for internal review.",
+          stagedAt: null,
+        },
+      });
       expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
     },
   );
@@ -175,6 +209,9 @@ describe("extraction provider contract", () => {
       expect(request?.systemInstruction).toMatch(/untrusted/i);
       expect(request?.systemInstruction).toMatch(/ignore.*instructions/i);
       expect(request?.systemInstruction).toMatch(/verbatim.*page snippet/i);
+      expect(request?.systemInstruction).toMatch(/propose.*action/i);
+      expect(request?.systemInstruction).toMatch(/internal dry run/i);
+      expect(request?.systemInstruction).toMatch(/never.*external/i);
       expect(request?.tools).toBeUndefined();
       expect(JSON.stringify(result)).not.toMatch(
         /prompt|reasoning|apiKey|unit-test-placeholder/i,
@@ -216,7 +253,10 @@ describe("extraction provider contract", () => {
       liveEnabled: true,
       apiKey: "unit-test-placeholder",
       generate: async () => ({
-        output: { fields: [...validModelOutput.fields].reverse() },
+        output: {
+          ...validModelOutput,
+          fields: [...validModelOutput.fields].reverse(),
+        },
         usage: { inputTokens: 10, outputTokens: 10 },
         latencyMs: 50,
       }),

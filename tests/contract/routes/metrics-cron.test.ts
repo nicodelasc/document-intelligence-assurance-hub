@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { syntheticFixtures } from "@/domain/fixtures";
 import {
   handleMetricsGet,
   invalidateMetricsCache,
@@ -46,6 +47,8 @@ async function seedOutcome(
   await container.repository.saveResults(id, {
     fields: [],
     outcome,
+    documentInstruction: null,
+    action: structuredClone(syntheticFixtures[1].action),
     usage: { inputTokens: 10, outputTokens: 2 },
     estimatedCostUsd,
     retryCount: 0,

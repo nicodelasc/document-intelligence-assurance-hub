@@ -44,6 +44,22 @@ const modelOutput = {
       page: 1,
     },
   ],
+  documentInstruction: "Hold payment and contact the buyer.",
+  action: {
+    type: "create_ap_exception_case",
+    title: "Create accounts-payable exception review",
+    summary: "Review the invoice total before payment processing continues.",
+    payload: [
+      { label: "Vendor", value: "Northstar Paperworks" },
+      { label: "Invoice total", value: "1250.00 SGD" },
+    ],
+    instructionEvidence: "Hold payment and contact the buyer.",
+    page: 1,
+    risk: "medium",
+    status: "ready",
+    reason: "The document requests an accounts-payable review.",
+    stagedAt: null,
+  },
 };
 
 describe("default live provider runtime contract", () => {
@@ -82,6 +98,7 @@ describe("default live provider runtime contract", () => {
       timeout: { totalMs: LIVE_PROVIDER_TIMEOUT_MS },
       abortSignal: expect.any(AbortSignal),
     });
+    expect(generateTextMock.mock.calls[0]?.[0].tools).toBeUndefined();
   });
 
   it("signals dispatch after SDK client construction and before generation", async () => {

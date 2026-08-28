@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { syntheticFixtures } from "@/domain/fixtures";
 import { runEventSchema } from "@/domain/run-schema";
 import type { RunEvent } from "@/domain/types";
 import type { HttpContainer } from "@/server/http/container";
@@ -15,6 +16,76 @@ import {
 } from "./test-support";
 
 describe("POST /api/runs", () => {
+  it("passes a valid catalogue model through provider construction", async () => {
+    let selectedModel: string | undefined;
+    const base = createTestContainer();
+    const container = createTestContainer({
+      async createProvider(input) {
+        selectedModel = input.model;
+        return base.createProvider(input);
+      },
+    });
+
+    const response = await handleRunsPost(
+      syntheticRequest(
+        "clean-match",
+        "openai",
+        "valid-model-selection-20260828",
+        "gpt-5.6-terra",
+      ),
+      container,
+    );
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(selectedModel).toBe("gpt-5.6-terra");
+    const runs = await container.repository.listPublicRuns(container.clock());
+    expect(runs[0]?.model).toBe("gpt-5.6-terra");
+  });
+
+  it("rejects an unknown catalogue model before provider construction", async () => {
+    let providerCreations = 0;
+    const container = createTestContainer({
+      async createProvider() {
+        providerCreations += 1;
+        throw new Error("provider_must_not_be_created");
+      },
+    });
+
+    const response = await handleRunsPost(
+      syntheticRequest(
+        "clean-match",
+        "openai",
+        "unknown-model-selection-20260828",
+        "gpt-unknown",
+      ),
+      container,
+    );
+
+    expect(response.status).toBe(400);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("invalid_model");
+    expect(providerCreations).toBe(0);
+  });
+
+  it("rejects a provider-model mismatch before provider construction", async () => {
+    const response = await handleRunsPost(
+      syntheticRequest(
+        "clean-match",
+        "openai",
+        "mismatched-model-selection-20260828",
+        "claude-haiku-4-5",
+      ),
+      createTestContainer(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("invalid_model");
+  });
+
   it("rejects a non-multipart request before a run is created", async () => {
     const container = createTestContainer();
     const response = await handleRunsPost(
@@ -484,6 +555,8 @@ describe("POST /api/runs", () => {
               evidence: null,
               page: null,
             })),
+            documentInstruction: null,
+            action: structuredClone(syntheticFixtures[0].action),
           },
           usage: { inputTokens: 100, outputTokens: 20 },
           latencyMs: 5,
@@ -817,6 +890,8 @@ describe("GET /api/runs", () => {
                   evidence: null,
                   page: null,
                 })),
+                documentInstruction: null,
+                action: structuredClone(syntheticFixtures[0].action),
               },
               usage: { inputTokens: 0, outputTokens: 0 },
               latencyMs: 0,

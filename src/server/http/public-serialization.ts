@@ -1,4 +1,4 @@
-import type { FieldResult } from "@/domain/types";
+import type { ActionProposal, FieldResult } from "@/domain/types";
 import type {
   PublicRunRecord,
   RunStepRecord,
@@ -37,10 +37,46 @@ function serializeStep(step: RunStepRecord): RunStepRecord {
   };
 }
 
-function serializeResult(result: SaveRunResultsInput): SaveRunResultsInput {
+export function serializeActionProposal(action: ActionProposal): ActionProposal {
+  return {
+    type: action.type,
+    title: cleanText(action.title, 160),
+    summary: cleanText(action.summary, 600),
+    payload: action.payload.slice(0, 12).map((entry) => ({
+      label: cleanText(entry.label, 120),
+      value: cleanText(entry.value, 500),
+    })),
+    instructionEvidence:
+      action.instructionEvidence === null
+        ? null
+        : cleanText(action.instructionEvidence, 600),
+    page: action.page,
+    risk: action.risk,
+    status: action.status,
+    reason: cleanText(action.reason, 600),
+    stagedAt: action.stagedAt,
+  };
+}
+
+function serializeResult(result: SaveRunResultsInput) {
+  const legacyCompatible = result as SaveRunResultsInput & {
+    documentInstruction?: string | null;
+    action?: ActionProposal;
+  };
   return {
     fields: result.fields.map(serializeField),
     outcome: result.outcome,
+    ...(legacyCompatible.documentInstruction === undefined
+      ? {}
+      : {
+          documentInstruction:
+            legacyCompatible.documentInstruction === null
+              ? null
+              : cleanText(legacyCompatible.documentInstruction, 600),
+        }),
+    ...(legacyCompatible.action === undefined
+      ? {}
+      : { action: serializeActionProposal(legacyCompatible.action) }),
     usage: {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,

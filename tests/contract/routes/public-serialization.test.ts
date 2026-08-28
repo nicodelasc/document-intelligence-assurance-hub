@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { syntheticFixtures } from "@/domain/fixtures";
 import type { PublicRunRecord } from "@/server/repositories/run-repository";
 import {
   serializePublicRunDetail,
@@ -56,6 +57,8 @@ function poisonedRun(): PublicRunRecord {
           },
         ],
         outcome: "evidence_consistent",
+        documentInstruction: null,
+        action: structuredClone(syntheticFixtures[1].action),
         usage: { inputTokens: 0, outputTokens: 0 },
         estimatedCostUsd: 0,
         retryCount: 0,
@@ -84,6 +87,20 @@ describe("public serializers", () => {
     expect(serialized).not.toContain("reasoning");
     expect(serialized).not.toContain("apiKey");
     expect(serialized).not.toContain("must-not-leak");
+  });
+
+  it("keeps a legacy result readable when it predates action persistence", () => {
+    const run = poisonedRun();
+    const legacyResult = run.details?.result as
+      | (Record<string, unknown> & { action?: unknown })
+      | null
+      | undefined;
+    delete legacyResult?.action;
+
+    expect(() => serializePublicRunDetail(run)).not.toThrow();
+    expect(serializePublicRunDetail(run)).toMatchObject({
+      details: { result: { outcome: "evidence_consistent" } },
+    });
   });
 
   it("keeps list rows anonymous while exposing only the active safe filename", () => {

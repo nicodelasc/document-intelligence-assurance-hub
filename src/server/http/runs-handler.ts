@@ -206,6 +206,7 @@ export async function handleRunsPost(
     try {
       provider = await container.createProvider({
         provider: input.provider,
+        model: input.model,
         executionMode: input.executionMode,
         sampleId: input.sample?.id ?? null,
       });
@@ -250,6 +251,7 @@ export async function handleRunsPost(
           requestedFields: input.requestedFields,
           consent: input.consent,
           referenceData: input.referenceData,
+          fixture: input.fixture,
         },
         {
           repository: container.repository,

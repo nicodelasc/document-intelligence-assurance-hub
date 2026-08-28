@@ -42,6 +42,33 @@ export function createRecordedExtractionProvider(input: {
             page: field?.page ?? null,
           };
         }),
+        documentInstruction: null,
+        action: {
+          type: "create_document_review_task" as const,
+          title: "Prepare document review",
+          summary: "Prepare the extracted fields for an internal dry-run review.",
+          payload: request.requestedFields.map((requestedField) => {
+            const field = fixture.fields.find(
+              (candidate) => candidate.key === requestedField.key,
+            );
+            return {
+              label: requestedField.label,
+              value: field?.normalizedValue ?? "Not found",
+            };
+          }),
+          instructionEvidence: null,
+          page: null,
+          risk: fixture.outcome === "incomplete" ? ("high" as const) : ("low" as const),
+          status:
+            fixture.outcome === "incomplete"
+              ? ("blocked" as const)
+              : ("needs_review" as const),
+          reason:
+            fixture.outcome === "incomplete"
+              ? "Required evidence is incomplete."
+              : "The recorded result is prepared for internal review.",
+          stagedAt: null,
+        },
       };
 
       return {

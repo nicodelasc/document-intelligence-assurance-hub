@@ -4,6 +4,7 @@ import {
   createNeonRunRepository,
   type NeonDriver,
 } from "@/server/repositories/run-repository";
+import { syntheticFixtures } from "@/domain/fixtures";
 
 const createdAt = "2026-08-27T00:00:00.000Z";
 const expiresAt = "2026-08-27T23:55:00.000Z";
@@ -57,6 +58,46 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
+  it("stages a permitted action once with one internal action step", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun(runRecord());
+    const action = structuredClone(syntheticFixtures[1].action);
+    await repository.saveResults("run-1", {
+      fields: [],
+      outcome: "clear",
+      documentInstruction: action.instructionEvidence,
+      action,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimatedCostUsd: 0,
+      retryCount: 0,
+      latencyMs: 10,
+      stepDurations: {},
+      completedAt: "2026-08-27T00:00:01.000Z",
+    });
+
+    const first = await repository.stageAction(
+      "run-1",
+      new Date("2026-08-27T00:05:00.000Z"),
+    );
+    const duplicate = await repository.stageAction(
+      "run-1",
+      new Date("2026-08-27T00:06:00.000Z"),
+    );
+    const run = await repository.readPublicRun(
+      "run-1",
+      new Date("2026-08-27T00:07:00.000Z"),
+    );
+
+    expect(first).toMatchObject({ status: "staged" });
+    expect(duplicate).toEqual({
+      status: "already_staged",
+      action: first.status === "staged" ? first.action : action,
+    });
+    expect(run?.details?.steps.filter((step) => step.kind === "action")).toEqual([
+      expect.objectContaining({ stage: "action_staged" }),
+    ]);
+  });
+
   it("returns details while active then only safe expired metadata before physical purge", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun(runRecord());

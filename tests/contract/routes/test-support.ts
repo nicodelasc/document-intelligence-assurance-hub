@@ -7,6 +7,8 @@ import { executeRun } from "@/server/workflow/execute-run";
 import type { HttpContainer } from "@/server/http/container";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import { InMemoryAbuseControl } from "@/server/security/abuse-control";
+import { defaultModelForProvider } from "@/domain/live-model-catalog";
+import type { Provider } from "@/domain/types";
 
 let idempotencySequence = 0;
 
@@ -32,6 +34,7 @@ export function createTestContainer(
       return createRecordedExtractionProvider({
         provider: input.provider,
         fixtureId: input.sampleId,
+        model: input.model,
       });
     },
     async loadSyntheticDocument(filename) {
@@ -48,9 +51,14 @@ export function formRequest(
   idempotencyKey = `test-idempotency-key-${++idempotencySequence}`,
 ): Request {
   const form = new FormData();
+  const provider = entries.find(([key]) => key === "provider")?.[1];
+  const hasModel = entries.some(([key]) => key === "model");
   for (const [key, value, filename] of entries) {
     if (typeof value === "string") form.append(key, value);
     else form.append(key, value, filename);
+  }
+  if (!hasModel && (provider === "openai" || provider === "anthropic")) {
+    form.append("model", defaultModelForProvider(provider as Provider));
   }
   const sourceType = entries.find(([key]) => key === "sourceType")?.[1];
   const suppliedExecutionMode = entries.find(
@@ -77,10 +85,12 @@ export function syntheticRequest(
   sampleId = "clean-match",
   provider = "openai",
   idempotencyKey?: string,
+  model: string = defaultModelForProvider(provider as Provider),
 ): Request {
   return formRequest([
     ["sourceType", "synthetic"],
     ["provider", provider],
+    ["model", model],
     ["sampleId", sampleId],
     ["executionMode", "recorded"],
   ], idempotencyKey);

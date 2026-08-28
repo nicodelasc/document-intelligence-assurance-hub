@@ -35,6 +35,7 @@ type SyntheticInvoiceId = (typeof syntheticInvoices)[number]["id"];
 
 export type ProviderFactoryInput = {
   provider: Provider;
+  model: string;
   executionMode: ExecutionMode;
   sampleId: SyntheticInvoiceId | null;
 };
@@ -141,6 +142,7 @@ export function createDefaultHttpContainer(
         return createRecordedExtractionProvider({
           provider: input.provider,
           fixtureId: input.sampleId,
+          model: input.model,
         });
       }
       const liveProviders = await import("@/server/workflow/live-provider");
@@ -148,12 +150,12 @@ export function createDefaultHttpContainer(
         ? liveProviders.createOpenAIExtractionProvider({
             liveEnabled: liveModeEnabled,
             apiKey: environment.OPENAI_API_KEY,
-            model: environment.OPENAI_MODEL,
+            model: input.model,
           })
         : liveProviders.createAnthropicExtractionProvider({
             liveEnabled: liveModeEnabled,
             apiKey: environment.ANTHROPIC_API_KEY,
-            model: environment.ANTHROPIC_MODEL,
+            model: input.model,
           });
     },
     async loadSyntheticDocument(filename) {

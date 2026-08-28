@@ -1,7 +1,13 @@
 import { validateUpload } from "@/domain/file-validation";
 import { decideOutcome } from "@/domain/outcomes";
 import { estimateRunCost } from "@/domain/pricing";
-import type { FieldResult, RunEvent, RunStatus } from "@/domain/types";
+import { applyActionPolicy } from "@/domain/action-policy";
+import type {
+  FieldResult,
+  RunEvent,
+  RunStatus,
+  SyntheticFixture,
+} from "@/domain/types";
 import {
   type RequestedField,
   type RunRepository,
@@ -48,6 +54,7 @@ export type ExecuteRunInput = {
   requestedFields: RequestedField[];
   consent: boolean;
   referenceData?: Record<string, string | null>;
+  fixture?: SyntheticFixture | null;
 };
 
 export type FieldEvaluatorInput = {
@@ -760,6 +767,14 @@ export async function* executeRun(
     const decisionStartedAt = processingClock();
     currentStageStartedAt = decisionStartedAt;
     const outcome = decideOutcome({ sourceType: input.sourceType, fields });
+    const action = {
+      ...applyActionPolicy(
+        outcome,
+        response.extraction.action,
+        input.sourceType === "synthetic" ? (input.fixture ?? null) : null,
+      ),
+      stagedAt: null,
+    };
     await dependencies.repository.appendStep(runId, {
       kind: "decision",
       stage: outcome,
@@ -786,6 +801,8 @@ export async function* executeRun(
     await dependencies.repository.saveResults(runId, {
       fields,
       outcome,
+      documentInstruction: response.extraction.documentInstruction,
+      action,
       usage: finalUsageTrustworthy
         ? response.usage
         : { inputTokens: 0, outputTokens: 0 },

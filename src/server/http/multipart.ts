@@ -1,13 +1,14 @@
 import { PDFDocument } from "pdf-lib";
 import { syntheticInvoices } from "@/domain/fixtures";
 import { validateUpload } from "@/domain/file-validation";
-import type { Provider } from "@/domain/types";
+import type { Provider, SyntheticFixture } from "@/domain/types";
 import type {
   ExecutionMode,
   RequestedField,
   SourceType,
 } from "@/server/repositories/run-repository";
 import type { HttpContainer } from "@/server/http/container";
+import { requireEnabledModel } from "@/domain/live-model-catalog";
 
 const MAX_FILE_BYTES = 3 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = 4_000_000;
@@ -19,8 +20,10 @@ type SyntheticInvoice = (typeof syntheticInvoices)[number];
 export type ParsedRunRequest = {
   sourceType: SourceType;
   provider: Provider;
+  model: string;
   executionMode: ExecutionMode;
   sample: SyntheticInvoice | null;
+  fixture: SyntheticFixture | null;
   file: {
     filename: string;
     mediaType: string;
@@ -113,6 +116,18 @@ function parseProvider(value: string): Provider {
     "Choose one supported provider.",
     400,
   );
+}
+
+function parseModel(provider: Provider, value: string): string {
+  try {
+    return requireEnabledModel(provider, value).id;
+  } catch {
+    throw new MultipartInputError(
+      "invalid_model",
+      "Choose one enabled model for the selected provider.",
+      400,
+    );
+  }
 }
 
 function parseExecutionMode(
@@ -262,6 +277,7 @@ export async function parseRunMultipart(
   }
   const sourceType: SourceType = sourceValue;
   const provider = parseProvider(requiredString(form, "provider"));
+  const model = parseModel(provider, requiredString(form, "model"));
   const executionMode = parseExecutionMode(form.get("executionMode"), sourceType);
 
   if (sourceType === "synthetic") {
@@ -290,8 +306,10 @@ export async function parseRunMultipart(
     return {
       sourceType,
       provider,
+      model,
       executionMode,
       sample,
+      fixture: null,
       file: {
         filename: sample.filename,
         mediaType: "application/pdf",
@@ -343,8 +361,10 @@ export async function parseRunMultipart(
   return {
     sourceType,
     provider,
+    model,
     executionMode,
     sample: null,
+    fixture: null,
     file: {
       filename,
       mediaType: documentEntry.type,
