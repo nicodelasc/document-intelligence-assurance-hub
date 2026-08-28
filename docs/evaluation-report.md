@@ -2,32 +2,48 @@
 
 ## Deterministic benchmark result
 
-The verified suite exercises three document fixtures under both selectable provider configurations. That produces six deterministic contract scenarios without calling a provider model.
+The public benchmark aggregates exactly three provider-neutral synthetic observations with one observation for each checked-in fixture.
 
-| Fixture                   | OpenAI configuration | Anthropic configuration | Expected assurance outcome | Expected action status |
-| ------------------------- | -------------------- | ----------------------- | -------------------------- | ---------------------- |
-| Invoice exception packet  | Not called (demo)    | Not called (demo)       | Needs review               | Needs review           |
-| Warehouse receiving sheet | Not called (demo)    | Not called (demo)       | Clear                      | Ready                  |
-| Visitor access request    | Not called (demo)    | Not called (demo)       | Incomplete                 | Blocked                |
+| Fixture                   | Observation count | Expected assurance outcome | Expected action status |
+| ------------------------- | ----------------- | -------------------------- | ---------------------- |
+| Invoice exception packet  | 1                 | Needs review               | Needs review           |
+| Warehouse receiving sheet | 1                 | Clear                      | Ready                  |
+| Visitor access request    | 1                 | Incomplete                 | Blocked                |
 
 Deterministic false-clear count: **0**.
 
 This result is driven by checked-in fixture truth and deterministic action policy. It demonstrates fixture routing, schema conformance, field evaluation and decision behavior. It does not measure live model accuracy, production reliability or financial impact.
 
+### Recorded-adapter configuration coverage
+
+A separate 3 by 2 contract matrix passes every fixture through both recorded adapter configurations and validates the shared result schema.
+
+| Fixture                   | OpenAI configuration | Anthropic configuration |
+| ------------------------- | -------------------- | ----------------------- |
+| Invoice exception packet  | Schema passed        | Schema passed           |
+| Warehouse receiving sheet | Schema passed        | Schema passed           |
+| Visitor access request    | Schema passed        | Schema passed           |
+
+This matrix is adapter configuration coverage only. It makes no provider call and carries no provider result attribution.
+
+### Default live-budget admission
+
+The default global daily model budget is US$5. The reservation remains selected-model-specific and covers two full model-context attempts with the existing output cap. An empty default ledger admits every advertised model at its conservative maximum reservation: GPT-5.6 Luna at US$0.424, GPT-5.6 Terra at US$4.24, Claude Haiku 4.5 at US$0.416 and Claude Sonnet 5 at US$4.032. Unknown models still fail closed.
+
 ## Document-to-action verification — 2026-08-28
 
-| Gate                               | Result | Exact evidence                                                                                                                                                                                                                                        |
-| ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Design audit                       | Passed | Premium strict mode returned 0 findings. `DESIGN.md` lint returned 0 errors, 9 orphan-token warnings and 1 token summary. The warnings are non-errors caused by documented semantic aliases that map to runtime CSS variables.                        |
-| Lint                               | Passed | `npm run lint` exited 0.                                                                                                                                                                                                                              |
-| Typecheck                          | Passed | `npm run typecheck` completed both TypeScript projects with exit 0.                                                                                                                                                                                   |
-| Unit, component and contract tests | Passed | `npm test` completed 38 files with 344 of 344 tests passing.                                                                                                                                                                                          |
-| Accessibility                      | Passed | `npm run test:a11y` completed 5 of 5 Chromium checks across desktop, mobile and source-order coverage.                                                                                                                                                |
-| End to end                         | Passed | `npm run test:e2e` completed 18 of 18 Chromium tests. Coverage includes success, quota fallback, custom validation, action staging, deletion, Operations drill-down, mobile layout and reduced motion.                                                |
-| Production build                   | Passed | `npm run build` compiled Next.js 16.3.3 and generated all static and dynamic routes with exit 0.                                                                                                                                                      |
-| Browser production flow            | Passed | The built app ran at `http://127.0.0.1:3100` with `AI_LIVE_ENABLED=false` and the documented synthetic-only `ALLOW_IN_MEMORY_PERSISTENCE=true` smoke exception. Browser checks covered `/workbench` and `/operations` at 1536 by 1024 and 390 by 844. |
-| Public-surface scan                | Passed | `node scripts/verify-public-surface.mjs --origin=http://127.0.0.1:3100` scanned source, built HTML, built client assets, public API responses and active run details with 0 findings.                                                                 |
-| Credential gate                    | Passed | The verification host had no OpenAI or Anthropic key. No live provider request was enabled or attempted.                                                                                                                                              |
+| Gate                               | Result | Exact evidence                                                                                                                                                                                                                                            |
+| ---------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Design audit                       | Passed | Premium strict mode returned 0 findings. `DESIGN.md` lint returned 0 errors, 9 orphan-token warnings and 1 token summary. The warnings are non-errors caused by documented semantic aliases that map to runtime CSS variables.                            |
+| Lint                               | Passed | `npm run lint` exited 0.                                                                                                                                                                                                                                  |
+| Typecheck                          | Passed | `npm run typecheck` completed both TypeScript projects with exit 0.                                                                                                                                                                                       |
+| Unit, component and contract tests | Passed | `npm test` completed 38 files with 357 of 357 tests passing.                                                                                                                                                                                              |
+| Accessibility                      | Passed | `npm run test:a11y` completed 5 of 5 Chromium checks across desktop, mobile and source-order coverage.                                                                                                                                                    |
+| End to end                         | Passed | `npm run test:e2e` completed 18 of 18 Chromium tests. Coverage includes success, quota fallback, custom validation, action staging, deletion, Operations drill-down, mobile layout and reduced motion.                                                    |
+| Production build                   | Passed | `npm run build` compiled Next.js 16.3.3 and generated all static and dynamic routes with exit 0.                                                                                                                                                          |
+| Browser production flow            | Passed | The built app ran at `http://127.0.0.1:3100` with `AI_LIVE_ENABLED=false` and the documented synthetic-only `ALLOW_IN_MEMORY_PERSISTENCE=true` smoke exception. The final Browser pass verified recorded comparison attribution and Operations rendering. |
+| Public-surface scan                | Passed | `node scripts/verify-public-surface.mjs --origin=http://127.0.0.1:3100` scanned source, built HTML, built client assets, public API responses and active run details with 0 findings.                                                                     |
+| Credential gate                    | Passed | The verification host had no OpenAI or Anthropic key. No live provider request was enabled or attempted.                                                                                                                                                  |
 
 ### Browser state matrix
 
@@ -51,7 +67,7 @@ Current screenshot evidence:
 
 ### Public-surface inspection
 
-The scan covered server-rendered HTML, `.next/static` client output, public files, `/api/runs`, `/api/metrics` and active run details. It found no credential-shaped value, deletion-token hash, internal storage locator, hidden reasoning property, full prompt text or unsupported impact claim. Browser snapshots also confirmed that deterministic results use `Demo data — no provider call` and Operations uses `Not called (demo)`. The corrected production smoke emitted no application warning or error after startup.
+The scan covered server-rendered HTML, `.next/static` client output, public files, `/api/runs`, `/api/metrics` and active run details. It found no credential-shaped value, deletion-token hash, internal storage locator, hidden reasoning property, full prompt text or unsupported impact claim. Recorded list and detail JSON returned `providerCalled: false` with null actual provider and model values while preserving explicit configured values. Browser snapshots confirmed that deterministic results use `Demo data — no provider call`, comparison labels the selected configuration and Operations uses `Not called (demo)`. Direct Browser navigation to the JSON route was blocked by the selected browser client with `net::ERR_BLOCKED_BY_CLIENT` so exact JSON values were inspected through direct local HTTP after Browser UI verification. The production smoke emitted no application warning or error from the local app.
 
 The two deferred minors are resolved. Provider action title, summary, reason, payload label and payload value must contain public-safe text after control-character removal. Five regression cases pass. The PDF generator now downsizes the source texture before embedding it. The three fixture PDFs are 17,690 bytes, 17,580 bytes and 17,507 bytes and remain below 256 KiB while retaining one page plus exact fixture evidence.
 

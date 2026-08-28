@@ -1,4 +1,4 @@
-import type { ActionProposal, FieldResult } from "@/domain/types";
+import type { ActionProposal, FieldResult, Provider } from "@/domain/types";
 import type {
   PublicRunRecord,
   RunStepRecord,
@@ -91,11 +91,29 @@ function serializeResult(result: SaveRunResultsInput) {
   };
 }
 
+export type PublicRunAttribution = {
+  providerCalled: boolean;
+  provider: Provider | null;
+  model: string | null;
+  configuredProvider: Provider;
+  configuredModel: string;
+};
+
+function serializeAttribution(run: PublicRunRecord): PublicRunAttribution {
+  const providerCalled = run.executionMode === "live";
+  return {
+    providerCalled,
+    provider: providerCalled ? run.provider : null,
+    model: providerCalled ? run.model : null,
+    configuredProvider: run.provider,
+    configuredModel: run.model,
+  };
+}
+
 export function serializePublicRunListRow(run: PublicRunRecord) {
   return {
     id: run.id,
-    provider: run.provider,
-    model: run.model,
+    ...serializeAttribution(run),
     executionMode: run.executionMode,
     sourceType: run.sourceType,
     status: run.status,
@@ -124,8 +142,7 @@ export function serializePublicRunDetail(run: PublicRunRecord) {
 
   return {
     id: run.id,
-    provider: run.provider,
-    model: run.model,
+    ...serializeAttribution(run),
     promptVersion: cleanText(run.promptVersion, 120),
     executionMode: run.executionMode,
     sourceType: run.sourceType,

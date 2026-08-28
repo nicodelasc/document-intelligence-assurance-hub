@@ -76,6 +76,43 @@ function poisonedRun(): PublicRunRecord {
 }
 
 describe("public serializers", () => {
+  it("returns not-called actual attribution plus explicit recorded configuration", () => {
+    const listRow = serializePublicRunListRow(poisonedRun());
+    const detail = serializePublicRunDetail(poisonedRun());
+
+    for (const serialized of [listRow, detail]) {
+      expect(serialized).toMatchObject({
+        providerCalled: false,
+        provider: null,
+        model: null,
+        configuredProvider: "openai",
+        configuredModel: "gpt-5-mini",
+      });
+    }
+  });
+
+  it("returns actual attribution for a live provider call", () => {
+    const run = poisonedRun();
+    run.executionMode = "live";
+    run.provider = "anthropic";
+    run.model = "claude-sonnet-5";
+
+    expect(serializePublicRunListRow(run)).toMatchObject({
+      providerCalled: true,
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      configuredProvider: "anthropic",
+      configuredModel: "claude-sonnet-5",
+    });
+    expect(serializePublicRunDetail(run)).toMatchObject({
+      providerCalled: true,
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      configuredProvider: "anthropic",
+      configuredModel: "claude-sonnet-5",
+    });
+  });
+
   it("allow-lists active detail fields even when the source object is poisoned", () => {
     const serialized = JSON.stringify(serializePublicRunDetail(poisonedRun()));
 

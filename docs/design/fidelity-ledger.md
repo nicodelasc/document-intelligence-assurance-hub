@@ -31,7 +31,7 @@ Above-the-fold copy diff: the render keeps the required heading, plain-language 
 | Scenario rail | Numeric assumptions and results stay in a narrow right rail. | Every scenario result repeats the illustrative claim boundary. | Match with stronger claim labeling |
 | Mobile transformation | Narrow layouts preserve complete information. | Browser production inspection at 390 by 844 confirmed a 380 px document width after run selection. The run table keeps its own horizontal overflow and the long run identifier wraps inside the inspector header. | Match after overflow fix |
 
-Above-the-fold copy diff: the route uses `Operations` instead of the concept-only `Operations console`. It adds the mandatory keyless notice and labels the benchmark source as recorded. Demo rows and metadata state `Not called (demo)`. Live-run provider configuration remains separate from the six recorded fixture-provider combinations. Concept-only help and reviewer controls were removed.
+Above-the-fold copy diff: the route uses `Operations` instead of the concept-only `Operations console`. It adds the mandatory keyless notice and labels the benchmark as deterministic synthetic evidence. Demo rows and metadata state `Not called (demo)`. Live-run provider use remains separate from the three provider-neutral observations. A separate 3 by 2 recorded-adapter matrix covers configuration and shared-schema compatibility without a provider call or result attribution. Concept-only help and reviewer controls were removed.
 
 ## Verification evidence — 2026-08-28
 
@@ -50,7 +50,7 @@ Deferred-minor rulings: required provider action text that becomes empty after c
 ## Intentional deviations and remaining risk
 
 - Fixture previews use an app-owned invoice sheet rather than a browser PDF toolbar so screenshot geometry remains stable and only approved fields appear.
-- Zero public traffic remains zero. Recorded reference charts and quality values are labeled instead of inventing the concept's traffic counts.
+- Zero public traffic remains zero. Deterministic synthetic references are labeled instead of inventing the concept's traffic counts.
 - The concepts show unsupported corporate metadata and a nonzero false-clear count. The implementation follows the specification and keeps false clears at zero.
 - Final screenshot capture waits for the Operations loading state to settle. Screenshot-only styling removes the Next development portal without changing the product UI.
 - Mobile evidence covers Chromium at 390 by 844 with reduced motion. Physical device and 200 percent zoom checks remain recommended rollout work.

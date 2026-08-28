@@ -103,14 +103,22 @@ function comparisonValue(field: FieldResult): string {
   return `Extracted: ${field.extractedValue ?? "Not found"} · Normalized: ${field.normalizedValue ?? "Not found"}`;
 }
 
+function isProvider(value: unknown): value is Provider {
+  return value === "openai" || value === "anthropic";
+}
+
 function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
   if (!payload || typeof payload !== "object") return null;
   const run = (payload as { run?: unknown }).run;
   if (!run || typeof run !== "object") return null;
   const record = run as Record<string, unknown>;
   if (record.status === "expired" || record.status === "deleted") return null;
-  if (typeof record.id !== "string" || (record.provider !== "openai" && record.provider !== "anthropic")) return null;
+  if (typeof record.id !== "string" || typeof record.providerCalled !== "boolean") return null;
   if (record.executionMode !== "recorded" && record.executionMode !== "live") return null;
+  if (!isProvider(record.configuredProvider) || typeof record.configuredModel !== "string") return null;
+  if (record.providerCalled !== (record.executionMode === "live")) return null;
+  if (record.providerCalled && (!isProvider(record.provider) || typeof record.model !== "string")) return null;
+  if (!record.providerCalled && (record.provider !== null || record.model !== null)) return null;
   if (typeof record.outcome !== "string" || !outcomes.has(record.outcome as Outcome)) return null;
   const details = record.details && typeof record.details === "object" ? record.details as Record<string, unknown> : null;
   const result = details?.result && typeof details.result === "object" ? details.result as Record<string, unknown> : null;
@@ -123,8 +131,11 @@ function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
   if (!fields.length) return null;
   return {
     id: record.id,
-    provider: record.provider,
-    model: typeof record.model === "string" ? record.model : "Unavailable",
+    providerCalled: record.providerCalled,
+    provider: record.provider as Provider | null,
+    model: record.model as string | null,
+    configuredProvider: record.configuredProvider,
+    configuredModel: record.configuredModel,
     executionMode: record.executionMode,
     requestedFields: fields.map((field) => field.label),
     values: fields.map(comparisonValue),
@@ -469,8 +480,11 @@ export function WorkbenchView() {
       setFields(completedFields);
       const comparable: ComparableRun = {
         id: terminal.runId,
-        provider,
-        model: selectedModelDefinition?.displayName ?? selectedModel,
+        providerCalled: terminal.executionMode === "live",
+        provider: terminal.executionMode === "live" ? provider : null,
+        model: terminal.executionMode === "live" ? (selectedModelDefinition?.displayName ?? selectedModel) : null,
+        configuredProvider: provider,
+        configuredModel: selectedModel,
         executionMode: terminal.executionMode,
         requestedFields: completedFields.map((field) => field.label),
         values: completedFields.map(comparisonValue),

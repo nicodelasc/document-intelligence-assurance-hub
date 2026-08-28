@@ -4,6 +4,7 @@ import {
   type RecordedDocumentRunResult,
 } from "@/domain/fixtures";
 import { calculateResourceScenario } from "@/domain/resource-model";
+import { pricingAsOf } from "@/domain/pricing";
 import type { HttpContainer } from "@/server/http/container";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
 import {
@@ -55,13 +56,6 @@ function averageDurations(records: Array<Record<string, number>>): Record<string
   );
 }
 
-function countReplayValues(values: readonly string[]): Record<string, number> {
-  return values.reduce<Record<string, number>>(
-    (counts, value) => ({ ...counts, [value]: (counts[value] ?? 0) + 2 }),
-    {},
-  );
-}
-
 function expectedEvaluatorStatus(
   documentValue: string | null,
   referenceValue: string | null,
@@ -80,11 +74,20 @@ export function calculateRecordedFixtureBenchmark(
   let evaluatorAgreements = 0;
   let evaluatorComparisons = 0;
   let falseClearCount = 0;
+  let observationCount = 0;
+  const expectedOutcomes: Record<string, number> = {};
+  const actionStatuses: Record<string, number> = {};
 
-  for (const fixture of syntheticFixtures) {
-    const observation = observations.find(
-      (candidate) => candidate.fixtureId === fixture.id,
+  for (const observation of observations) {
+    const fixture = syntheticFixtures.find(
+      (candidate) => candidate.id === observation.fixtureId,
     );
+    if (!fixture) continue;
+    observationCount += 1;
+    expectedOutcomes[fixture.expectedOutcome] =
+      (expectedOutcomes[fixture.expectedOutcome] ?? 0) + 1;
+    actionStatuses[fixture.action.status] =
+      (actionStatuses[fixture.action.status] ?? 0) + 1;
     for (const requestedField of fixture.requestedFields) {
       const expectedValue = fixture.documentData[requestedField.key] ?? null;
       const referenceValue = fixture.referenceData[requestedField.key] ?? null;
@@ -112,20 +115,14 @@ export function calculateRecordedFixtureBenchmark(
   }
 
   return {
-    source: "recorded_fixture_replay" as const,
-    liveRuns: 0,
-    recordedRuns: syntheticFixtures.length * 2,
-    providerCoverage: { openai: syntheticFixtures.length, anthropic: syntheticFixtures.length },
+    source: "deterministic_synthetic_observations" as const,
+    observationCount,
     exactMatchRate: ratio(exactMatches, totalFields),
     missingFieldRecall: ratio(foundExpectedMissing, expectedMissing),
     evaluatorAgreement: ratio(evaluatorAgreements, evaluatorComparisons),
     falseClearCount,
-    expectedOutcomes: countReplayValues(
-      syntheticFixtures.map((fixture) => fixture.expectedOutcome),
-    ),
-    actionStatuses: countReplayValues(
-      syntheticFixtures.map((fixture) => fixture.action.status),
-    ),
+    expectedOutcomes,
+    actionStatuses,
   };
 }
 
@@ -249,7 +246,7 @@ export async function handleMetricsGet(
           liveRuns,
           estimatedApiCostUsd: aggregate.estimatedCostUsd,
           estimatedCost: true,
-          pricingAsOf: "2026-08-27",
+          pricingAsOf,
         },
         benchmark: calculateRecordedFixtureBenchmark(),
         retention: {
@@ -292,7 +289,7 @@ export async function handleMetricsGet(
             targetCurrency: "SGD",
             averageModelCostPerRunUsd,
             usdToSgd: illustrativeUsdToSgd,
-            assumptionDate: "2026-08-27",
+            assumptionDate: pricingAsOf,
             illustrative: true,
           },
           result: {

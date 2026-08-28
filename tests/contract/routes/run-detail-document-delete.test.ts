@@ -64,7 +64,15 @@ describe("run detail retention", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-    expect(body.run).toMatchObject({ status: "completed", documentUrl: `/api/runs/${completed.runId}/document` });
+    expect(body.run).toMatchObject({
+      status: "completed",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: "openai",
+      configuredModel: "gpt-5.6-luna",
+      documentUrl: `/api/runs/${completed.runId}/document`,
+    });
     expect(body.run).toHaveProperty("details");
     expect(text).not.toContain(completed.deletionToken);
     expect(text).not.toContain("deletionTokenHash");

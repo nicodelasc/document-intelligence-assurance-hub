@@ -281,8 +281,11 @@ describe("Comparison ledger", () => {
   const runs = [
     {
       id: "run_a",
-      provider: "openai" as const,
-      model: "gpt-5-mini",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: "openai" as const,
+      configuredModel: "gpt-5.6-luna",
       executionMode: "recorded" as const,
       requestedFields: ["Vendor name"],
       values: ["Northstar Paperworks"],
@@ -293,8 +296,11 @@ describe("Comparison ledger", () => {
     },
     {
       id: "run_b",
-      provider: "anthropic" as const,
-      model: "claude-haiku-4.5",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: "anthropic" as const,
+      configuredModel: "claude-haiku-4-5",
       executionMode: "recorded" as const,
       requestedFields: ["Vendor name"],
       values: ["Northstar Paperworks"],
@@ -317,6 +323,7 @@ describe("Comparison ledger", () => {
       "Extracted and normalized values",
       "Evidence",
       "Provider and model",
+      "Selected configuration",
       "Execution mode",
       "Evaluator status",
       "Latency",
@@ -327,8 +334,8 @@ describe("Comparison ledger", () => {
     const comparison = screen.getByRole("table", {
       name: /comparison of two assurance runs/i,
     });
-    expect(comparison).not.toHaveTextContent("gpt-5-mini");
-    expect(comparison).not.toHaveTextContent("claude-haiku-4-5");
+    expect(comparison).toHaveTextContent("openai · GPT-5.6 Luna");
+    expect(comparison).toHaveTextContent("anthropic · Claude Haiku 4.5");
     expect(within(comparison).getAllByText("Not called (demo)")).toHaveLength(2);
   });
 });
@@ -820,8 +827,12 @@ describe("Public run history", () => {
   it("hydrates bounded active details after refresh for complete comparison", async () => {
     const publicRuns = ["public_a", "public_b"].map((id, index) => ({
       id,
-      provider: index === 0 ? "openai" : "anthropic",
-      model: index === 0 ? "gpt-5-mini" : "claude-haiku-4.5",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: index === 0 ? "openai" : "anthropic",
+      configuredModel:
+        index === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
       executionMode: "recorded",
       sourceType: "synthetic",
       status: "completed",

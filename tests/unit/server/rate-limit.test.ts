@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LIVE_MODEL_RESERVATION_USD as MAX_SUPPORTED_LIVE_RUN_COST_USD,
+  estimateMaximumLiveRunCost,
 } from "@/domain/pricing";
+import { liveModelCatalog } from "@/domain/live-model-catalog";
 import {
+  DEFAULT_DAILY_MODEL_BUDGET_USD,
   InMemoryQuotaRepository,
   createNeonQuotaRepository,
 } from "@/server/security/rate-limit";
@@ -19,6 +22,51 @@ function quotaRepository() {
 }
 
 describe("InMemoryQuotaRepository", () => {
+  it("admits every advertised model on an empty default ledger with its selected-model reservation", async () => {
+    expect(DEFAULT_DAILY_MODEL_BUDGET_USD).toBe(5);
+    const expectedReservations = {
+      "gpt-5.6-luna": 0.424,
+      "gpt-5.6-terra": 4.24,
+      "claude-haiku-4-5": 0.416,
+      "claude-sonnet-5": 4.032,
+    } as const;
+    const decisions = await Promise.all(
+      liveModelCatalog.map(async (model) => {
+        const quotas = new InMemoryQuotaRepository();
+        const estimatedCostUsd = expectedReservations[model.id];
+        return {
+          id: model.id,
+          decision: await quotas.reserve({
+            bucket: `browser-${model.id}`,
+            sourceType: "synthetic",
+            executionMode: "live",
+            estimatedCostUsd,
+            liveEnabled: true,
+            now,
+          }),
+        };
+      }),
+    );
+
+    expect(decisions).toEqual(
+      liveModelCatalog.map((model) => {
+        const estimatedCostUsd = expectedReservations[model.id];
+        return {
+          id: model.id,
+          decision: expect.objectContaining({
+            allowed: true,
+            reservedCostUsd: estimatedCostUsd,
+          }),
+        };
+      }),
+    );
+    for (const model of liveModelCatalog) {
+      expect(
+        estimateMaximumLiveRunCost(model.provider, model.id),
+      ).toBeCloseTo(expectedReservations[model.id], 9);
+    }
+  });
+
   it("admits a default-model reservation below the daily budget instead of charging the catalogue maximum", async () => {
     const quotas = quotaRepository();
 
@@ -594,10 +642,10 @@ describe("InMemoryQuotaRepository", () => {
     };
 
     const decisions = await Promise.all(
-      Array.from({ length: 8 }, () => quotas.reserve(reservationInput)),
+      Array.from({ length: 12 }, () => quotas.reserve(reservationInput)),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(7);
+    expect(allowed).toHaveLength(11);
     expect(decisions.filter((decision) => !decision.allowed)).toEqual([
       { allowed: false, reason: "daily_budget", replayAvailable: true },
     ]);
@@ -609,8 +657,41 @@ describe("InMemoryQuotaRepository", () => {
     ).resolves.toEqual({ status: "settled", actualCostUsd: 0.25 });
     await expect(quotas.snapshot(now)).resolves.toMatchObject({
       globalSpendUsd: 0.25,
-      reservedSpendUsd: 6 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 10 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
+  });
+
+  it("passes a positive selected-model estimate through the Neon reservation boundary", async () => {
+    let reservedCostUsd: number | undefined;
+    const quotas = createNeonQuotaRepository({
+      databaseUrl: undefined,
+      driver: {
+        async query(_sql, parameters = []) {
+          reservedCostUsd = Number(parameters[14]);
+          return [
+            {
+              decision: {
+                decision: "allowed",
+                reservationId: "neon-selected-model",
+                reservedCostUsd,
+              },
+            },
+          ];
+        },
+      },
+    });
+
+    await expect(
+      quotas.reserve({
+        bucket: "browser-haiku",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: 0.416,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toMatchObject({ allowed: true, reservedCostUsd: 0.416 });
+    expect(reservedCostUsd).toBe(0.416);
   });
 
   it("maps conservative settlement and stale reconciliation through Neon functions", async () => {

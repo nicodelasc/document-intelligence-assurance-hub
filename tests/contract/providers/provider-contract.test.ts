@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { syntheticFixtures } from "@/domain/fixtures";
 import { extractionResultSchema } from "@/server/workflow/provider";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import {
@@ -137,6 +138,37 @@ describe("extraction provider contract", () => {
           stagedAt: null,
         },
       });
+      expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+    },
+  );
+
+  it.each(
+    syntheticFixtures.flatMap((fixture) =>
+      (["openai", "anthropic"] as const).map((providerName) => ({
+        fixture,
+        providerName,
+      })),
+    ),
+  )(
+    "validates $fixture.id through the $providerName recorded-adapter configuration without a provider call",
+    async ({ fixture, providerName }) => {
+      const provider = createRecordedExtractionProvider({
+        provider: providerName,
+        fixtureId: fixture.id,
+      });
+      const result = await provider.extract({
+        document,
+        requestedFields: fixture.requestedFields,
+      });
+
+      expect(provider.executionMode).toBe("recorded");
+      expect(extractionResultSchema.parse(result.extraction)).toEqual(
+        result.extraction,
+      );
+      expect(result.extraction.fields.map((field) => field.key)).toEqual(
+        fixture.requestedFields.map((field) => field.key),
+      );
+      expect(result.extraction.action).toEqual(fixture.action);
       expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
     },
   );
@@ -315,6 +347,28 @@ describe("extraction provider contract", () => {
         action: { ...validModelOutput.action, ...actionPatch },
       }),
     ).toThrow();
+  });
+
+  it("returns valid required action text after NFKC normalization and control stripping", () => {
+    const parsed = extractionResultSchema.parse({
+      ...validModelOutput,
+      action: {
+        ...validModelOutput.action,
+        title: "\u0000Ｒｅｖｉｅｗ invoice\u001f",
+        summary: "\u0001Prepare ａ valid review.\u007f",
+        reason: "\u0002Evidence is ｃｏｍｐｌｅｔｅ.\u0003",
+        payload: [
+          { label: "\u0004Ｖｅｎｄｏｒ", value: "Ｎｏｒｔｈｓｔａｒ\u0005" },
+        ],
+      },
+    });
+
+    expect(parsed.action).toMatchObject({
+      title: "Review invoice",
+      summary: "Prepare a valid review.",
+      reason: "Evidence is complete.",
+      payload: [{ label: "Vendor", value: "Northstar" }],
+    });
   });
 
   it.each([

@@ -151,7 +151,8 @@ No database migration is required if the action proposal remains inside the exis
 - Contract tests cover model request validation, both provider adapters, staged-action idempotency and blocked or expired runs.
 - Component tests cover the grouped model select, `+` upload tile, three-stage trace and action card.
 - Browser tests cover all three fixtures, a custom upload validation failure, keyboard-only model selection, action staging, Operations drill-down and responsive stacking.
-- The deterministic benchmark must produce one `Clear`, one `Needs review` and one `Incomplete` result per provider with zero false-clear results.
+- The public deterministic benchmark must aggregate exactly one provider-neutral observation for each fixture. It must produce one `Clear`, one `Needs review` and one `Incomplete` result with zero false-clear results.
+- A separate recorded-adapter contract matrix must validate all three fixtures under both provider configurations against the shared result schema without claiming a provider call or provider result.
 - API keys must remain absent from the client bundle, HTML, traces and logs.
 
 ## Out of scope

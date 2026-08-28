@@ -10,7 +10,7 @@ import { AppShell } from "@/components/app-shell";
 
 export const metadata: Metadata = {
   title: { default: "Document Intelligence Assurance Hub", template: "%s — Document Intelligence Assurance Hub" },
-  description: "Public-safe recorded document assurance prototype",
+  description: "Operational document-to-action assurance workbench with deterministic synthetic evidence",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -238,7 +238,7 @@ describe("GET /api/metrics", () => {
     expect(aggregateReads).toBe(2);
   });
 
-  it("returns finite zero-denominator metrics and labeled recorded benchmarks", async () => {
+  it("returns finite zero-denominator metrics and provider-neutral synthetic observations", async () => {
     const container = createTestContainer();
     const response = await handleMetricsGet(
       new Request("http://local.test/api/metrics"),
@@ -262,9 +262,8 @@ describe("GET /api/metrics", () => {
         estimatedCost: true,
       },
       benchmark: {
-        source: "recorded_fixture_replay",
-        liveRuns: 0,
-        recordedRuns: 6,
+        source: "deterministic_synthetic_observations",
+        observationCount: 3,
         exactMatchRate: 1,
         evaluatorAgreement: 1,
         falseClearCount: 0,
@@ -275,7 +274,7 @@ describe("GET /api/metrics", () => {
           sourceCurrency: "USD",
           targetCurrency: "SGD",
           usdToSgd: 1.35,
-          assumptionDate: "2026-08-27",
+          assumptionDate: "2026-08-28",
           illustrative: true,
         },
       },

@@ -156,8 +156,11 @@ test("custom streams stay isolated then public history restores after refresh", 
     const outcome = postIndex === 1 ? "evidence_consistent" : "not_found";
     const summary = {
       id,
+      providerCalled: true,
       provider: "openai",
-      model: "gpt-5-mini",
+      model: "gpt-5.6-luna",
+      configuredProvider: "openai",
+      configuredModel: "gpt-5.6-luna",
       executionMode: "live",
       sourceType: "custom",
       status: "completed",
@@ -219,8 +222,11 @@ test("custom streams stay isolated then public history restores after refresh", 
 test("Operations restores URL state and exposes the complete active inspector", async ({ page }) => {
   const runs = Array.from({ length: 12 }, (_, index) => ({
     id: `ops_${index + 1}`,
-    provider: index % 2 === 0 ? "openai" : "anthropic",
-    model: index % 2 === 0 ? "gpt-5-mini" : "claude-haiku-4.5",
+    providerCalled: false,
+    provider: null,
+    model: null,
+    configuredProvider: index % 2 === 0 ? "openai" : "anthropic",
+    configuredModel: index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: "recorded",
     sourceType: "synthetic",
     status: "completed",
@@ -237,8 +243,8 @@ test("Operations restores URL state and exposes the complete active inspector", 
     generatedAt: "2026-08-27T00:00:00.000Z",
     summary: { totalRuns: 1, completionRate: 1, reviewRate: 1, failureRate: 0 },
     performance: { sampleCount: 1, p50LatencyMs: 100, p95LatencyMs: 100, retryCount: 0, averageStepDurationsMs: { validating: 20 } },
-    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
-    benchmark: { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
+    benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
     retention: { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 1 },
     runExplorer: runs,
     resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
@@ -258,8 +264,8 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await page.goto("/operations");
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
   await expect(page.getByText("Anthropic 0 live runs")).toBeVisible();
-  await expect(page.getByText("Deterministic coverage: 6 offline scenario checks")).toBeVisible();
-  await expect(page.getByText("Deterministic benchmark data · offline scenario configurations")).toBeVisible();
+  await expect(page.getByText("Deterministic observations: 3 synthetic fixtures")).toBeVisible();
+  await expect(page.getByText("Deterministic synthetic evidence · provider-neutral observations")).toBeVisible();
   await page.getByLabel("Outcome filter").selectOption("conflict");
   await page.getByLabel("Live-call provider filter").selectOption("openai");
   await page.goBack();

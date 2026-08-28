@@ -857,6 +857,11 @@ describe("GET /api/runs", () => {
       runs: [
         {
           executionMode: "recorded",
+          providerCalled: false,
+          provider: null,
+          model: null,
+          configuredProvider: "openai",
+          configuredModel: "gpt-5.6-luna",
           filename: "warehouse-receiving-sheet.pdf",
         },
       ],

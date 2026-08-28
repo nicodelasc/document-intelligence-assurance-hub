@@ -9,7 +9,7 @@ import {
 } from "@/server/repositories/run-repository";
 import { randomUUID } from "node:crypto";
 
-export const DEFAULT_DAILY_MODEL_BUDGET_USD = 3;
+export const DEFAULT_DAILY_MODEL_BUDGET_USD = 5;
 export const DEFAULT_LIVE_RUN_RESERVATION_USD =
   DEFAULT_LIVE_MODEL_RESERVATION_USD;
 export const DEFAULT_LIVE_RESERVATION_LEASE_MS = 15 * 60 * 1000;
@@ -113,6 +113,17 @@ export interface QuotaRepository {
 
 function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+function selectedLiveReservationCost(
+  estimatedCostUsd: number,
+  fallbackCostUsd: number,
+  dailyBudgetUsd: number,
+): number {
+  if (!Number.isFinite(estimatedCostUsd)) {
+    return dailyBudgetUsd + fallbackCostUsd;
+  }
+  return estimatedCostUsd > 0 ? estimatedCostUsd : fallbackCostUsd;
 }
 
 export class InMemoryQuotaRepository implements QuotaRepository {
@@ -220,12 +231,10 @@ export class InMemoryQuotaRepository implements QuotaRepository {
           this.dailyBudgetUsd -
           usage.globalSpendUsd -
           this.pendingSpendUsd(day);
-        const callerEstimate = Number.isFinite(input.estimatedCostUsd)
-          ? Math.max(0, input.estimatedCostUsd)
-          : this.dailyBudgetUsd + this.liveRunReservationUsd;
-        const reservationCostUsd = Math.max(
+        const reservationCostUsd = selectedLiveReservationCost(
+          input.estimatedCostUsd,
           this.liveRunReservationUsd,
-          callerEstimate,
+          this.dailyBudgetUsd,
         );
         if (remainingBudget < reservationCostUsd) {
           return {
@@ -469,15 +478,11 @@ class NeonQuotaRepository implements QuotaRepository {
         limits.globalRecordedRuns,
         this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
         reservationId,
-        Math.max(
-          DEFAULT_LIVE_RUN_RESERVATION_USD,
+        selectedLiveReservationCost(
+          input.estimatedCostUsd,
           this.options.liveRunReservationUsd ??
             DEFAULT_LIVE_RUN_RESERVATION_USD,
-          Number.isFinite(input.estimatedCostUsd)
-            ? Math.max(0, input.estimatedCostUsd)
-            : (this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD) +
-                (this.options.liveRunReservationUsd ??
-                  DEFAULT_LIVE_RUN_RESERVATION_USD),
+          this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
         ),
         Math.max(
           1,

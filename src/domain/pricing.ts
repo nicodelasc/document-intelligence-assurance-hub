@@ -1,13 +1,14 @@
 import {
   defaultModelForProvider,
   liveModelCatalog,
+  pricingAsOf,
   requireEnabledModel,
   type LiveModelDefinition,
   type LiveModelId,
 } from "./live-model-catalog";
 import type { Provider } from "./types";
 
-export const pricingAsOf = "2026-08-28";
+export { pricingAsOf };
 export const MAX_PROVIDER_OUTPUT_TOKENS = 2_000;
 export const MAX_LIVE_PROVIDER_ATTEMPTS = 2;
 

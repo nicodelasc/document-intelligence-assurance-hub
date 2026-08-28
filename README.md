@@ -62,9 +62,9 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 
 ## Evaluation status
 
-Six deterministic benchmark checks cover three document scenarios across two model-dropdown configurations. The warehouse receiving sheet resolves Clear with a ready inventory-receipt action. The invoice exception packet resolves Needs review with an accounts-payable review action. The visitor access request resolves Incomplete with a blocked security-review action. The deterministic false-clear count is zero.
+The public deterministic benchmark aggregates three provider-neutral observations with one observation per synthetic fixture. The warehouse receiving sheet resolves Clear with a ready inventory-receipt action. The invoice exception packet resolves Needs review with an accounts-payable review action. The visitor access request resolves Incomplete with a blocked security-review action. The deterministic false-clear count is zero.
 
-These are deterministic contract checks. They are not live provider accuracy measurements. See [docs/evaluation-report.md](docs/evaluation-report.md).
+A separate six-cell recorded-adapter contract matrix checks the three fixtures under both provider configurations against the shared result schema. Those checks do not call a provider and do not attribute results to a provider. Neither evidence set is a live provider accuracy measurement. See [docs/evaluation-report.md](docs/evaluation-report.md).
 
 ## Local setup
 
@@ -120,7 +120,7 @@ PowerShell users can replace `$DATABASE_URL` with `$env:DATABASE_URL`. The migra
 | `AI_LIVE_ENABLED`               | Yes                  | Global model kill switch. Keep `false` until live acceptance passes.                                                        |
 | `OPENAI_API_KEY`                | Live OpenAI only     | Server-side provider credential.                                                                                            |
 | `ANTHROPIC_API_KEY`             | Live Anthropic only  | Server-side provider credential.                                                                                            |
-| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget. Invalid values stop startup.                                                                  |
+| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget with a US$5 default. Invalid values stop startup.                                              |
 | `DATABASE_URL`                  | Production           | Server-side Neon connection string.                                                                                         |
 | `BLOB_READ_WRITE_TOKEN`         | Production           | Server-side private Blob credential.                                                                                        |
 | `CRON_SECRET`                   | Connected production | Random bearer secret of at least 32 characters with no whitespace. Weak or missing values stop request-serving startup.     |

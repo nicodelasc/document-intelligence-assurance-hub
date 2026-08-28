@@ -27,8 +27,23 @@ describe("Resource calculator", () => {
 describe("Run explorer", () => {
   const runs = Array.from({ length: 12 }, (_, index) => ({
     id: `run_${index + 1}`,
-    provider: index % 2 === 0 ? ("openai" as const) : ("anthropic" as const),
-    model: index % 2 === 0 ? "gpt-5-mini" : "claude-haiku-4.5",
+    providerCalled: index === 1 || index === 2,
+    provider:
+      index === 1
+        ? ("anthropic" as const)
+        : index === 2
+          ? ("openai" as const)
+          : null,
+    model:
+      index === 1
+        ? "claude-haiku-4-5"
+        : index === 2
+          ? "gpt-5.6-luna"
+          : null,
+    configuredProvider:
+      index % 2 === 0 ? ("openai" as const) : ("anthropic" as const),
+    configuredModel:
+      index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: index === 1 || index === 2 ? ("live" as const) : ("recorded" as const),
     sourceType: index === 1 || index === 2 ? ("custom" as const) : ("synthetic" as const),
     status: index === 11 ? ("expired" as const) : ("completed" as const),
@@ -193,8 +208,8 @@ describe("Operations metric claims", () => {
       generatedAt: "2026-08-27T00:00:00.000Z",
       summary: { totalRuns: 4, completionRate: 1, reviewRate: 0.5, failureRate: 0 },
       performance: { sampleCount: 4, p50LatencyMs: 100, p95LatencyMs: 200, retryCount: 0, averageStepDurationsMs: {} },
-      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 4, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
-      benchmark: { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 4, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
+      benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
       retention: { activePublicUploads: 0, upcomingExpirations: 1, cleanupBacklog: 0, sampleCount: 4 },
       actions: {
         ready: 1,
@@ -224,8 +239,8 @@ describe("Operations metric claims", () => {
       generatedAt: "2026-08-27T00:00:00.000Z",
       summary: { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 },
       performance: { sampleCount: 0, p50LatencyMs: 0, p95LatencyMs: 0, retryCount: 0, averageStepDurationsMs: {} },
-      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
-      benchmark: { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
+      benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
       retention: { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 0 },
       runExplorer: [],
       resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
@@ -236,9 +251,10 @@ describe("Operations metric claims", () => {
     const panel = (await screen.findByRole("heading", { name: "Provider usage" })).closest(".rule-panel")!;
     expect(within(panel).getByText("OpenAI 0 live runs")).toBeVisible();
     expect(within(panel).getByText("Anthropic 0 live runs")).toBeVisible();
-    expect(within(panel).getByText("Deterministic coverage: 6 offline scenario checks")).toBeVisible();
+    expect(within(panel).getByText("Deterministic observations: 3 synthetic fixtures")).toBeVisible();
     expect(within(panel).getByText("Text summary: Live-call counts exclude deterministic benchmark scenarios.")).toBeVisible();
-    expect(screen.getByText("Deterministic benchmark data · offline scenario configurations")).toBeVisible();
+    expect(screen.getByText("Deterministic synthetic evidence · provider-neutral observations")).toBeVisible();
+    expect(screen.queryByText(/recorded benchmark/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/fixture-provider|Benchmark coverage:|OpenAI 3|Anthropic 3/i)).not.toBeInTheDocument();
   });
 });

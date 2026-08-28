@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, KeylessNotice, RulePanel, StatusMark } from "@/components/ui/primitives";
+import { pricingAsOf } from "@/domain/live-model-catalog";
 import { ResourceCalculator } from "./resource-calculator";
 import { RunExplorer, type ExplorerRun } from "./run-explorer";
 
@@ -10,7 +11,7 @@ type Metrics = {
   summary: { totalRuns: number; completionRate: number; reviewRate: number; failureRate: number };
   performance: { sampleCount: number; p50LatencyMs: number; p95LatencyMs: number; retryCount: number; averageStepDurationsMs: Record<string, number> };
   usage: { inputTokens: number; outputTokens: number; providerSplit: { openai: number; anthropic: number }; recordedRuns: number; liveRuns: number; estimatedApiCostUsd: number; pricingAsOf: string };
-  benchmark: { source: string; liveRuns: number; recordedRuns: number; providerCoverage: { openai: number; anthropic: number }; exactMatchRate: number; missingFieldRecall: number; evaluatorAgreement: number; falseClearCount: number };
+  benchmark: { source: string; observationCount: number; exactMatchRate: number; missingFieldRecall: number; evaluatorAgreement: number; falseClearCount: number };
   retention: { activePublicUploads: number; upcomingExpirations: number; cleanupBacklog: number; sampleCount: number };
   actions: {
     ready: number;
@@ -57,12 +58,12 @@ export function OperationsDashboard() {
   }, [load]);
 
   if (error && !metrics) {
-    return <main id="main-content" className="page"><header className="page-intro"><div><h1>Operations</h1><p>Review public-safe operational signals and recorded benchmark quality.</p></div><KeylessNotice /></header><div className="route-error" role="alert"><h2>Operations could not load</h2><p>{error}</p><Button type="button" onClick={() => load()}>Retry metrics</Button></div></main>;
+    return <main id="main-content" className="page"><header className="page-intro"><div><h1>Operations</h1><p>Review public-safe operational signals and deterministic synthetic quality.</p></div><KeylessNotice /></header><div className="route-error" role="alert"><h2>Operations could not load</h2><p>{error}</p><Button type="button" onClick={() => load()}>Retry metrics</Button></div></main>;
   }
 
   const summary = metrics?.summary ?? { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 };
-  const usage = metrics?.usage ?? { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" };
-  const benchmark = metrics?.benchmark ?? { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 };
+  const usage = metrics?.usage ?? { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf };
+  const benchmark = metrics?.benchmark ?? { source: "deterministic_synthetic_observations", observationCount: 0, exactMatchRate: 0, missingFieldRecall: 0, evaluatorAgreement: 0, falseClearCount: 0 };
   const retention = metrics?.retention ?? { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 0 };
   const actions = metrics?.actions ?? {
     ready: 0,
@@ -102,11 +103,11 @@ export function OperationsDashboard() {
           <p className="claim-label">Live-run provider configuration · demo runs excluded</p>
           <dl className="usage-list"><div><dt>Input tokens</dt><dd>{number.format(usage.inputTokens)}</dd></div><div><dt>Output tokens</dt><dd>{number.format(usage.outputTokens)}</dd></div><div><dt>Estimated API cost</dt><dd>{usd.format(usage.estimatedApiCostUsd)}</dd></div></dl>
           <div className="provider-bars" aria-label="Live-run provider configuration text summary"><span>OpenAI {usage.providerSplit.openai} live runs</span><progress max={Math.max(1, providerConfigurationTotal)} value={usage.providerSplit.openai} /><span>Anthropic {usage.providerSplit.anthropic} live runs</span><progress max={Math.max(1, providerConfigurationTotal)} value={usage.providerSplit.anthropic} /></div>
-          <p className="benchmark-coverage">Deterministic coverage: {benchmark.recordedRuns} offline scenario checks</p>
+          <p className="benchmark-coverage">Deterministic observations: {benchmark.observationCount} synthetic fixture{benchmark.observationCount === 1 ? "" : "s"}</p>
           <p className="chart-summary">Text summary: Live-call counts exclude deterministic benchmark scenarios.</p>
         </RulePanel>
         <RulePanel title="Synthetic benchmark quality">
-          <p className="claim-label">Deterministic benchmark data · offline scenario configurations</p>
+          <p className="claim-label">Deterministic synthetic evidence · provider-neutral observations</p>
           <dl className="quality-list"><div><dt>Exact-match rate</dt><dd>{percent.format(benchmark.exactMatchRate)}</dd></div><div><dt>Missing-field recall</dt><dd>{percent.format(benchmark.missingFieldRecall)}</dd></div><div><dt>Evaluator agreement</dt><dd>{percent.format(benchmark.evaluatorAgreement)}</dd></div><div className="false-clear"><dt>False-clear count</dt><dd>{benchmark.falseClearCount}</dd></div></dl>
         </RulePanel>
         <RulePanel title="Retention">
@@ -122,7 +123,7 @@ export function OperationsDashboard() {
           <RulePanel title="Expiry timeline"><ul className="timeline-list"><li><StatusMark status="error" /><span>Less than 24 hours</span><strong>{retention.upcomingExpirations} runs</strong></li><li><StatusMark status="warning" /><span>24–72 hours</span><strong>0 runs</strong></li><li><StatusMark status="pass" /><span>More than 72 hours</span><strong>0 runs</strong></li></ul><p className="chart-summary">Public detailed data is never represented as retained beyond its approved window.</p></RulePanel>
         </aside>
       </section>
-      {!metrics?.runExplorer.length ? <div className="operations-zero-note"><StatusMark status="active" /><span>No public traffic is being invented. Recorded benchmark references keep the quality panels useful.</span></div> : null}
+      {!metrics?.runExplorer.length ? <div className="operations-zero-note"><StatusMark status="active" /><span>No public traffic is being invented. Deterministic synthetic references keep the quality panels useful.</span></div> : null}
     </main>
   );
 }

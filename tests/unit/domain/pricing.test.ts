@@ -64,6 +64,19 @@ describe("estimateRunCost", () => {
     expect(
       estimateMaximumLiveRunCost("anthropic", "claude-sonnet-5"),
     ).toBeCloseTo(4.032, 9);
+    expect(estimateMaximumLiveRunCost("openai", "gpt-5.6-terra")).toBeCloseTo(
+      4.24,
+      9,
+    );
+    expect(
+      estimateMaximumLiveRunCost("anthropic", "claude-haiku-4-5"),
+    ).toBeCloseTo(0.416, 9);
+  });
+
+  it("rejects an unknown model before publishing a reservation", () => {
+    expect(() =>
+      estimateMaximumLiveRunCost("openai", "gpt-unknown"),
+    ).toThrow("unsupported_live_model");
   });
 
   it("uses the recommended provider defaults for the fallback live reservation", () => {

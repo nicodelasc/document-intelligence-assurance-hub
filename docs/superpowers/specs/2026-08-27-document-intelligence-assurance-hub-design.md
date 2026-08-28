@@ -30,7 +30,7 @@ No client dataset, client name, internal prompt, confidential metric, API key, r
 
 Document content is untrusted data. It cannot alter the extraction instruction or cause tool use. Models receive no tools and can take no external action. Server-side checks validate file signatures, file size, page count, field count, labels and normalized results. Public strings are rendered as text and never as untrusted HTML.
 
-Anonymous limits are three custom uploads and six live runs per UTC day. The default global daily model budget is US$3 and a server-side kill switch can close live traffic. The cron cleanup route requires `CRON_SECRET` outside local tests.
+Anonymous limits are three custom uploads and six live runs per UTC day. The default global daily model budget is US$5 and a server-side kill switch can close live traffic. The budget reserves two full-context attempts at the selected model's dated rates and output cap. The cron cleanup route requires `CRON_SECRET` outside local tests.
 
 ## Resource scenario
 

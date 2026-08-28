@@ -201,27 +201,47 @@ describe("recorded benchmark metrics", () => {
     expect(body.usage.liveRuns).toBe(0);
   });
 
-  it("replays every document fixture with its expected action status", async () => {
+  it("aggregates each provider-neutral fixture observation exactly once", async () => {
     const response = await handleMetricsGet(
       new Request("http://local.test/api/metrics"),
       createTestContainer(),
     );
     const body = (await response.json()) as {
       benchmark: {
+        source: string;
+        observationCount: number;
         expectedOutcomes: Record<string, number>;
         actionStatuses: Record<string, number>;
       };
     };
 
+    expect(body.benchmark.source).toBe("deterministic_synthetic_observations");
+    expect(body.benchmark.observationCount).toBe(3);
     expect(body.benchmark.expectedOutcomes).toEqual({
-      needs_review: 2,
-      clear: 2,
-      incomplete: 2,
+      needs_review: 1,
+      clear: 1,
+      incomplete: 1,
     });
     expect(body.benchmark.actionStatuses).toEqual({
-      needs_review: 2,
-      ready: 2,
-      blocked: 2,
+      needs_review: 1,
+      ready: 1,
+      blocked: 1,
+    });
+    expect(body.benchmark).not.toHaveProperty("providerCoverage");
+    expect(body.benchmark).not.toHaveProperty("recordedRuns");
+    expect(body.benchmark).not.toHaveProperty("liveRuns");
+  });
+
+  it("returns zero observations without inventing benchmark coverage", () => {
+    expect(calculateRecordedFixtureBenchmark([])).toEqual({
+      source: "deterministic_synthetic_observations",
+      observationCount: 0,
+      exactMatchRate: 0,
+      missingFieldRecall: 0,
+      evaluatorAgreement: 0,
+      falseClearCount: 0,
+      expectedOutcomes: {},
+      actionStatuses: {},
     });
   });
 

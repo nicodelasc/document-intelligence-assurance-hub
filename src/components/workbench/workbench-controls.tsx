@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Outcome, Provider } from "@/domain/types";
+import { liveModelCatalog } from "@/domain/live-model-catalog";
 import { MAX_FILE_BYTES, validateUpload } from "@/domain/file-validation";
 import { Button } from "@/components/ui/primitives";
 
@@ -242,8 +243,11 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
 
 export type ComparableRun = {
   id: string;
-  provider: Provider;
-  model: string;
+  providerCalled: boolean;
+  provider: Provider | null;
+  model: string | null;
+  configuredProvider: Provider;
+  configuredModel: string;
   executionMode: "recorded" | "live";
   requestedFields: string[];
   values: string[];
@@ -253,10 +257,16 @@ export type ComparableRun = {
   outcome: Outcome;
 };
 
+const modelDisplayNames = new Map<string, string>(liveModelCatalog.map((model) => [model.id, model.displayName]));
+
 function executionTarget(run: ComparableRun): string {
-  return run.executionMode === "recorded"
-    ? "Not called (demo)"
-    : `${run.provider} · ${run.model}`;
+  return run.providerCalled
+    ? `${run.provider ?? "Unavailable"} · ${run.model ?? "Unavailable"}`
+    : "Not called (demo)";
+}
+
+function configuredTarget(run: ComparableRun): string {
+  return `${run.configuredProvider} · ${modelDisplayNames.get(run.configuredModel) ?? run.configuredModel}`;
 }
 
 export function ComparisonLedger({ runs, leftId, rightId }: { runs: ComparableRun[]; leftId: string; rightId: string }) {
@@ -270,6 +280,7 @@ export function ComparisonLedger({ runs, leftId, rightId }: { runs: ComparableRu
     ["Extracted and normalized values", left.values.join(" · "), right.values.join(" · ")],
     ["Evidence", left.evidence.join(" · "), right.evidence.join(" · ")],
     ["Provider and model", executionTarget(left), executionTarget(right)],
+    ["Selected configuration", configuredTarget(left), configuredTarget(right)],
     ["Execution mode", left.executionMode, right.executionMode],
     ["Evaluator status", left.evaluator.join(" · "), right.evaluator.join(" · ")],
     ["Latency", `${left.latencyMs} ms`, `${right.latencyMs} ms`],

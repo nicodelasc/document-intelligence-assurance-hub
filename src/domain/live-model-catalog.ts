@@ -1,5 +1,7 @@
 import type { Provider } from "./types";
 
+export const pricingAsOf = "2026-08-28" as const;
+
 export type LiveModelId =
   | "gpt-5.6-luna"
   | "gpt-5.6-terra"
@@ -12,7 +14,7 @@ export interface LiveModelDefinition {
   displayName: string;
   recommended: boolean;
   contextWindowTokens: number;
-  pricingAsOf: "2026-08-28";
+  pricingAsOf: typeof pricingAsOf;
   inputPerMillionUsd: number;
   outputPerMillionUsd: number;
 }
@@ -24,7 +26,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     displayName: "GPT-5.6 Luna",
     recommended: true,
     contextWindowTokens: 1_050_000,
-    pricingAsOf: "2026-08-28",
+    pricingAsOf,
     inputPerMillionUsd: 0.2,
     outputPerMillionUsd: 1.2,
   }),
@@ -34,7 +36,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     displayName: "GPT-5.6 Terra",
     recommended: false,
     contextWindowTokens: 1_050_000,
-    pricingAsOf: "2026-08-28",
+    pricingAsOf,
     inputPerMillionUsd: 2,
     outputPerMillionUsd: 12,
   }),
@@ -44,7 +46,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     displayName: "Claude Haiku 4.5",
     recommended: true,
     contextWindowTokens: 200_000,
-    pricingAsOf: "2026-08-28",
+    pricingAsOf,
     inputPerMillionUsd: 1,
     outputPerMillionUsd: 5,
   }),
@@ -54,7 +56,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     displayName: "Claude Sonnet 5",
     recommended: false,
     contextWindowTokens: 1_000_000,
-    pricingAsOf: "2026-08-28",
+    pricingAsOf,
     inputPerMillionUsd: 2,
     outputPerMillionUsd: 10,
   }),
