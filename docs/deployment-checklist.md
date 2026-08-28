@@ -2,6 +2,8 @@
 
 Use this checklist for each controlled rollout. The 2026-08-28 keyless production deployment uses the stable Workbench and Operations URLs in the repository README. Live-provider acceptance remains separately gated.
 
+The completed keyless rollout record is in [evaluation-report.md](evaluation-report.md). Keep the checklist below reusable for later releases.
+
 ## Before creating a deployment
 
 - [ ] Review the Task 5 verification report and confirm the worktree commit.

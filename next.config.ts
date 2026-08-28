@@ -33,6 +33,9 @@ const nextConfig: NextConfig = {
       "./node_modules/tesseract.js-core/**/*",
     ],
   },
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon.svg" }];
+  },
   async headers() {
     return [
       {
