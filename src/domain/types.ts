@@ -21,6 +21,38 @@ export type Outcome =
   | "conflict"
   | "not_found";
 
+export type ActionType =
+  | "create_ap_exception_case"
+  | "stage_inventory_receipt"
+  | "create_security_review"
+  | "create_document_review_task";
+
+export type ActionStatus = "ready" | "needs_review" | "blocked";
+
+export interface ActionProposal {
+  type: ActionType;
+  title: string;
+  summary: string;
+  payload: Array<{ label: string; value: string }>;
+  instructionEvidence: string | null;
+  page: number | null;
+  risk: "low" | "medium" | "high";
+  status: ActionStatus;
+  reason: string;
+  stagedAt: string | null;
+}
+
+export interface SyntheticFixture {
+  id: string;
+  filename: string;
+  title: string;
+  description: string;
+  requestedFields: Array<{ key: string; label: string }>;
+  referenceData: Record<string, string | null>;
+  expectedOutcome: Outcome;
+  action: ActionProposal;
+}
+
 export interface FieldResult {
   key: string;
   label: string;

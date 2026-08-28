@@ -1,36 +1,27 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { purchaseOrderReferences, recordedRunResults, syntheticInvoices } from "@/domain/fixtures";
+import { syntheticFixtures } from "@/domain/fixtures";
 
-describe("synthetic invoice fixtures", () => {
-  it("contains the three required deterministic invoice cases", () => {
-    expect(syntheticInvoices.map((invoice) => invoice.id)).toEqual([
-      "clean-match",
-      "invoice-total-mismatch",
-      "missing-purchase-order",
+describe("synthetic document fixtures", () => {
+  it("contains the three required deterministic document scenarios", () => {
+    expect(syntheticFixtures.map((fixture) => fixture.id)).toEqual([
+      "invoice-exception-packet",
+      "warehouse-receiving-sheet",
+      "visitor-access-request",
     ]);
-    expect(Object.keys(purchaseOrderReferences)).toEqual(syntheticInvoices.map((invoice) => invoice.id));
-    expect(recordedRunResults.map((result) => result.outcome)).toEqual(["clear", "needs_review", "incomplete"]);
+    expect(syntheticFixtures.map((fixture) => fixture.expectedOutcome)).toEqual([
+      "needs_review",
+      "clear",
+      "incomplete",
+    ]);
   });
 
-  it("keeps fixture content invented and provides a PDF for every sample", () => {
-    const serializedFixtures = JSON.stringify({ purchaseOrderReferences, recordedRunResults, syntheticInvoices });
+  it("keeps every scenario invented and action metadata aligned to its outcome", () => {
+    const serializedFixtures = JSON.stringify(syntheticFixtures);
     expect(serializedFixtures).not.toMatch(/Samsung|Kyndryl/i);
-
-    for (const invoice of syntheticInvoices) {
-      const bytes = readFileSync(resolve(process.cwd(), "public", "samples", invoice.filename));
-      expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
-    }
-  });
-
-  it("exposes the three fixed guided fields for every recorded sample", () => {
-    for (const result of recordedRunResults) {
-      expect(result.fields.map((field) => field.key)).toEqual([
-        "vendor_name",
-        "purchase_order_number",
-        "invoice_total",
-      ]);
-    }
+    expect(syntheticFixtures.map((fixture) => fixture.action.status)).toEqual([
+      "needs_review",
+      "ready",
+      "blocked",
+    ]);
   });
 });

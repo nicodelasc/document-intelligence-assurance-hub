@@ -1,41 +1,22 @@
+import {
+  liveModelCatalog,
+  requireEnabledModel,
+  type LiveModelDefinition,
+  type LiveModelId,
+} from "./live-model-catalog";
 import type { Provider } from "./types";
 
-export const pricingAsOf = "2026-08-27";
+export const pricingAsOf = "2026-08-28";
 export const MAX_PROVIDER_OUTPUT_TOKENS = 2_000;
 export const MAX_LIVE_PROVIDER_ATTEMPTS = 2;
 
-type LiveModelPolicy = {
-  provider: Provider;
-  inputPerMillionUsd: number;
-  outputPerMillionUsd: number;
-  contextWindowTokens: number;
-};
-
-const liveModelPolicies = {
-  "gpt-5-mini": {
-    provider: "openai",
-    inputPerMillionUsd: 0.25,
-    outputPerMillionUsd: 2,
-    contextWindowTokens: 400_000,
-  },
-  "claude-haiku-4-5": {
-    provider: "anthropic",
-    inputPerMillionUsd: 1,
-    outputPerMillionUsd: 5,
-    contextWindowTokens: 200_000,
-  },
-} as const satisfies Record<string, LiveModelPolicy>;
-
-export type SupportedLiveModel = keyof typeof liveModelPolicies;
+export type SupportedLiveModel = LiveModelId;
 
 export function requireSupportedLiveModel(
   provider: Provider,
   model: string,
-): LiveModelPolicy {
-  const policy = liveModelPolicies[model as SupportedLiveModel];
-  if (!policy || policy.provider !== provider)
-    throw new Error("unsupported_live_model");
-  return policy;
+): LiveModelDefinition {
+  return requireEnabledModel(provider, model);
 }
 
 export function estimateMaximumLiveRunCost(
@@ -54,8 +35,9 @@ export function estimateMaximumLiveRunCost(
 }
 
 export const MAX_SUPPORTED_LIVE_RUN_COST_USD = Math.max(
-  estimateMaximumLiveRunCost("openai", "gpt-5-mini"),
-  estimateMaximumLiveRunCost("anthropic", "claude-haiku-4-5"),
+  ...liveModelCatalog.map((model) =>
+    estimateMaximumLiveRunCost(model.provider, model.id),
+  ),
 );
 
 export function estimateRunCost(input: {

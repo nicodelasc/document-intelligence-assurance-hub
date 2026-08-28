@@ -1,4 +1,110 @@
-import type { FieldResult, Outcome } from "./types";
+import type {
+  FieldResult,
+  Outcome,
+  SyntheticFixture,
+} from "./types";
+
+export const syntheticFixtures: readonly SyntheticFixture[] = [
+  {
+    id: "invoice-exception-packet",
+    filename: "invoice-exception-packet.pdf",
+    title: "Invoice exception packet",
+    description: "Supplier invoice with a handwritten payment hold instruction.",
+    requestedFields: [
+      { key: "vendor_name", label: "Vendor name" },
+      { key: "purchase_order_number", label: "Purchase-order number" },
+      { key: "invoice_total", label: "Invoice total" },
+    ],
+    referenceData: {
+      vendor_name: "Northstar Paperworks",
+      purchase_order_number: "PO-NP-1001",
+      invoice_total: "1250.00 SGD",
+    },
+    expectedOutcome: "needs_review",
+    action: {
+      type: "create_ap_exception_case",
+      title: "Create accounts-payable exception review",
+      summary: "Review the invoice total before payment processing continues.",
+      payload: [
+        { label: "Vendor", value: "Northstar Paperworks" },
+        { label: "Purchase-order number", value: "PO-NP-1001" },
+        { label: "Invoice total", value: "1250.00 SGD" },
+      ],
+      instructionEvidence: "Hold payment and contact the buyer.",
+      page: 1,
+      risk: "medium",
+      status: "needs_review",
+      reason: "The invoice total conflicts with the purchase-order register.",
+      stagedAt: null,
+    },
+  },
+  {
+    id: "warehouse-receiving-sheet",
+    filename: "warehouse-receiving-sheet.pdf",
+    title: "Warehouse receiving sheet",
+    description: "Receiving tally with a handwritten quantity correction.",
+    requestedFields: [
+      { key: "shipment_id", label: "Shipment ID" },
+      { key: "purchase_order_number", label: "Purchase-order number" },
+      { key: "received_quantity", label: "Received quantity" },
+    ],
+    referenceData: {
+      shipment_id: "SHIP-4018",
+      purchase_order_number: "PO-WR-4018",
+      received_quantity: "48",
+    },
+    expectedOutcome: "clear",
+    action: {
+      type: "stage_inventory_receipt",
+      title: "Stage inventory receipt",
+      summary: "Stage the verified receipt for internal inventory posting.",
+      payload: [
+        { label: "Shipment ID", value: "SHIP-4018" },
+        { label: "Purchase-order number", value: "PO-WR-4018" },
+        { label: "Received quantity", value: "48" },
+      ],
+      instructionEvidence: "Corrected received quantity: 48.",
+      page: 1,
+      risk: "low",
+      status: "ready",
+      reason: "The corrected quantity matches the expected delivery.",
+      stagedAt: null,
+    },
+  },
+  {
+    id: "visitor-access-request",
+    filename: "visitor-access-request.pdf",
+    title: "Visitor access request",
+    description: "Access request without a valid sponsor approval code.",
+    requestedFields: [
+      { key: "visitor_name", label: "Visitor name" },
+      { key: "host", label: "Host" },
+      { key: "approval_code", label: "Approval code" },
+    ],
+    referenceData: {
+      visitor_name: "Jordan Lee",
+      host: "Avery Tan",
+      approval_code: null,
+    },
+    expectedOutcome: "incomplete",
+    action: {
+      type: "create_security_review",
+      title: "Create security review",
+      summary: "Create a review item while badge preparation remains blocked.",
+      payload: [
+        { label: "Visitor name", value: "Jordan Lee" },
+        { label: "Host", value: "Avery Tan" },
+        { label: "Approval code", value: "Not provided" },
+      ],
+      instructionEvidence: "Prepare a visitor badge for arrival.",
+      page: 1,
+      risk: "high",
+      status: "blocked",
+      reason: "Required sponsor approval evidence is absent.",
+      stagedAt: null,
+    },
+  },
+];
 
 export const syntheticInvoices = [
   { id: "clean-match", filename: "clean-match-invoice.pdf", vendor: "Northstar Paperworks" },
