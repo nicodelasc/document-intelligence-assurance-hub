@@ -1,4 +1,5 @@
 import type { HttpContainer } from "@/server/http/container";
+import { invalidateMetricsCache } from "@/server/http/metrics-handler";
 import {
   attachBucketCookie,
   resolveAnonymousBucket,
@@ -81,6 +82,9 @@ export async function handleStageActionPost(
       container.clock(),
     );
     if (result.status === "staged" || result.status === "already_staged") {
+      if (result.status === "staged") {
+        invalidateMetricsCache(container.repository);
+      }
       return respond(
         safeJsonResponse(
           {

@@ -132,6 +132,22 @@ describe("Run explorer", () => {
             referenceMatch: true,
           }],
           outcome: "clear",
+          documentInstruction: "Post the corrected quantity after verification.",
+          action: {
+            type: "stage_inventory_receipt",
+            title: "Stage inventory receipt",
+            summary: "Prepare an internal receipt posting dry run.",
+            payload: [
+              { label: "Shipment ID", value: "SHIP-2048" },
+              { label: "Received quantity", value: "48" },
+            ],
+            instructionEvidence: "Post corrected received quantity: 48",
+            page: 1,
+            risk: "low",
+            status: "ready",
+            reason: "Verified receipt evidence supports internal staging.",
+            stagedAt: "2026-08-27T00:03:00.000Z",
+          },
           usage: { inputTokens: 0, outputTokens: 0 },
           estimatedCostUsd: 0,
           retryCount: 0,
@@ -148,9 +164,16 @@ describe("Run explorer", () => {
     const runTable = screen.getByRole("table", { name: "Public assurance runs" });
     expect(within(runTable).getByText("Not called (demo)")).toBeVisible();
     expect(await screen.findByTitle("Active document preview for fixture-1.pdf")).toHaveAttribute("src", "/api/runs/run_1/document");
-    for (const heading of ["Structured extraction", "Reference comparison", "Telemetry and steps", "Safe errors", "Metadata"]) {
+    for (const heading of ["Prepared action", "Structured extraction", "Reference comparison", "Diagnostics", "Safe errors", "Metadata"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeVisible();
     }
+    const action = screen.getByRole("heading", { name: "Prepared action" }).closest("section")!;
+    expect(within(action).getByText("Stage inventory receipt")).toBeVisible();
+    expect(within(action).getByText("stage inventory receipt")).toBeVisible();
+    expect(within(action).getByText("ready")).toBeVisible();
+    expect(within(action).getByText("Staged 27 Aug 2026, 08:03 SGT")).toBeVisible();
+    expect(within(action).getByText("Shipment ID")).toBeVisible();
+    expect(within(action).getByText("SHIP-2048")).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Run detail views" })).not.toBeInTheDocument();
     expect(screen.getByText(/Normalized: northstar paperworks/)).toBeVisible();
     expect(screen.getByText("Match")).toBeVisible();
@@ -165,6 +188,37 @@ describe("Run explorer", () => {
 });
 
 describe("Operations metric claims", () => {
+  it("shows persisted action readiness with its run population and expiry boundary", async () => {
+    const metrics = {
+      generatedAt: "2026-08-27T00:00:00.000Z",
+      summary: { totalRuns: 4, completionRate: 1, reviewRate: 0.5, failureRate: 0 },
+      performance: { sampleCount: 4, p50LatencyMs: 100, p95LatencyMs: 200, retryCount: 0, averageStepDurationsMs: {} },
+      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 4, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
+      benchmark: { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
+      retention: { activePublicUploads: 0, upcomingExpirations: 1, cleanupBacklog: 0, sampleCount: 4 },
+      actions: {
+        ready: 1,
+        needsReview: 2,
+        blocked: 1,
+        stagedDryRuns: 2,
+        population: { activeRuns: 4, actionProposals: 4, maximumRuns: 100, detailExpiryHours: 24 },
+      },
+      runExplorer: [],
+      resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(metrics), { status: 200 })));
+    render(<OperationsDashboard />);
+
+    const panel = (await screen.findByRole("heading", { name: "Action readiness" })).closest(".rule-panel")!;
+    expect(within(panel).getByText("Ready").parentElement).toHaveTextContent("Ready1");
+    expect(within(panel).getByText("Needs review").parentElement).toHaveTextContent("Needs review2");
+    expect(within(panel).getByText("Blocked").parentElement).toHaveTextContent("Blocked1");
+    expect(within(panel).getByText("Staged dry runs").parentElement).toHaveTextContent("Staged dry runs2");
+    expect(within(panel).getByText("4 action proposals across 4 active runs.")).toBeVisible();
+    expect(within(panel).getByText("Latest 100 runs inspected. Details expire within 24 hours.")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Latency and step duration" })).not.toBeInTheDocument();
+  });
+
   it("separates zero live calls from provider-neutral deterministic coverage", async () => {
     const metrics = {
       generatedAt: "2026-08-27T00:00:00.000Z",

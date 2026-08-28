@@ -10,8 +10,8 @@ flowchart LR
   Workflow --> Provider[one provider port]
   Provider --> Grounding[local document grounding]
   Grounding --> Evaluators[field evaluators]
-  Evaluators --> Decision[deterministic decision]
-  Decision --> Repository[repository and telemetry]
+  Evaluators --> Decision[deterministic decision and action policy]
+  Decision --> Repository[repository, dry-run action and telemetry]
 
   Workflow -. connected adapter .-> Blob[(private Blob)]
   Repository -. connected adapter .-> Neon[(Neon Postgres)]
@@ -23,9 +23,9 @@ flowchart LR
 
 The browser sends non-sensitive source and execution-mode admission headers with the multipart request. The route applies a minute-window submission limit before multipart parsing and rejects impossible custom modes without reading the body. Multipart values remain authoritative and must exactly match the admission headers. After complete server-side file validation the route applies daily quotas and one idempotency claim. A cancellation signal travels from the response stream through the workflow to the selected provider.
 
-Exactly one provider port is selected for a run. Recorded mode returns deterministic fixture output without a network model call. Live mode calls the selected direct provider adapter only when the global switch and its server-side credential are present.
+Exactly one provider port is selected for a run. Demo mode returns deterministic fixture output without a network model call. Provider and model execution are serialized as `Not called (demo)` for these runs. Live mode can call the selected direct provider adapter only when the global switch and its server-side credential are present.
 
-Recorded synthetic fixtures are trusted application replays and retain their fixed outcomes. Every live run crosses a server-owned grounding boundary before field evaluation. Text-native PDF pages are extracted with `unpdf`. PNG, JPEG and PDF pages without usable text are processed locally with Tesseract.js, bundled English language data and a server-side canvas renderer. Page count, decoded image allocation, page text, OCR time and overall grounding time are bounded. Grounded page text remains in process memory and is never persisted or returned.
+Deterministic synthetic fixtures are trusted application data and retain their fixed outcomes. Every live run crosses a server-owned grounding boundary before field evaluation. Text-native PDF pages are extracted with `unpdf`. PNG, JPEG and PDF pages without usable text are processed locally with Tesseract.js, bundled English language data and a server-side canvas renderer. Page count, decoded image allocation, page text, OCR time and overall grounding time are bounded. Grounded page text remains in process memory and is never persisted or returned.
 
 Each live field can pass only when the claimed page exists, its evidence maps to a contiguous page span after bounded Unicode, whitespace and punctuation normalization and its server-normalized value is supported by that grounded evidence. A parser, renderer, OCR or grounding failure produces a safe failed run instead of Clear or Evidence-consistent. The provider cannot directly choose the assurance outcome.
 
@@ -37,11 +37,21 @@ Connected mode uses Neon for runs, traces, quota reservations, idempotency claim
 
 The connected HTTP container also uses an atomic Neon minute-window limiter for submissions, active-document reads, metrics, public run lists and active run details. Every resource has a per-bucket limit and a deployment-wide global limit. The global row is locked before the caller bucket so rotated cookies and parallel serverless instances share one ceiling. Metrics reuse one 15-second in-process snapshot and coalesce concurrent aggregation while the Neon gate bounds total cross-instance work.
 
+## Model catalogue and deterministic boundary
+
+The server-owned catalogue contains GPT-5.6 Luna and GPT-5.6 Terra for OpenAI plus Claude Haiku 4.5 and Claude Sonnet 5 for Anthropic. Each entry fixes the provider, context window and pricing date. Unknown models and provider-model mismatches fail closed. Demo selection is configuration only and never creates a provider request. Live provider acceptance has not been claimed.
+
+## Action staging boundary
+
+Provider output may propose an action but deterministic server policy owns its final ready, needs-review or blocked status. `POST /api/runs/:id/stage-action` requires the browser-held run capability. The repository records one idempotent internal dry-run event and persists its timestamp. Blocked, failed, expired and deleted runs cannot stage.
+
+No action path has tool access or an external connector. The application cannot contact an ERP, ticketing, payment, inventory or access-control system. The staging capability is private to the browser that holds the run token but it is not user authentication or tenant isolation.
+
 Schema changes run through versioned migration files. Routine request handling issues data queries only.
 
 ## Live provider lifecycle
 
-Live adapters accept only `gpt-5-mini` for OpenAI and `claude-haiku-4-5` for Anthropic so displayed costs always use the dated model-specific rate table. Each SDK call disables built-in retries, caps structured output at 2,000 tokens and composes the browser cancellation signal with a 45-second server deadline. The workflow owns the single permitted retry.
+Live adapters accept only models from the server-owned four-model catalogue so displayed costs use the dated model-specific rate table. Each SDK call disables built-in retries, caps structured output at 2,000 tokens and composes the browser cancellation signal with a 45-second server deadline. The workflow owns the single permitted retry.
 
 Before dispatch Neon atomically reserves the higher worst-case cost across the supported model context windows for two provider attempts. The live adapter persists a dispatch marker after SDK loading and client construction then immediately before generation. If cancellation wins while that marker is being stored then the workflow clears it before release. One successful dispatched attempt with safe nonnegative integer usage inside the model context and output cap settles its exact estimated response cost. A retry, unknown usage, timeout or terminal provider error settles the repository-stored reservation conservatively. An oversized reported settlement is capped at the stored reservation. If settlement cannot be confirmed then the reservation remains pending. Expired dispatched leases are reconciled into daily spend while expired never-dispatched leases are released. Early validation, storage, initialization and already-aborted paths settle at zero because no provider request was dispatched.
 
@@ -51,6 +61,7 @@ Before dispatch Neon atomically reserves the higher worst-case cost across the s
 - Provider output is untrusted until schema validation and deterministic evaluation finish.
 - Extracted document text and local OCR output are transient grounding material. Neither is stored in Neon, Blob metadata or public traces.
 - Raw deletion tokens are browser-held capabilities. Only hashes are persisted.
+- The same browser-held capability gates internal action staging. It does not authorize an external business action.
 - Document locators, deletion hashes, full prompts and provider error bodies stay server-side.
 - Public responses contain bounded safe fields and no-store headers where document bytes are involved.
 - The public-surface verifier scans pages, run-list JSON, metrics JSON and at most eight active trace responses. It never fetches raw document URLs as text.

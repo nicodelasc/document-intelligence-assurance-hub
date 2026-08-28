@@ -272,7 +272,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await page.getByRole("radio", { name: "Select ops_1" }).check();
   await expect(page.getByTitle("Active document preview for fixture-1.pdf")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reference comparison" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Telemetry and steps" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Diagnostics" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Safe errors" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Run detail views" })).toHaveCount(0);
 });

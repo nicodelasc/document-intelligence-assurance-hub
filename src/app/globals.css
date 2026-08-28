@@ -213,6 +213,11 @@ tbody th { font-weight: 600; }
 .signal-stat-row span { display: grid; }
 .signal-stat-row small { color: var(--muted); }
 .signal-stat-row strong { font-family: "IBM Plex Mono", monospace; }
+.action-readiness-list { display: grid; grid-template-columns: repeat(2, 1fr); margin: 0; }
+.action-readiness-list div { display: grid; gap: 0.2rem; padding: 0.8rem; border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); }
+.action-readiness-list div:nth-child(2n) { border-right: 0; }
+.action-readiness-list dt { color: var(--muted); font-size: 0.67rem; }
+.action-readiness-list dd { margin: 0; font: 600 1.35rem/1 "IBM Plex Mono", monospace; }
 .chart-frame { height: 190px; margin-top: 0.2rem; }
 .chart-summary { margin: 0; padding: 0.55rem 0.8rem 0.75rem; color: var(--muted); font-size: 0.67rem; }
 .claim-label { margin: 0; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--rule-soft); color: var(--primary); font-size: 0.66rem; font-weight: 650; }
@@ -255,6 +260,11 @@ tbody th { font-weight: 600; }
 .inspector-sections dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .inspector-sections dd span, .inspector-sections dd small { display: block; }
 .inspector-sections dd small { margin-top: 0.15rem; color: var(--muted); }
+.inspector-action > strong { display: block; margin-bottom: 0.25rem; }
+.inspector-action blockquote { margin: 0.6rem 0; padding: 0.5rem; border-left: 3px solid var(--primary); background: var(--primary-soft); }
+.inspector-action blockquote span { display: block; margin-bottom: 0.2rem; color: var(--muted); font-size: 0.62rem; }
+.inspector-action > small { display: block; color: var(--muted); }
+.action-payload { margin-top: 0.45rem !important; }
 .inspector-preview { grid-column: 1 / -1; border-right: 0 !important; }
 .inspector-preview iframe { width: 100%; min-height: 300px; border: 1px solid var(--rule); background: #F2F4F7; }
 .inspector-steps, .safe-error-list { display: grid; gap: 0.25rem; margin: 0.6rem 0 0; padding: 0; list-style: none; }

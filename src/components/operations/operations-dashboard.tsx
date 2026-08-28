@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useCallback, useEffect, useState } from "react";
 import { Button, KeylessNotice, RulePanel, StatusMark } from "@/components/ui/primitives";
 import { ResourceCalculator } from "./resource-calculator";
 import { RunExplorer, type ExplorerRun } from "./run-explorer";
@@ -13,6 +12,18 @@ type Metrics = {
   usage: { inputTokens: number; outputTokens: number; providerSplit: { openai: number; anthropic: number }; recordedRuns: number; liveRuns: number; estimatedApiCostUsd: number; pricingAsOf: string };
   benchmark: { source: string; liveRuns: number; recordedRuns: number; providerCoverage: { openai: number; anthropic: number }; exactMatchRate: number; missingFieldRecall: number; evaluatorAgreement: number; falseClearCount: number };
   retention: { activePublicUploads: number; upcomingExpirations: number; cleanupBacklog: number; sampleCount: number };
+  actions: {
+    ready: number;
+    needsReview: number;
+    blocked: number;
+    stagedDryRuns: number;
+    population: {
+      activeRuns: number;
+      actionProposals: number;
+      maximumRuns: number;
+      detailExpiryHours: number;
+    };
+  };
   runExplorer: ExplorerRun[];
   resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: number; usdToSgd: number } };
 };
@@ -45,35 +56,32 @@ export function OperationsDashboard() {
     return () => controller.abort();
   }, [load]);
 
-  const stepData = useMemo(() => {
-    const entries = Object.entries(metrics?.performance.averageStepDurationsMs ?? {});
-    if (entries.length) return entries.map(([stage, duration]) => ({ stage: stage.replaceAll("_", " "), seconds: Number((duration / 1000).toFixed(2)) }));
-    return [
-      { stage: "Validate", seconds: 0.2 },
-      { stage: "Store", seconds: 0.3 },
-      { stage: "Extract", seconds: 1.5 },
-      { stage: "Verify", seconds: 0.7 },
-      { stage: "Compare", seconds: 0.4 },
-      { stage: "Decide", seconds: 0.2 },
-      { stage: "Publish", seconds: 0.1 },
-    ];
-  }, [metrics]);
-
   if (error && !metrics) {
     return <main id="main-content" className="page"><header className="page-intro"><div><h1>Operations</h1><p>Review public-safe operational signals and recorded benchmark quality.</p></div><KeylessNotice /></header><div className="route-error" role="alert"><h2>Operations could not load</h2><p>{error}</p><Button type="button" onClick={() => load()}>Retry metrics</Button></div></main>;
   }
 
   const summary = metrics?.summary ?? { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 };
-  const performance = metrics?.performance ?? { sampleCount: 0, p50LatencyMs: 0, p95LatencyMs: 0, retryCount: 0, averageStepDurationsMs: {} };
   const usage = metrics?.usage ?? { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" };
   const benchmark = metrics?.benchmark ?? { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 };
   const retention = metrics?.retention ?? { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 0 };
+  const actions = metrics?.actions ?? {
+    ready: 0,
+    needsReview: 0,
+    blocked: 0,
+    stagedDryRuns: 0,
+    population: {
+      activeRuns: 0,
+      actionProposals: 0,
+      maximumRuns: 100,
+      detailExpiryHours: 24,
+    },
+  };
   const averageModelCost = (metrics?.resourceScenario.modelCostAssumption.averageModelCostPerRunUsd ?? 0) * (metrics?.resourceScenario.modelCostAssumption.usdToSgd ?? 1.35);
   const providerConfigurationTotal = usage.providerSplit.openai + usage.providerSplit.anthropic;
 
   return (
     <main id="main-content" className="page operations-page" aria-busy={loading}>
-      <header className="page-intro"><div><h1>Operations</h1><p>Inspect prototype runs, recorded benchmark quality and illustrative resource assumptions.</p></div><KeylessNotice /></header>
+      <header className="page-intro"><div><h1>Operations</h1><p>Inspect public-safe runs, action readiness and illustrative resource assumptions.</p></div><KeylessNotice /></header>
       {loading ? <div className="loading-band" role="status">Loading operational ledger…</div> : null}
       <section className="metric-band" aria-label="Run summary metrics">
         <Metric label="Total runs" value={String(summary.totalRuns)} detail="Public runs" />
@@ -83,14 +91,12 @@ export function OperationsDashboard() {
       </section>
 
       <section className="operations-signals" aria-label="Operational signals">
-        <RulePanel title="Latency and step duration" className="chart-panel">
-          <div className="signal-stat-row"><span><small>p50 latency</small><strong>{(performance.p50LatencyMs / 1000).toFixed(1)} s</strong></span><span><small>p95 latency</small><strong>{(performance.p95LatencyMs / 1000).toFixed(1)} s</strong></span><span><small>Retries</small><strong>{performance.retryCount}</strong></span></div>
-          <div className="chart-with-summary">
-            <div className="chart-frame" role="img" aria-label="Average recorded step duration bar chart">
-              <ResponsiveContainer width="100%" height={190}><BarChart data={stepData} layout="vertical" margin={{ left: 18, right: 16 }}><CartesianGrid stroke="#E7EAF0" horizontal={false} /><XAxis type="number" unit="s" tick={{ fontSize: 11 }} /><YAxis type="category" dataKey="stage" width={62} tick={{ fontSize: 10 }} /><Tooltip /><Bar dataKey="seconds" fill="#155EEF" radius={[0, 2, 2, 0]} /></BarChart></ResponsiveContainer>
-            </div>
-            <p className="chart-summary">Text summary: {performance.sampleCount ? `${performance.sampleCount} active run records inform this view.` : "No public runs exist yet. The chart shows a recorded-reference stage profile without live timing claims."}</p>
-          </div>
+        <RulePanel title="Action readiness" className="action-readiness-panel">
+          <p className="claim-label">Persisted run results · internal dry runs only</p>
+          <dl className="action-readiness-list"><div><dt>Ready</dt><dd>{actions.ready}</dd></div><div><dt>Needs review</dt><dd>{actions.needsReview}</dd></div><div><dt>Blocked</dt><dd>{actions.blocked}</dd></div><div><dt>Staged dry runs</dt><dd>{actions.stagedDryRuns}</dd></div></dl>
+          <p className="chart-summary">{actions.population.actionProposals} action proposal{actions.population.actionProposals === 1 ? "" : "s"} across {actions.population.activeRuns} active run{actions.population.activeRuns === 1 ? "" : "s"}.</p>
+          <p className="chart-summary">Latest {actions.population.maximumRuns} runs inspected. Details expire within {actions.population.detailExpiryHours} hours.</p>
+          <p className="chart-summary">Staging records preparation only. No external connector is called.</p>
         </RulePanel>
         <RulePanel title="Provider usage">
           <p className="claim-label">Live-run provider configuration · demo runs excluded</p>

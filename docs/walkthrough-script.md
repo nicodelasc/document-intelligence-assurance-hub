@@ -1,32 +1,32 @@
 # Two-minute walkthrough
 
-Use the real Workbench and Operations routes. Recorded mode must remain visible throughout this walkthrough.
+Use the real Workbench and Operations routes. Demo mode must remain visible throughout this walkthrough.
 
 The repository includes [the 2:03 recorded walkthrough](../artifacts/walkthrough.webm) at 1440×900. It was captured from the stable public keyless deployment on 2026-08-28. On-screen chapter captions make the artifact usable without narration and disclose that no provider request occurred.
 
-## 0:00–0:25 — Clean recorded run
+## 0:00–0:25 — Catalogue and deterministic boundary
 
-Open Workbench. Point out the keyless notice and Clean invoice fixture. Run the assurance check. Follow the streaming stages then show the Clear outcome with field evidence.
+Open Workbench. Show the grouped catalogue with GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5. Point out `Demo data — no provider call`. Explain that model selection is configuration only in this walkthrough and no provider request occurs.
 
-## 0:25–0:50 — Mismatch recorded run
+## 0:25–0:55 — Ready action and private staging capability
 
-Choose Invoice-total mismatch. Run it with the current provider selection. Show the conflicting invoice total and the Needs review outcome. Explain that the deterministic evaluator prevents a false Clear.
+Choose Warehouse receiving sheet then run the assurance check. Follow Understand document, Verify evidence and Resolve and prepare action. Show the Clear outcome and ready inventory-receipt proposal. Stage the action then explain that the browser-held run capability authorizes one idempotent internal dry-run event.
 
-## 0:50–1:10 — Other provider and comparison
+## 0:55–1:20 — Review-required action
 
-Select Anthropic Claude Haiku 4.5 then rerun the mismatch fixture. Select the clean run as Run A and the new mismatch run as Run B. Show values, evidence, provider, execution mode, evaluator status, latency and outcome.
+Choose Invoice exception packet. Show the conflicting total, handwritten hold instruction and Needs review outcome. Point out that the accounts-payable exception proposal does not approve a payment or contact a business system.
 
-## 1:10–1:35 — Operations evidence
+## 1:20–1:42 — Operations action evidence
 
-Open Operations. Show the public-safe run trace and recorded benchmark quality. Note six recorded replays across three fixtures and two provider selections. State that the false-clear count is zero for deterministic recorded contracts only.
+Open Operations. Show ready, needs-review, blocked and staged dry-run counts. Read the population statement: the latest 100 runs are inspected and active details expire within 24 hours. Open the staged warehouse run then show action type, policy status, staged timestamp and Diagnostics. Provider and model execution must read `Not called (demo)`.
 
-## 1:35–1:50 — Illustrative calculator
+## 1:42–1:52 — Blocked action and connector guarantee
 
-Scroll to the resource calculator and change Documents each month. Point to the label `Illustrative scenario — not measured savings`. Do not present the result as a measured benefit.
+Return to Workbench and choose Visitor access request. Show the missing sponsor approval evidence and blocked security-review proposal. State that no action path has tools or an ERP, ticketing, payment, inventory or access-control connector.
 
-## 1:50–2:00 — Disclosure and gate
+## 1:52–2:00 — Disclosure and gate
 
-Close by stating that recorded keyless mode made no model request. Live direct OpenAI and Anthropic integration is disabled by default. Live accuracy and retention acceptance remain pending explicit key authorization and production verification.
+Close by stating that demo mode made no model request. The resource calculator remains illustrative and is not measured business impact. Live direct OpenAI and Anthropic integration is disabled by default. Live provider acceptance remains pending explicit key authorization and production verification.
 
 ## Portable recording command
 
@@ -36,4 +36,4 @@ Start the app or supply a reviewed deployment URL then run:
 npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm
 ```
 
-The helper creates the parent artifact directory and records the actual browser workflow. It performs a clean OpenAI-selection replay, a mismatch OpenAI-selection replay, an Anthropic-selection rerun, a comparison, an Operations drill-down and a calculator update. It does not contain a credential or personal filesystem path.
+The helper creates the parent artifact directory and records the browser workflow. Review the generated artifact against this script before publication because the committed recording helper may lag the current document catalogue. It does not contain a credential or personal filesystem path.

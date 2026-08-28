@@ -1,6 +1,6 @@
 # Privacy and retention
 
-## Public prototype boundary
+## Public upload boundary
 
 A custom upload is voluntary and its public-safe run metadata and extracted evidence can appear in the public Workbench or Operations view while active. Do not submit personal data, confidential business data, credentials, regulated records or material covered by a client agreement.
 
@@ -28,8 +28,14 @@ Connected document storage is private Vercel Blob. Objects are never linked dire
 
 Neon stores run state, public-safe trace data, quota reservations, idempotency claims and cleanup jobs. Environment credentials remain server-side.
 
+Action proposals and staged timestamps live inside the active run detail. Stage action requires the browser-held run capability and records an internal dry-run event only. The capability is not a user account or a private tenant boundary. No action route has tool access or an external ERP, ticketing, payment, inventory or access-control connector.
+
+The server-owned four-model catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5. Demo results are deterministic fixture data. Catalogue selection does not call a provider and Operations identifies provider and model execution as `Not called (demo)`. Live provider acceptance has not been completed or claimed.
+
+No external connector exists in this application. An internal staged timestamp is not evidence that an ERP, ticketing, payment, inventory or access-control action occurred.
+
 Live evidence grounding runs inside the application. Text-native PDF text is extracted locally while PNG, JPEG and scanned PDF pages use local OCR with bundled English language data. Raw document bytes and full extracted page text are not sent to a separate OCR service. Full page text is held only for the active workflow and is not persisted or exposed. Public traces keep only the bounded evidence snippet returned for each requested field.
 
 ## Enterprise gaps
 
-This prototype does not provide authentication, private per-user run visibility, tenant isolation, malware scanning, data-loss prevention, legal hold, regional policy enforcement, audit export or a formally approved retention policy. Those controls are required before sensitive enterprise use.
+This application does not provide authentication, private per-user run visibility, tenant isolation, malware scanning, data-loss prevention, legal hold, regional policy enforcement, audit export or a formally approved retention policy. Those controls are required before sensitive enterprise use.

@@ -17,6 +17,8 @@ import {
 } from "@/server/http/anonymous-bucket";
 
 const METRICS_CACHE_TTL_MS = 15_000;
+const METRICS_RUN_LIMIT = 100;
+const PUBLIC_DETAIL_EXPIRY_HOURS = 24;
 const metricsCache = new WeakMap<
   object,
   { expiresAt: number; payload?: unknown; pending?: Promise<unknown> }
@@ -178,9 +180,9 @@ export async function handleMetricsGet(
       const [aggregate, runs, cleanupBacklog] = await Promise.all([
       container.repository.aggregateAnonymousUsage(),
       container.repository.listPublicRuns(now, {
-        limit: 100,
+        limit: METRICS_RUN_LIMIT,
         offset: 0,
-        includeDetails: false,
+        includeDetails: true,
       }),
       container.repository.countCleanupBacklog(now),
     ]);
@@ -199,6 +201,10 @@ export async function handleMetricsGet(
       const activeRuns = runs.filter(
         (run) => run.status !== "expired" && run.status !== "deleted",
       );
+      const actions = activeRuns.flatMap((run) => {
+        const action = run.details?.result?.action;
+        return action ? [{ action, steps: run.details?.steps ?? [] }] : [];
+      });
       const nextHour = now.getTime() + 60 * 60 * 1000;
       const averageModelCostPerRunUsd = ratio(
         aggregate.estimatedCostUsd,
@@ -255,6 +261,27 @@ export async function handleMetricsGet(
           ).length,
           cleanupBacklog,
           sampleCount: runs.length,
+        },
+        actions: {
+          ready: actions.filter(({ action }) => action.status === "ready").length,
+          needsReview: actions.filter(
+            ({ action }) => action.status === "needs_review",
+          ).length,
+          blocked: actions.filter(({ action }) => action.status === "blocked").length,
+          stagedDryRuns: actions.filter(
+            ({ action, steps }) =>
+              action.stagedAt !== null ||
+              steps.some(
+                (step) =>
+                  step.kind === "action" && step.stage === "action_staged",
+              ),
+          ).length,
+          population: {
+            activeRuns: activeRuns.length,
+            actionProposals: actions.length,
+            maximumRuns: METRICS_RUN_LIMIT,
+            detailExpiryHours: PUBLIC_DETAIL_EXPIRY_HOURS,
+          },
         },
         runExplorer: runs.map(serializePublicRunListRow),
         resourceScenario: {

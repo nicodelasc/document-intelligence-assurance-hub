@@ -1,6 +1,6 @@
 # Deployment checklist
 
-Use this checklist for each controlled rollout. The 2026-08-28 keyless production deployment uses the stable Workbench and Operations URLs in the repository README. Live-provider acceptance remains separately gated.
+Use this checklist for each controlled rollout. The 2026-08-28 keyless production deployment uses the stable Workbench and Operations URLs in the repository README. It demonstrates deterministic demo behavior only. Live-provider acceptance remains separately gated and is not claimed.
 
 The completed keyless rollout record is in [evaluation-report.md](evaluation-report.md). Keep the checklist below reusable for later releases.
 
@@ -14,6 +14,8 @@ The completed keyless rollout record is in [evaluation-report.md](evaluation-rep
 - [ ] Generate a cryptographically random `CRON_SECRET` with at least 32 non-whitespace characters in the deployment secret store.
 - [ ] Set `GLOBAL_DAILY_MODEL_BUDGET_USD` to a positive finite value.
 - [ ] Leave provider keys absent until explicit live-test authorization.
+- [ ] Confirm the server-owned catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5 with the expected provider mapping.
+- [ ] Confirm unknown models and provider-model mismatches fail closed.
 
 ## Apply and verify the migration
 
@@ -54,25 +56,30 @@ psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER
 - [ ] Confirm API routes run on the Node.js runtime.
 - [ ] Confirm the Vercel Linux build includes the local Tesseract worker, `eng.traineddata.gz` and the matching Linux `@napi-rs/canvas` binary.
 
-## Keyless rollout smoke
+## Keyless demo rollout smoke
 
 - [ ] Build without provider keys.
-- [ ] Open Workbench and complete clean, mismatch and missing-field recorded runs.
-- [ ] Select both provider options and verify the UI remains recorded.
+- [ ] Open Workbench and complete warehouse receiving, invoice exception and visitor access demo runs.
+- [ ] Select all four catalogue models and verify each demo still says `Demo data — no provider call`.
+- [ ] Confirm Operations identifies demo provider and model execution as `Not called (demo)`.
+- [ ] Stage the ready warehouse action with the browser-held run capability then confirm one idempotent internal dry-run event.
+- [ ] Confirm the visitor access action remains blocked.
 - [ ] Compare two distinct runs.
-- [ ] Open Operations and inspect benchmark coverage.
+- [ ] Open Operations and inspect action readiness plus deterministic benchmark coverage.
+- [ ] Confirm action counts state the latest-100 population limit and the 24-hour detail expiry boundary.
+- [ ] Confirm no action path has tools or an ERP, ticketing, payment, inventory or access-control connector.
 - [ ] Verify an expired document is denied before physical purge.
 - [ ] Exercise Delete now and confirm the public detail disappears before Blob cleanup.
 - [ ] Run `npm run verify:public -- --origin "$PUBLIC_SITE_URL"`.
 - [ ] Record the two-minute walkthrough if the reviewer needs an artifact.
 
-Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_MEMORY_PERSISTENCE=true` is limited to recorded synthetic smoke testing. Custom uploads remain unavailable and production live mode still requires Neon.
+Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_MEMORY_PERSISTENCE=true` is limited to deterministic synthetic smoke testing. Custom uploads remain unavailable and production live mode still requires Neon.
 
 ## Live acceptance gate
 
 - [ ] Nicholas explicitly authorizes a controlled provider-key session.
-- [ ] One OpenAI run passes.
-- [ ] One Anthropic run passes.
+- [ ] One authorized OpenAI catalogue run passes.
+- [ ] One authorized Anthropic catalogue run passes.
 - [ ] One deliberate provider failure returns only the safe mapped error.
 - [ ] One production retention simulation proves logical denial before physical cleanup.
 - [ ] Daily budget reservation and settlement are visible in durable state.
@@ -81,3 +88,5 @@ Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_M
 - [ ] Provider credentials are removed or rotated after the session as required.
 
 If any item fails then set `AI_LIVE_ENABLED=false` and keep the keyless deployment only.
+
+Passing the keyless checklist does not establish live provider acceptance. Action staging remains internal even after live model verification and must never be interpreted as an external business-system execution.

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, StatusMark } from "@/components/ui/primitives";
-import type { FieldResult, Outcome, Provider, RunStatus } from "@/domain/types";
+import type { ActionProposal, FieldResult, Outcome, Provider, RunStatus } from "@/domain/types";
 
 export type ExplorerRun = {
   id: string;
@@ -41,6 +41,8 @@ type PublicRunDetail = ExplorerRun & {
     result: null | {
       fields: FieldResult[];
       outcome: Outcome;
+      documentInstruction?: string | null;
+      action?: ActionProposal;
       estimatedCostUsd: number;
       retryCount: number;
       latencyMs: number;
@@ -65,6 +67,19 @@ function formatMilliseconds(value: number | null): string {
 
 function providerCallDisplay(executionMode: ExplorerRun["executionMode"], value: string): string {
   return executionMode === "recorded" ? "Not called (demo)" : value;
+}
+
+function formatStagedAt(value: string): string {
+  return new Intl.DateTimeFormat("en-SG", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Singapore",
+    timeZoneName: "short",
+  }).format(new Date(value));
 }
 
 function readUrlState() {
@@ -162,7 +177,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                   <td>{new Intl.DateTimeFormat("en-SG", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(run.expiresAt))}</td>
                 </tr>
               ))}
-              {!visible.length ? <tr><td colSpan={8}><EmptyState title={runs.length ? "No matching runs" : "No public runs yet"}>{runs.length ? "Clear the filters to restore the run ledger." : "Run a synthetic replay in Workbench to populate this ledger."}</EmptyState></td></tr> : null}
+              {!visible.length ? <tr><td colSpan={8}><EmptyState title={runs.length ? "No matching runs" : "No public runs yet"}>{runs.length ? "Clear the filters to restore the run ledger." : "Run a synthetic document in Workbench to populate this ledger."}</EmptyState></td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -204,6 +219,7 @@ function Inspector({ run }: { run: ExplorerRun }) {
   }, [run.id]);
 
   const fields = detail?.details?.result?.fields ?? [];
+  const action = detail?.details?.result?.action;
   const steps = detail?.details?.steps ?? [];
   const safeErrors = steps.filter((step) => step.safeCode);
   const expectedDocumentUrl = `/api/runs/${encodeURIComponent(run.id)}/document`;
@@ -215,9 +231,10 @@ function Inspector({ run }: { run: ExplorerRun }) {
       {error ? <p className="inline-error" role="alert">{error}</p> : !detail ? <p className="loading-region">Loading run detail…</p> : (
         <div className="inspector-sections">
           <section className="inspector-preview"><h3>Document preview</h3>{documentUrl ? <iframe src={documentUrl} title={`Active document preview for ${detail.file.filename}`} /> : <p>The active document preview is unavailable.</p>}</section>
+          <section className="inspector-action"><h3>Prepared action</h3>{action ? <><strong>{action.title}</strong><p>{action.summary}</p><dl><div><dt>Type</dt><dd>{action.type.replaceAll("_", " ")}</dd></div><div><dt>Policy status</dt><dd>{action.status.replaceAll("_", " ")}</dd></div><div><dt>Staged dry run</dt><dd>{action.stagedAt ? `Staged ${formatStagedAt(action.stagedAt)}` : "Not staged"}</dd></div><div><dt>Risk</dt><dd>{action.risk}</dd></div></dl><dl className="action-payload">{action.payload.map((entry) => <div key={`${entry.label}-${entry.value}`}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}</dl>{action.instructionEvidence ? <blockquote><span>Document instruction{action.page ? ` · Page ${action.page}` : ""}</span>{action.instructionEvidence}</blockquote> : null}<p>{action.reason}</p><small>Internal dry run only. No external connector was called.</small></> : <p>No prepared action is available.</p>}</section>
           <section><h3>Structured extraction</h3>{fields.length ? <dl>{fields.map((item) => <div key={item.key}><dt>{item.label}</dt><dd><span>{item.extractedValue ?? "Not found"}</span><small>Normalized: {item.normalizedValue ?? "Not found"}</small><small>Evidence: {item.evidence ?? "No evidence found"}</small></dd></div>)}</dl> : <p>No extraction fields are available.</p>}</section>
           <section><h3>Reference comparison</h3>{fields.length ? <dl>{fields.map((item) => <div key={item.key}><dt>{item.label}</dt><dd>{item.referenceMatch === null ? "Not applicable" : item.referenceMatch ? "Match" : "Mismatch"}</dd></div>)}</dl> : <p>No field comparison is available.</p>}</section>
-          <section><h3>Telemetry and steps</h3><dl><div><dt>Latency</dt><dd>{detail.latencyMs === null ? "Unavailable" : formatMilliseconds(detail.latencyMs)}</dd></div><div><dt>Retries</dt><dd>{detail.retryCount}</dd></div><div><dt>Estimated API cost</dt><dd>US${detail.estimatedCostUsd.toFixed(4)}</dd></div></dl>{steps.length ? <ol className="inspector-steps">{steps.map((step, index) => <li key={`${step.timestamp}-${index}`}><span>{step.stage.replaceAll("_", " ")}</span><time>{formatMilliseconds(step.durationMs)}</time></li>)}</ol> : <p>No step telemetry is available.</p>}</section>
+          <section><h3>Diagnostics</h3><dl><div><dt>Latency</dt><dd>{detail.latencyMs === null ? "Unavailable" : formatMilliseconds(detail.latencyMs)}</dd></div><div><dt>Retries</dt><dd>{detail.retryCount}</dd></div><div><dt>Estimated API cost</dt><dd>US${detail.estimatedCostUsd.toFixed(4)}</dd></div></dl>{steps.length ? <ol className="inspector-steps">{steps.map((step, index) => <li key={`${step.timestamp}-${index}`}><span>{step.stage.replaceAll("_", " ")}</span><time>{formatMilliseconds(step.durationMs)}</time></li>)}</ol> : <p>No step telemetry is available.</p>}</section>
           <section><h3>Safe errors</h3>{safeErrors.length ? <ul className="safe-error-list">{safeErrors.map((step, index) => <li key={`${step.timestamp}-${index}`}><code>{step.safeCode}</code><span>{step.stage.replaceAll("_", " ")}</span></li>)}</ul> : <p>No safe errors were recorded.</p>}</section>
           <section><h3>Metadata</h3><dl><div><dt>Provider</dt><dd>{providerCallDisplay(detail.executionMode, detail.provider)}</dd></div><div><dt>Model</dt><dd>{providerCallDisplay(detail.executionMode, detail.model)}</dd></div><div><dt>Mode</dt><dd>{detail.executionMode}</dd></div><div><dt>Source</dt><dd>{detail.sourceType}</dd></div><div><dt>Created</dt><dd>{detail.createdAt}</dd></div><div><dt>Expires</dt><dd>{detail.expiresAt}</dd></div><div><dt>File</dt><dd>{detail.file.filename}</dd></div><div><dt>Pages</dt><dd>{detail.file.pageCount ?? "Unavailable"}</dd></div><div><dt>Prompt version ID</dt><dd className="mono">{detail.promptVersion}</dd></div><div><dt>Input tokens</dt><dd>{detail.usage.inputTokens}</dd></div><div><dt>Output tokens</dt><dd>{detail.usage.outputTokens}</dd></div></dl></section>
         </div>
