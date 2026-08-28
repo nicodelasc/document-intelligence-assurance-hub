@@ -4,6 +4,7 @@ Review a document against purchase-order reference data then inspect field evide
 
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
+- [Watch the two-minute walkthrough](artifacts/walkthrough.webm)
 
 The stable production deployment currently runs in recorded keyless mode with Neon telemetry and private Blob document storage. `AI_LIVE_ENABLED` remains false and model-provider keys are absent.
 
@@ -81,7 +82,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-`npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm` records the real browser flow. The 2026-08-28 local dependency audit reported zero vulnerabilities. Rerun it for every rollout.
+`npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm` records the real browser flow with public-safe chapter captions. The included 2:03 artifact was captured from the stable keyless deployment at 1440×900. The 2026-08-28 local dependency audit reported zero vulnerabilities. Rerun it for every rollout.
 
 ## Connected persistence
 

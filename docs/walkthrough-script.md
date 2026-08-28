@@ -2,6 +2,8 @@
 
 Use the real Workbench and Operations routes. Recorded mode must remain visible throughout this walkthrough.
 
+The repository includes [the 2:03 recorded walkthrough](../artifacts/walkthrough.webm) at 1440×900. It was captured from the stable public keyless deployment on 2026-08-28. On-screen chapter captions make the artifact usable without narration and disclose that no provider request occurred.
+
 ## 0:00–0:25 — Clean recorded run
 
 Open Workbench. Point out the keyless notice and Clean invoice fixture. Run the assurance check. Follow the streaming stages then show the Clear outcome with field evidence.
@@ -34,4 +36,4 @@ Start the app or supply a reviewed deployment URL then run:
 npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm
 ```
 
-The helper creates the parent artifact directory and records the actual browser workflow. It does not contain a credential or personal filesystem path.
+The helper creates the parent artifact directory and records the actual browser workflow. It performs a clean OpenAI-selection replay, a mismatch OpenAI-selection replay, an Anthropic-selection rerun, a comparison, an Operations drill-down and a calculator update. It does not contain a credential or personal filesystem path.
