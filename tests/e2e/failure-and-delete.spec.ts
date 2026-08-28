@@ -40,7 +40,7 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
 test("operations supports filter state and drill-down", async ({ page }) => {
   await page.goto("/operations");
   await expect(page.getByRole("heading", { name: "Operations" })).toBeVisible();
-  await page.getByLabel("Provider filter").selectOption("openai");
+  await page.getByLabel("Live-call provider filter").selectOption("openai");
   await expect(page).toHaveURL(/provider=openai/);
   await expect(page.getByText(/Illustrative scenario — not measured savings/)).toBeVisible();
 });

@@ -71,12 +71,21 @@ export function nextDisplayStageAnnouncement(
 export function failActiveTrace(
   rawTrace: Partial<Record<RunStatus, RawTraceState>>,
 ): Partial<Record<RunStatus, RawTraceState>> {
-  return Object.fromEntries(
-    Object.entries(rawTrace).map(([stage, state]) => [
-      stage,
-      state?.status === "active" ? { ...state, status: "error" as const } : state,
-    ]),
-  );
+  const publishingWasActive = rawTrace.publishing?.status === "active";
+  const failedTrace = { ...rawTrace };
+  for (const stage of Object.keys(failedTrace) as RunStatus[]) {
+    const state = failedTrace[stage];
+    if (state?.status === "active") {
+      failedTrace[stage] = { ...state, status: "error" };
+    }
+  }
+  if (publishingWasActive) {
+    failedTrace.deciding = {
+      status: "error",
+      duration: rawTrace.deciding?.duration ?? null,
+    };
+  }
+  return failedTrace;
 }
 
 export function buildDisplayTrace(

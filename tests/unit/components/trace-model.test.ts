@@ -54,6 +54,29 @@ describe("Workbench display trace", () => {
     expect(Object.values(failed).some((state) => state?.status === "active")).toBe(false);
   });
 
+  it("projects a publishing failure onto the final visible group", () => {
+    const failed = failActiveTrace(
+      traceState({
+        validating: { status: "pass", duration: 10 },
+        storing: { status: "pass", duration: 10 },
+        extracting: { status: "pass", duration: 10 },
+        verifying: { status: "pass", duration: 10 },
+        comparing: { status: "pass", duration: 10 },
+        deciding: { status: "pass", duration: 10 },
+        publishing: { status: "active", duration: null },
+      }),
+    );
+
+    const display = buildDisplayTrace(failed);
+    expect(display).toHaveLength(3);
+    expect(display.at(-1)).toMatchObject({
+      label: "Resolve and prepare action",
+      status: "error",
+    });
+    expect(display.flatMap((stage) => stage.rawStages)).not.toContain("publishing");
+    expect(Object.values(failed).some((state) => state?.status === "active")).toBe(false);
+  });
+
   it("maps raw workflow stages into three operational groups", () => {
     const display = buildDisplayTrace(
       traceState({

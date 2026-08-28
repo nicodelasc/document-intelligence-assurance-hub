@@ -120,3 +120,45 @@ The desktop Operations evidence image now reflects demo call attribution and liv
 - Design lint still reports nine existing orphaned-token warnings but no error.
 - Development rendering reports the expected Next CSP `eval()` warning. React does not use that development behavior in production.
 - Live-provider acceptance remains outside this keyless task.
+
+## Fix round 2/5: direct demo attribution and publishing failure projection
+
+### Outcome
+
+The Operations provider control is now explicitly a live-call filter. Selecting OpenAI or Anthropic requires `executionMode: live` so a deterministic demo run cannot match through its submitted provider configuration. The unfiltered option remains `All runs`.
+
+Deterministic coverage now uses provider-neutral offline scenario language. The dashboard no longer presents provider counts for recorded benchmark scenarios and no longer describes fixture-provider combinations.
+
+A terminal failure after publishing starts now projects onto `Resolve and prepare action`. Publishing remains absent from the visible trace while the final visible group changes from complete to needing attention and all active state stops.
+
+### Red evidence
+
+- The first focused Operations run failed three tests because the control still exposed `Provider filter` and the dashboard still rendered provider-attributed benchmark copy.
+- The publishing regression failed with `Resolve and prepare action` at `pass` instead of `error` after the raw publishing stage became active and the run failed.
+
+### Green evidence
+
+- Focused trace, Workbench and Operations suites pass: 3 files and 13 tests.
+- Relevant Operations browser regressions pass: 2 Chromium tests.
+- Full Vitest passes: 38 files and 335 tests.
+- ESLint passes.
+- Application and contract TypeScript checks pass.
+
+### Accessibility and responsive notes
+
+This fix changes filter semantics, visible copy and trace status projection without changing layout or responsive order. The relevant browser regressions confirm the provider filter remains keyboard-addressable through its native select and the active inspector remains usable after URL-state restoration. No new accessibility suppression or custom popup behavior was introduced.
+
+### Self-review
+
+- Provider matching uses execution mode and submitted provider together when a live-call filter is active.
+- The unfiltered state still shows all runs and does not imply that every visible row made a provider call.
+- Deterministic benchmark language describes offline scenario checks without naming provider coverage.
+- Publishing stays outside display-stage definitions and its terminal failure is projected only onto the final visible operational group.
+- Existing hidden publishing behavior and grouped-stage announcement deduplication remain intact.
+- No API key was read or used.
+
+### Concerns
+
+- Browser verification covers Chromium only.
+- Development rendering reports the expected Next CSP `eval()` warning.
+- Live-provider acceptance remains outside this keyless task.

@@ -113,7 +113,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
   }, []);
 
   const filtered = useMemo(() => runs.filter((run) => {
-    const matchesProvider = provider === "all" || run.provider === provider;
+    const matchesProvider = provider === "all" || (run.executionMode === "live" && run.provider === provider);
     const matchesOutcome = outcome === "all" || run.outcome === outcome;
     const needle = query.trim().toLowerCase();
     const matchesQuery = !needle || run.id.toLowerCase().includes(needle) || run.filename?.toLowerCase().includes(needle);
@@ -142,7 +142,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
       <section className="run-explorer" aria-labelledby="run-explorer-heading">
         <header className="explorer-toolbar">
           <div><h2 id="run-explorer-heading">Run explorer</h2><span>{filtered.length} matching runs</span></div>
-          <label>Provider filter<select value={provider} onChange={(event) => changeFilter("provider", event.target.value)}><option value="all">All providers</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+          <label>Live-call provider filter<select value={provider} onChange={(event) => changeFilter("provider", event.target.value)}><option value="all">All runs</option><option value="openai">OpenAI live calls</option><option value="anthropic">Anthropic live calls</option></select></label>
           <label>Outcome filter<select value={outcome} onChange={(event) => changeFilter("outcome", event.target.value)}><option value="all">All outcomes</option>{outcomeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
           <label className="search-field">Search runs<input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); writeUrl({ q: event.target.value || null, page: null }); }} placeholder="Run ID or filename" />{query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); writeUrl({ q: null, page: null }); searchRef.current?.focus(); }}>×</button> : null}</label>
         </header>

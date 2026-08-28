@@ -96,11 +96,11 @@ export function OperationsDashboard() {
           <p className="claim-label">Live-run provider configuration · demo runs excluded</p>
           <dl className="usage-list"><div><dt>Input tokens</dt><dd>{number.format(usage.inputTokens)}</dd></div><div><dt>Output tokens</dt><dd>{number.format(usage.outputTokens)}</dd></div><div><dt>Estimated API cost</dt><dd>{usd.format(usage.estimatedApiCostUsd)}</dd></div></dl>
           <div className="provider-bars" aria-label="Live-run provider configuration text summary"><span>OpenAI {usage.providerSplit.openai} live runs</span><progress max={Math.max(1, providerConfigurationTotal)} value={usage.providerSplit.openai} /><span>Anthropic {usage.providerSplit.anthropic} live runs</span><progress max={Math.max(1, providerConfigurationTotal)} value={usage.providerSplit.anthropic} /></div>
-          <p className="benchmark-coverage">Benchmark coverage: OpenAI {benchmark.providerCoverage.openai} · Anthropic {benchmark.providerCoverage.anthropic}</p>
-          <p className="chart-summary">Text summary: Live-run configuration counts remain independent from the six recorded fixture-provider benchmark combinations.</p>
+          <p className="benchmark-coverage">Deterministic coverage: {benchmark.recordedRuns} offline scenario checks</p>
+          <p className="chart-summary">Text summary: Live-call counts exclude deterministic benchmark scenarios.</p>
         </RulePanel>
         <RulePanel title="Synthetic benchmark quality">
-          <p className="claim-label">Recorded benchmark data · six fixture-provider combinations</p>
+          <p className="claim-label">Deterministic benchmark data · offline scenario configurations</p>
           <dl className="quality-list"><div><dt>Exact-match rate</dt><dd>{percent.format(benchmark.exactMatchRate)}</dd></div><div><dt>Missing-field recall</dt><dd>{percent.format(benchmark.missingFieldRecall)}</dd></div><div><dt>Evaluator agreement</dt><dd>{percent.format(benchmark.evaluatorAgreement)}</dd></div><div className="false-clear"><dt>False-clear count</dt><dd>{benchmark.falseClearCount}</dd></div></dl>
         </RulePanel>
         <RulePanel title="Retention">

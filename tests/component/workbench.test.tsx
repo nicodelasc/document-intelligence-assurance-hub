@@ -539,6 +539,41 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByText("In progress")).not.toBeInTheDocument();
   });
 
+  it("projects a failure during publishing onto the final visible group", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (!init?.method) return emptyHistory();
+        return ndjson([
+          { type: "stage", stage: "validating", timestamp: "2026-08-28T00:00:00.000Z" },
+          { type: "stage", stage: "storing", timestamp: "2026-08-28T00:00:00.100Z" },
+          { type: "stage", stage: "extracting", timestamp: "2026-08-28T00:00:00.200Z" },
+          { type: "stage", stage: "verifying", timestamp: "2026-08-28T00:00:00.300Z" },
+          { type: "stage", stage: "comparing", timestamp: "2026-08-28T00:00:00.400Z" },
+          { type: "stage", stage: "deciding", timestamp: "2026-08-28T00:00:00.500Z" },
+          { type: "stage", stage: "publishing", timestamp: "2026-08-28T00:00:00.600Z" },
+          {
+            type: "failed",
+            code: "storage_unavailable",
+            message: "The run stopped safely.",
+            runId: "run_publishing_failure",
+            deletionToken: "publishing_failure_token",
+            timestamp: "2026-08-28T00:00:00.700Z",
+          },
+        ]);
+      }),
+    );
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    const failedGroup = screen.getByText("Resolve and prepare action").closest("li");
+    expect(failedGroup).not.toBeNull();
+    expect(within(failedGroup!).getByText("Needs attention")).toBeVisible();
+    expect(screen.queryByText(/publishing/i)).not.toBeInTheDocument();
+  });
+
   it("shows three visible stages and places the prepared action before evidence", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

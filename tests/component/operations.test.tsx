@@ -29,8 +29,8 @@ describe("Run explorer", () => {
     id: `run_${index + 1}`,
     provider: index % 2 === 0 ? ("openai" as const) : ("anthropic" as const),
     model: index % 2 === 0 ? "gpt-5-mini" : "claude-haiku-4.5",
-    executionMode: "recorded" as const,
-    sourceType: "synthetic" as const,
+    executionMode: index === 1 || index === 2 ? ("live" as const) : ("recorded" as const),
+    sourceType: index === 1 || index === 2 ? ("custom" as const) : ("synthetic" as const),
     status: index === 11 ? ("expired" as const) : ("completed" as const),
     outcome: "clear" as const,
     createdAt: "2026-08-27T00:00:00.000Z",
@@ -42,7 +42,7 @@ describe("Run explorer", () => {
     filename: `fixture-${index + 1}.pdf`,
   }));
 
-  it("updates URL state for selection, filters and pagination", async () => {
+  it("updates URL state and filters only live provider calls", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/operations");
     render(<RunExplorer runs={runs} onSelect={() => undefined} />);
@@ -50,31 +50,32 @@ describe("Run explorer", () => {
     await user.click(screen.getByRole("button", { name: /next page/i }));
     expect(window.location.search).toContain("page=2");
     await user.click(screen.getByRole("button", { name: /previous page/i }));
-    await user.selectOptions(screen.getByLabelText(/provider filter/i), "anthropic");
+    await user.selectOptions(screen.getByLabelText("Live-call provider filter"), "anthropic");
     expect(window.location.search).toContain("provider=anthropic");
+    expect(screen.queryByRole("radio", { name: "Select run_4" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /select run_2/i }));
     expect(window.location.search).toContain("run=run_2");
   });
 
   it("restores filters, selection and page on popstate", async () => {
-    window.history.replaceState({}, "", "/operations?provider=anthropic&q=fixture&page=2&run=run_12&outcome=conflict");
+    window.history.replaceState({}, "", "/operations?provider=anthropic&q=fixture&page=1&run=run_2&outcome=conflict");
     const popRuns = runs.map((run, index) => ({
       ...run,
-      outcome: index === 0 ? "not_found" as const : index === 11 ? "conflict" as const : run.outcome,
+      outcome: index === 1 ? "conflict" as const : index === 2 ? "not_found" as const : run.outcome,
     }));
     render(<RunExplorer runs={popRuns} onSelect={() => undefined} />);
 
-    expect(screen.getByLabelText("Provider filter")).toHaveValue("anthropic");
+    expect(screen.getByLabelText("Live-call provider filter")).toHaveValue("anthropic");
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("conflict");
     expect(screen.getByLabelText("Search runs")).toHaveValue("fixture");
 
-    window.history.pushState({}, "", "/operations?provider=openai&outcome=not_found&q=run_1&page=1&run=run_1");
+    window.history.pushState({}, "", "/operations?provider=openai&outcome=not_found&q=run_3&page=1&run=run_3");
     fireEvent(window, new PopStateEvent("popstate"));
 
-    await waitFor(() => expect(screen.getByLabelText("Provider filter")).toHaveValue("openai"));
+    await waitFor(() => expect(screen.getByLabelText("Live-call provider filter")).toHaveValue("openai"));
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("not_found");
-    expect(screen.getByLabelText("Search runs")).toHaveValue("run_1");
-    expect(screen.getByRole("radio", { name: "Select run_1" })).toBeChecked();
+    expect(screen.getByLabelText("Search runs")).toHaveValue("run_3");
+    expect(screen.getByRole("radio", { name: "Select run_3" })).toBeChecked();
     expect(screen.getByText("Page 1 of 1")).toBeVisible();
   });
 
@@ -164,7 +165,7 @@ describe("Run explorer", () => {
 });
 
 describe("Operations metric claims", () => {
-  it("separates zero public provider counts from benchmark coverage", async () => {
+  it("separates zero live calls from provider-neutral deterministic coverage", async () => {
     const metrics = {
       generatedAt: "2026-08-27T00:00:00.000Z",
       summary: { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 },
@@ -181,7 +182,9 @@ describe("Operations metric claims", () => {
     const panel = (await screen.findByRole("heading", { name: "Provider usage" })).closest(".rule-panel")!;
     expect(within(panel).getByText("OpenAI 0 live runs")).toBeVisible();
     expect(within(panel).getByText("Anthropic 0 live runs")).toBeVisible();
-    expect(within(panel).getByText("Benchmark coverage: OpenAI 3 · Anthropic 3")).toBeVisible();
-    expect(within(panel).queryByText(/3 recorded references/i)).not.toBeInTheDocument();
+    expect(within(panel).getByText("Deterministic coverage: 6 offline scenario checks")).toBeVisible();
+    expect(within(panel).getByText("Text summary: Live-call counts exclude deterministic benchmark scenarios.")).toBeVisible();
+    expect(screen.getByText("Deterministic benchmark data · offline scenario configurations")).toBeVisible();
+    expect(screen.queryByText(/fixture-provider|Benchmark coverage:|OpenAI 3|Anthropic 3/i)).not.toBeInTheDocument();
   });
 });
