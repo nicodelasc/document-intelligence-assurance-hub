@@ -5,8 +5,31 @@ import {
   handleMetricsGet,
 } from "@/server/http/metrics-handler";
 import { createTestContainer } from "../../contract/routes/test-support";
+import { handleRunsPost } from "@/server/http/runs-handler";
+import { syntheticRequest } from "../../contract/routes/test-support";
 
 describe("recorded benchmark metrics", () => {
+  it("excludes deterministic demo runs from actual provider usage", async () => {
+    const container = createTestContainer();
+    await (await handleRunsPost(syntheticRequest(), container)).text();
+
+    const response = await handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    const body = (await response.json()) as {
+      usage: {
+        providerSplit: { openai: number; anthropic: number };
+        recordedRuns: number;
+        liveRuns: number;
+      };
+    };
+
+    expect(body.usage.providerSplit).toEqual({ openai: 0, anthropic: 0 });
+    expect(body.usage.recordedRuns).toBe(1);
+    expect(body.usage.liveRuns).toBe(0);
+  });
+
   it("replays every document fixture with its expected action status", async () => {
     const response = await handleMetricsGet(
       new Request("http://local.test/api/metrics"),

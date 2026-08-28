@@ -21,17 +21,23 @@ import {
   type ModelOption,
 } from "./workbench-controls";
 import { consumeNdjson } from "./run-stream";
-import { buildDisplayTrace, type RawTraceState } from "./trace-model";
+import {
+  buildDisplayTrace,
+  failActiveTrace,
+  nextDisplayStageAnnouncement,
+  type DisplayTraceKey,
+  type RawTraceState,
+} from "./trace-model";
 import { ActionCard } from "./action-card";
 
-const rawTraceStages: Array<{ key: RunStatus; label: string }> = [
-  { key: "validating", label: "Validate" },
-  { key: "storing", label: "Store" },
-  { key: "extracting", label: "Extract" },
-  { key: "verifying", label: "Verify fields" },
-  { key: "comparing", label: "Compare" },
-  { key: "deciding", label: "Decide" },
-  { key: "publishing", label: "Publish telemetry" },
+const rawTraceStages: RunStatus[] = [
+  "validating",
+  "storing",
+  "extracting",
+  "verifying",
+  "comparing",
+  "deciding",
+  "publishing",
 ];
 
 const outcomeLabel: Record<Outcome, string> = {
@@ -45,11 +51,12 @@ const outcomeLabel: Record<Outcome, string> = {
 
 type TraceState = Partial<Record<RunStatus, RawTraceState>>;
 type DeletionReceipt = { runId: string; token: string; expiresAt: string };
+type ActionDetailStatus = "idle" | "loading" | "ready" | "error";
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
 function freshTrace(): TraceState {
-  return Object.fromEntries(rawTraceStages.map((stage) => [stage.key, { status: "idle", duration: null }]));
+  return Object.fromEntries(rawTraceStages.map((stage) => [stage, { status: "idle", duration: null }]));
 }
 
 function safeStoreDeletion(runId: string, token: string, expiresAt: string) {
@@ -155,6 +162,9 @@ export function WorkbenchView() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [preparedAction, setPreparedAction] = useState<ActionProposal | null>(null);
   const [actionRunId, setActionRunId] = useState("");
+  const [actionCapability, setActionCapability] = useState("");
+  const [actionDetailStatus, setActionDetailStatus] = useState<ActionDetailStatus>("idle");
+  const [actionDetailError, setActionDetailError] = useState("");
   const [error, setError] = useState("");
   const [liveMessage, setLiveMessage] = useState("Ready to review a document.");
   const [outcomeFocusVersion, setOutcomeFocusVersion] = useState(0);
@@ -169,12 +179,15 @@ export function WorkbenchView() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const cancellableRef = useRef(false);
+  const configurationLockedRef = useRef(false);
   const requestRef = useRef(0);
   const runButtonRef = useRef<HTMLButtonElement>(null);
   const outcomeHeadingRef = useRef<HTMLHeadingElement>(null);
   const customUploadRef = useRef<CustomUploadHandle>(null);
   const startedRef = useRef(0);
   const lastStageRef = useRef<{ key: RunStatus; at: number } | null>(null);
+  const lastAnnouncedDisplayStageRef = useRef<DisplayTraceKey | null>(null);
   const fieldAccumulatorRef = useRef<{ requestId: number; fields: Map<string, FieldResult> }>({ requestId: 0, fields: new Map() });
   const selectedDeletionReceipt = deletionReceipts.find((receipt) => receipt.runId === selectedDeletionId) ?? null;
 
@@ -209,7 +222,7 @@ export function WorkbenchView() {
             );
           },
         );
-        if (!approvedModels.length || controller.signal.aborted) return;
+        if (!approvedModels.length || controller.signal.aborted || configurationLockedRef.current) return;
         setModels(approvedModels);
         const serverDefault = payload.defaults?.openai;
         setSelectedModel(
@@ -302,8 +315,12 @@ export function WorkbenchView() {
         return next;
       });
       lastStageRef.current = { key: event.stage, at: now };
-      const label = rawTraceStages.find((stage) => stage.key === event.stage)?.label ?? event.stage;
-      setLiveMessage(`${label} stage started.`);
+      const announcement = nextDisplayStageAnnouncement(
+        event.stage,
+        lastAnnouncedDisplayStageRef.current,
+      );
+      lastAnnouncedDisplayStageRef.current = announcement.key;
+      if (announcement.message) setLiveMessage(announcement.message);
     } else if (event.type === "field") {
       if (fieldAccumulatorRef.current.requestId === requestId) {
         fieldAccumulatorRef.current.fields.set(event.field.key, event.field);
@@ -318,28 +335,83 @@ export function WorkbenchView() {
     setDeletionReceipts((current) => [receipt, ...current.filter((candidate) => candidate.runId !== receipt.runId)]);
   }
 
+  async function loadPreparedAction(
+    runId: string,
+    requestId: number,
+    signal: AbortSignal,
+  ) {
+    setActionDetailStatus("loading");
+    setActionDetailError("");
+    try {
+      const detailResponse = await fetch(
+        `/api/runs/${encodeURIComponent(runId)}`,
+        { signal },
+      );
+      if (!detailResponse.ok) throw new Error("action_detail_unavailable");
+      const resolvedAction = actionFromPublicPayload(await detailResponse.json());
+      if (!resolvedAction) throw new Error("action_detail_unavailable");
+      if (requestId !== requestRef.current) return;
+      setPreparedAction(resolvedAction);
+      setActionDetailStatus("ready");
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
+      if (requestId !== requestRef.current) return;
+      setPreparedAction(null);
+      setActionDetailStatus("error");
+      setActionDetailError("The prepared action is temporarily unavailable.");
+    }
+  }
+
+  async function retryPreparedAction() {
+    if (!actionRunId || actionDetailStatus === "loading") return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestId = requestRef.current;
+    try {
+      await loadPreparedAction(actionRunId, requestId, controller.signal);
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+        setActionDetailStatus("error");
+        setActionDetailError("The prepared action is temporarily unavailable.");
+      }
+    } finally {
+      if (requestId === requestRef.current) abortRef.current = null;
+    }
+  }
+
   async function runAssurance() {
-    if (running) return;
+    if (running || cancellableRef.current) return;
+    cancellableRef.current = true;
+    configurationLockedRef.current = true;
     setRunning(true);
+    abortRef.current?.abort();
+    abortRef.current = null;
+    const requestId = ++requestRef.current;
     if (source === "custom") {
       const customValid = await customUploadRef.current?.validate();
+      if (requestId !== requestRef.current) return;
       if (!customValid) {
         setError("Complete the document, field labels and consent before running a custom check.");
+        cancellableRef.current = false;
+        configurationLockedRef.current = false;
         setRunning(false);
         return;
       }
     }
-    abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    const requestId = ++requestRef.current;
     fieldAccumulatorRef.current = { requestId, fields: new Map() };
     startedRef.current = performance.now();
     lastStageRef.current = null;
+    lastAnnouncedDisplayStageRef.current = null;
     setError("");
     setOutcome(null);
     setPreparedAction(null);
     setActionRunId("");
+    setActionCapability("");
+    setActionDetailStatus("idle");
+    setActionDetailError("");
     setFields([]);
     setTrace(freshTrace());
     setLiveMessage("Assurance run started.");
@@ -372,16 +444,25 @@ export function WorkbenchView() {
         rememberDeletionReceipt(terminal.runId, terminal.deletionToken);
       }
       if (terminal.type === "failed") {
+        cancellableRef.current = false;
+        setTrace((current) => failActiveTrace(current));
+        lastStageRef.current = null;
         setError(terminal.message);
         setLiveMessage(`Run stopped. ${terminal.message}`);
         return;
       }
       setTrace((current) => {
         const next = { ...current };
-        for (const stage of rawTraceStages) next[stage.key] = { status: "pass", duration: next[stage.key]?.duration ?? Math.max(1, elapsed / rawTraceStages.length) };
+        for (const stage of rawTraceStages) next[stage] = { status: "pass", duration: next[stage]?.duration ?? Math.max(1, elapsed / rawTraceStages.length) };
         return next;
       });
       setOutcome(terminal.outcome);
+      setActionRunId(terminal.runId);
+      setActionCapability(terminal.deletionToken);
+      setActionDetailStatus("loading");
+      cancellableRef.current = false;
+      configurationLockedRef.current = false;
+      setRunning(false);
       setLiveMessage(`Run complete. Outcome: ${outcomeLabel[terminal.outcome]}.`);
       const streamedFields = fieldAccumulatorRef.current.requestId === requestId ? [...fieldAccumulatorRef.current.fields.values()] : [];
       const completedFields = streamedFields.length ? streamedFields : source === "synthetic" ? fixture.fields : [];
@@ -399,35 +480,23 @@ export function WorkbenchView() {
         outcome: terminal.outcome,
       };
       setHistory((current) => [comparable, ...current.filter((run) => run.id !== comparable.id)]);
-      let resolvedAction: ActionProposal | null =
-        source === "synthetic" ? selectedFixture.action : null;
-      try {
-        const detailResponse = await fetch(
-          `/api/runs/${encodeURIComponent(terminal.runId)}`,
-          { signal: controller.signal },
-        );
-        if (detailResponse.ok) {
-          resolvedAction =
-            actionFromPublicPayload(await detailResponse.json()) ?? resolvedAction;
-        }
-      } catch (reason) {
-        if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
-      }
-      if (requestId !== requestRef.current) return;
-      setPreparedAction(resolvedAction);
-      setActionRunId(terminal.runId);
       setOutcomeFocusVersion((current) => current + 1);
+      await loadPreparedAction(terminal.runId, requestId, controller.signal);
     } catch (reason) {
       if (requestId !== requestRef.current) return;
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setLiveMessage("Run cancelled. The selected source is still available.");
       } else {
         const message = reason instanceof Error ? reason.message : "The run could not be completed.";
+        setTrace((current) => failActiveTrace(current));
+        lastStageRef.current = null;
         setError(message);
         setLiveMessage(`Run stopped. ${message}`);
       }
     } finally {
       if (requestId === requestRef.current) {
+        cancellableRef.current = false;
+        configurationLockedRef.current = false;
         setRunning(false);
         abortRef.current = null;
       }
@@ -435,13 +504,20 @@ export function WorkbenchView() {
   }
 
   function cancelRun() {
+    if (!cancellableRef.current) return;
+    cancellableRef.current = false;
     requestRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    configurationLockedRef.current = false;
     setRunning(false);
-    setTrace(freshTrace());
-    setPreparedAction(null);
-    setActionRunId("");
+    setTrace((current) => Object.fromEntries(
+      Object.entries(current).map(([stage, state]) => [
+        stage,
+        state?.status === "active" ? { ...state, status: "idle" as const } : state,
+      ]),
+    ));
+    lastStageRef.current = null;
     setLiveMessage("Run cancelled. The selected source is still available.");
     requestAnimationFrame(() => runButtonRef.current?.focus());
   }
@@ -483,6 +559,7 @@ export function WorkbenchView() {
                   type="button"
                   className={`source-tile${source === "synthetic" && sampleId === sample.id ? " selected-control" : ""}`}
                   aria-pressed={source === "synthetic" && sampleId === sample.id}
+                  disabled={running}
                   onClick={() => {
                     setSource("synthetic");
                     setSampleId(sample.id);
@@ -497,6 +574,7 @@ export function WorkbenchView() {
                 type="button"
                 className={`source-tile source-tile--upload${source === "custom" ? " selected-control" : ""}`}
                 aria-pressed={source === "custom"}
+                disabled={running}
                 onClick={() => {
                   setSource("custom");
                   setError("");
@@ -507,13 +585,13 @@ export function WorkbenchView() {
               </button>
             </div>
             <div className="custom-upload-panel" hidden={source !== "custom"}>
-              <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} />
+              <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} disabled={running} />
             </div>
           </RulePanel>
 
           <section className="document-work-area">
             <div className="run-controls">
-              <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} />
+              <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
               <div className="run-actions">
                 {source === "synthetic" ? <span className="demo-mode-label">Demo data — no provider call</span> : null}
                 <Button ref={runButtonRef} type="submit" busy={running}>Run assurance check</Button>
@@ -536,7 +614,15 @@ export function WorkbenchView() {
               <>
                 <RulePanel title="Prepared action">
                   {preparedAction && actionRunId ? (
-                    <ActionCard key={actionRunId} runId={actionRunId} action={preparedAction} />
+                    <ActionCard key={actionRunId} runId={actionRunId} action={preparedAction} capabilityToken={actionCapability} />
+                  ) : actionDetailStatus === "loading" ? (
+                    <EmptyState title="Loading prepared action">The completed run is loading its safe action proposal.</EmptyState>
+                  ) : actionDetailStatus === "error" ? (
+                    <div className="inline-error recovery-error" role="alert" aria-label="Prepared action unavailable">
+                      <strong>Prepared action unavailable</strong>
+                      <span>{actionDetailError}</span>
+                      <Button type="button" intent="neutral" onClick={() => void retryPreparedAction()}>Retry prepared action</Button>
+                    </div>
                   ) : (
                     <EmptyState title="No action available">The run did not return a safe action proposal.</EmptyState>
                   )}

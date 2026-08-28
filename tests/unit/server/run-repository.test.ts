@@ -58,6 +58,23 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
+  it("counts only live-run provider configuration in provider usage", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun(runRecord("recorded-run"));
+    await repository.createRun({
+      ...runRecord("live-run"),
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      executionMode: "live",
+      sourceType: "custom",
+    });
+
+    expect((await repository.aggregateAnonymousUsage()).providerCounts).toEqual({
+      openai: 0,
+      anthropic: 1,
+    });
+  });
+
   it("stages a permitted action once with one internal action step", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun(runRecord());
@@ -166,7 +183,7 @@ describe("InMemoryRunRepository", () => {
       failedRuns: 0,
       totalInputTokens: 100,
       totalOutputTokens: 25,
-      providerCounts: { openai: 1, anthropic: 0 },
+      providerCounts: { openai: 0, anthropic: 0 },
       outcomeCounts: { clear: 1 },
     });
   });
@@ -592,6 +609,7 @@ describe("InMemoryRunRepository", () => {
       outcomeCounts: { clear: 1, needs_review: 1, incomplete: 1, conflict: 1 },
     });
     expect(aggregateSql).toContain("COUNT(*) FILTER");
+    expect(aggregateSql).toContain("execution_mode = 'live'");
     expect(aggregateSql).not.toContain("SELECT provider, outcome");
   });
 });

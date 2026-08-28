@@ -95,11 +95,11 @@
 ## Async and resilience
 
 - Mutation default: Pessimistic.
-- Idempotency and duplicate-submit policy: Client run identifier and server guard prevent duplicate run submissions. Action staging is pessimistic and ignores duplicate clicks while the server operation is pending. A repeated server request returns the existing staged state.
+- Idempotency and duplicate-submit policy: Client run identifier and server guard prevent duplicate run submissions. Action staging is pessimistic and ignores duplicate clicks while the server operation is pending. Ready and review-required actions may stage while blocked actions may not. A repeated authorized server request returns the existing staged state.
 - Offline/read-stale/write behavior: Recorded samples remain readable. Live custom submission reports connectivity failure and preserves inputs.
 - Retry/backoff/timeout behavior: One retry only for provider 429 or 5xx errors and no silent provider switch.
-- Long-running progress and return path: Named stages stream to the active Workbench.
-- Stale-request policy: Abort or request identifiers stop old responses from replacing current state.
+- Long-running progress and return path: Named stages stream to the active Workbench. Live announcements use only the three grouped stage names and suppress duplicates. Terminal failure settles the active visible group.
+- Stale-request policy: Abort or request identifiers stop old responses from replacing current state. Source controls and model selection remain disabled during validation and execution. Completion ends cancellation before prepared-action detail loading starts.
 - Dialog/form preservation: Errors preserve safe values and selected files until removal or retry.
 
 ## Validation
@@ -108,7 +108,7 @@
 - Trigger timing: Submit first then change or blur for invalid fields.
 - Error policy: Inline field text plus a form-level alert for global failure.
 - Server mapping: Public safe error code and message only.
-- Sensitive-value handling: API keys and deletion-token hashes never reach the client. Raw deletion tokens are shown once to the uploader.
+- Sensitive-value handling: API keys and deletion-token hashes never reach the client. The raw run capability is sent only in a private request header for staging. Custom-upload deletion receipts are shown once to the uploader.
 - Submission policy: `noValidate`, first-invalid focus and duplicate-submit prevention.
 
 ## Verification

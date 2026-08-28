@@ -28,9 +28,11 @@ function stageErrorMessage(payload: unknown): string {
 export function ActionCard({
   runId,
   action,
+  capabilityToken,
 }: {
   runId: string;
   action: ActionProposal;
+  capabilityToken: string;
 }) {
   const [preparedAction, setPreparedAction] = useState(action);
   const [staging, setStaging] = useState(false);
@@ -39,7 +41,8 @@ export function ActionCard({
   async function stageAction() {
     if (
       staging ||
-      preparedAction.status !== "ready" ||
+      !capabilityToken ||
+      preparedAction.status === "blocked" ||
       preparedAction.stagedAt
     ) {
       return;
@@ -49,7 +52,10 @@ export function ActionCard({
     try {
       const response = await fetch(
         `/api/runs/${encodeURIComponent(runId)}/stage-action`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "x-run-capability": capabilityToken },
+        },
       );
       const payload = (await response.json()) as {
         staging?: { action?: ActionProposal };
@@ -70,7 +76,7 @@ export function ActionCard({
   }
 
   const statusLabel = actionStatusLabel(preparedAction);
-  const stageAllowed = preparedAction.status === "ready" && !preparedAction.stagedAt;
+  const stageAllowed = Boolean(capabilityToken) && preparedAction.status !== "blocked" && !preparedAction.stagedAt;
   return (
     <article className="action-card" aria-labelledby={`action-title-${runId}`}>
       <header>

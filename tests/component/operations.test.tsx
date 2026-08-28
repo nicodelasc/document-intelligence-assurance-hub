@@ -144,6 +144,8 @@ describe("Run explorer", () => {
 
     await user.click(screen.getByRole("radio", { name: "Select run_1" }));
 
+    const runTable = screen.getByRole("table", { name: "Public assurance runs" });
+    expect(within(runTable).getByText("Not called (demo)")).toBeVisible();
     expect(await screen.findByTitle("Active document preview for fixture-1.pdf")).toHaveAttribute("src", "/api/runs/run_1/document");
     for (const heading of ["Structured extraction", "Reference comparison", "Telemetry and steps", "Safe errors", "Metadata"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeVisible();
@@ -155,6 +157,9 @@ describe("Run explorer", () => {
     expect(screen.getAllByText("100.3 ms")).toHaveLength(2);
     expect(screen.getByText("25.3 ms")).toBeVisible();
     expect(screen.queryByText(/system prompt/i)).not.toBeInTheDocument();
+    const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
+    expect(within(metadata).getAllByText("Not called (demo)")).toHaveLength(2);
+    expect(within(metadata).queryByText("gpt-5-mini")).not.toBeInTheDocument();
   });
 });
 
@@ -174,8 +179,8 @@ describe("Operations metric claims", () => {
     render(<OperationsDashboard />);
 
     const panel = (await screen.findByRole("heading", { name: "Provider usage" })).closest(".rule-panel")!;
-    expect(within(panel).getByText("OpenAI 0 public runs")).toBeVisible();
-    expect(within(panel).getByText("Anthropic 0 public runs")).toBeVisible();
+    expect(within(panel).getByText("OpenAI 0 live runs")).toBeVisible();
+    expect(within(panel).getByText("Anthropic 0 live runs")).toBeVisible();
     expect(within(panel).getByText("Benchmark coverage: OpenAI 3 · Anthropic 3")).toBeVisible();
     expect(within(panel).queryByText(/3 recorded references/i)).not.toBeInTheDocument();
   });

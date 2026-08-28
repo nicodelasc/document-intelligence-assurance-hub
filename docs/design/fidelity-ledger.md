@@ -9,8 +9,8 @@
 | Source composition | Guided samples stay immediately available while local upload remains explicit. | Three fixture cards are followed by the keyboard-operable `+ Add your document` button which opens the existing native file input. | Match with spec-required source change |
 | Model selection | Provider choice stays compact near the run action. | One grouped native select is populated from the approved model catalogue. Platform popup geometry is accepted. | Match with canonical-control change |
 | Document role | The document is the largest visual object and remains readable above the fold. | The code-native fixture sheet fills the centre without browser PDF instability. | Match with fixture-metadata change |
-| Assurance trace | The evidence rail communicates progress without exposing backend plumbing. | Six user-relevant raw stages map to three visible stages. Publishing stays hidden. | Match with task-language change |
-| Action-first result | The reviewer sees the operational consequence before supporting detail. | The prepared action precedes the evidence ledger and uses pessimistic duplicate-safe staging with retry. | Match with action workflow addition |
+| Assurance trace | The evidence rail communicates progress without exposing backend plumbing. | Six user-relevant raw stages map to three visible and deduplicated announcements. Publishing stays hidden. Terminal failure settles the active group. | Match with task-language change |
+| Action-first result | The reviewer sees the operational consequence before supporting detail. | The prepared action precedes the evidence ledger and uses capability-authorized pessimistic staging for ready or review-required actions. Loading and retry remain explicit. | Match with action workflow addition |
 | Typography | Route heading is distinct from compact control and identifier text. | Manrope, Inter and IBM Plex Mono are loaded locally for their documented roles. | Match |
 | Surface language | Thin rules and tonal sections create hierarchy without floating cards. | Shared rule panels use one-pixel borders and no static shadows. | Match |
 | Public history | The lower ledger keeps recent work available for comparison. | The render hydrates a bounded public ledger from `GET /api/runs` with explicit loading, empty and safe-error states. Two active public details remain comparison-ready after refresh. | Match with public-only data controls |
@@ -30,7 +30,7 @@ Above-the-fold copy diff: the render keeps the required heading, plain-language 
 | Scenario rail | Numeric assumptions and results stay in a narrow right rail. | Every scenario result repeats the illustrative claim boundary. | Match with stronger claim labeling |
 | Mobile transformation | Narrow layouts preserve complete information. | `verification/operations-390x844-reduced-motion.png` stacks metrics and panels while tables keep horizontal overflow. | Match |
 
-Above-the-fold copy diff: the route uses `Operations` instead of the concept-only `Operations console`. It adds the mandatory keyless notice and labels the benchmark source as recorded. Public provider counts remain separate from the six recorded fixture-provider combinations. Concept-only help and reviewer controls were removed.
+Above-the-fold copy diff: the route uses `Operations` instead of the concept-only `Operations console`. It adds the mandatory keyless notice and labels the benchmark source as recorded. Demo rows and metadata state `Not called (demo)`. Live-run provider configuration remains separate from the six recorded fixture-provider combinations. Concept-only help and reviewer controls were removed.
 
 ## Intentional deviations and remaining risk
 

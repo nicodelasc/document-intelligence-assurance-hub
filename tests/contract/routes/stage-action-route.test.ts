@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { syntheticFixtures } from "@/domain/fixtures";
 import { handleStageActionPost } from "@/server/http/stage-action-handler";
 import type { ActionProposal, RunStatus } from "@/domain/types";
 import type { HttpContainer } from "@/server/http/container";
+import { hashDeletionToken } from "@/server/security/deletion-token";
 import { createTestContainer, readJson } from "./test-support";
 
 const now = new Date("2026-08-27T01:00:00.000Z");
+const runCapability = "private_run_capability_0123456789";
 
 async function seedRun(input: {
   container: HttpContainer;
@@ -36,7 +38,7 @@ async function seedRun(input: {
     createdAt: "2026-08-27T00:00:00.000Z",
     expiresAt: input.expiresAt ?? "2026-08-27T23:55:00.000Z",
     deletedAt: null,
-    deletionTokenHash: `sha256:${"a".repeat(64)}`,
+    deletionTokenHash: hashDeletionToken(runCapability),
     retryCount: 0,
     latencyMs: null,
     stepDurations: {},
@@ -65,13 +67,72 @@ async function seedRun(input: {
   }
 }
 
-function request() {
+function request(capability: string | null = runCapability) {
   return new Request("http://local.test/api/runs/run-action-1/stage-action", {
     method: "POST",
+    headers: capability ? { "x-run-capability": capability } : undefined,
   });
 }
 
 describe("POST /api/runs/[id]/stage-action", () => {
+  it("preserves rate limiting before capability lookup or mutation", async () => {
+    const container = createTestContainer({ clock: () => now });
+    await seedRun({ container, action: syntheticFixtures[1].action });
+    const getCapabilityHash = vi.spyOn(container.repository, "getDeletionTokenHash");
+    const stageAction = vi.spyOn(container.repository, "stageAction");
+    container.abuseControl = {
+      allowRunSubmission: async () => true,
+      allowDocumentRead: async () => true,
+      allowPublicRead: async () => false,
+    };
+
+    const response = await handleStageActionPost(
+      request(),
+      { id: "run-action-1" },
+      container,
+    );
+
+    expect(response.status).toBe(429);
+    expect(getCapabilityHash).not.toHaveBeenCalled();
+    expect(stageAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing capability without attempting the mutation", async () => {
+    const container = createTestContainer({ clock: () => now });
+    await seedRun({ container, action: syntheticFixtures[1].action });
+    const stageAction = vi.spyOn(container.repository, "stageAction");
+
+    const response = await handleStageActionPost(
+      request(null),
+      { id: "run-action-1" },
+      container,
+    );
+
+    expect(response.status).toBe(401);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("stage_action_not_authorized");
+    expect(stageAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid capability without attempting the mutation", async () => {
+    const container = createTestContainer({ clock: () => now });
+    await seedRun({ container, action: syntheticFixtures[1].action });
+    const stageAction = vi.spyOn(container.repository, "stageAction");
+
+    const response = await handleStageActionPost(
+      request("invalid_run_capability_0123456789"),
+      { id: "run-action-1" },
+      container,
+    );
+
+    expect(response.status).toBe(401);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("stage_action_not_authorized");
+    expect(stageAction).not.toHaveBeenCalled();
+  });
+
   it("stages a permitted internal action idempotently", async () => {
     const container = createTestContainer({ clock: () => now });
     await seedRun({ container, action: syntheticFixtures[1].action });
@@ -141,7 +202,7 @@ describe("POST /api/runs/[id]/stage-action", () => {
     ).toBe("run_expired");
   });
 
-  it("rejects a deleted run", async () => {
+  it("revokes the staging capability when a run is deleted", async () => {
     const container = createTestContainer({ clock: () => now });
     await seedRun({ container, action: syntheticFixtures[1].action });
     await container.repository.deleteDetailedData(
@@ -155,10 +216,10 @@ describe("POST /api/runs/[id]/stage-action", () => {
       container,
     );
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(401);
     expect(
       (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("run_deleted");
+    ).toBe("stage_action_not_authorized");
   });
 
   it("rejects a failed run", async () => {

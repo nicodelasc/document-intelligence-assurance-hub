@@ -100,7 +100,7 @@ export function ModelSelector({
   );
 }
 
-export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange: (state: CustomUploadState) => void }>(function CustomUploadFields({ onReadyChange }, ref) {
+export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange: (state: CustomUploadState) => void; disabled?: boolean }>(function CustomUploadFields({ onReadyChange, disabled = false }, ref) {
   const [file, setFile] = useState<File | null>(null);
   const [fields, setFields] = useState(["", ""]);
   const [consent, setConsent] = useState(false);
@@ -119,6 +119,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
   }, [consent, fields, file, onReadyChange, valid]);
 
   const selectFile = useCallback(async (selected: File | null) => {
+    if (disabled) return;
     const selectionId = ++selectionRef.current;
     setFileFocusProxy(false);
     setFile(selected);
@@ -131,7 +132,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
     setFileChecking(false);
     setFileValid(!message);
     setErrors((current) => ({ ...current, file: message }));
-  }, []);
+  }, [disabled]);
 
   const validate = useCallback(async () => {
     const next: Record<string, string> = {};
@@ -154,40 +155,45 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
     setErrors(next);
     if (next.file) {
       setFileFocusProxy(true);
-      fileRef.current?.focus();
+      requestAnimationFrame(() => fileRef.current?.focus());
     }
     else {
       const index = fields.findIndex((_, fieldIndex) => next[`field-${fieldIndex}`]);
-      if (index >= 0) fieldRefs.current[index]?.focus();
-      else if (next.consent) document.getElementById("upload-consent")?.focus();
+      if (index >= 0) requestAnimationFrame(() => fieldRefs.current[index]?.focus());
+      else if (next.consent) requestAnimationFrame(() => document.getElementById("upload-consent")?.focus());
     }
     return Object.keys(next).length === 0;
   }, [consent, fields, file]);
 
   useImperativeHandle(ref, () => ({
-    openFilePicker: () => fileRef.current?.click(),
+    openFilePicker: () => {
+      if (!disabled) fileRef.current?.click();
+    },
     validate,
-  }), [validate]);
+  }), [disabled, validate]);
 
   return (
     <div className="custom-fields">
       <div
         className={`drop-zone${fileFocusProxy ? " drop-zone--focus-proxy" : ""}`}
         aria-busy={fileChecking}
+        aria-disabled={disabled}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
+          if (disabled) return;
           const selected = event.dataTransfer.files[0] ?? null;
           void selectFile(selected);
         }}
       >
-        <label htmlFor="custom-document" className="button button--neutral" onPointerDown={() => setFileFocusProxy(false)}>Choose document</label>
+        <label htmlFor="custom-document" className="button button--neutral" aria-disabled={disabled} onPointerDown={() => { if (!disabled) setFileFocusProxy(false); }}>Choose document</label>
         <input
           ref={fileRef}
           id="custom-document"
           className="visually-hidden-input"
           aria-label="Document file"
           type="file"
+          disabled={disabled}
           accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
           onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
           onBlur={() => setFileFocusProxy(false)}
@@ -198,7 +204,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
         <small id="file-limits">PDF, PNG or JPG · Maximum 3 MB · PDFs up to five pages</small>
         <span id="file-error" className="field-error">{errors.file}</span>
       </div>
-      <fieldset>
+      <fieldset disabled={disabled}>
         <legend>Reviewer-defined extraction fields</legend>
         {fields.map((field, index) => (
           <div className="field-row" key={index}>
@@ -224,12 +230,12 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
         )}
       </fieldset>
       <label className="consent-row" htmlFor="upload-consent">
-        <input id="upload-consent" type="checkbox" checked={consent} onChange={(event) => { setConsent(event.target.checked); setErrors((current) => ({ ...current, consent: "" })); }} aria-describedby="consent-warning consent-error" />
+        <input id="upload-consent" type="checkbox" checked={consent} disabled={disabled} onChange={(event) => { setConsent(event.target.checked); setErrors((current) => ({ ...current, consent: "" })); }} aria-describedby="consent-warning consent-error" />
         <span>I understand that the raw file and result will be publicly visible for less than 24 hours.</span>
       </label>
       <p id="consent-warning" className="privacy-warning">Do not upload personal, confidential, client or regulated data.</p>
       <span id="consent-error" className="field-error">{errors.consent}</span>
-      <Button type="button" intent="neutral" onClick={() => void validate()} busy={fileChecking}>Validate custom upload</Button>
+      <Button type="button" intent="neutral" onClick={() => void validate()} busy={fileChecking} disabled={disabled}>Validate custom upload</Button>
     </div>
   );
 });

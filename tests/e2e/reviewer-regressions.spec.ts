@@ -237,7 +237,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
     generatedAt: "2026-08-27T00:00:00.000Z",
     summary: { totalRuns: 1, completionRate: 1, reviewRate: 1, failureRate: 0 },
     performance: { sampleCount: 1, p50LatencyMs: 100, p95LatencyMs: 100, retryCount: 0, averageStepDurationsMs: { validating: 20 } },
-    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 1, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
+    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-27" },
     benchmark: { source: "recorded_fixture_replay", liveRuns: 0, recordedRuns: 6, providerCoverage: { openai: 3, anthropic: 3 }, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
     retention: { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 1 },
     runExplorer: runs,
@@ -257,7 +257,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await page.route("**/api/runs/ops_1/document", async (route) => route.fulfill({ status: 200, contentType: "application/pdf", body: "%PDF-1.4\n%%EOF" }));
   await page.goto("/operations");
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
-  await expect(page.getByText("Anthropic 0 public runs")).toBeVisible();
+  await expect(page.getByText("Anthropic 0 live runs")).toBeVisible();
   await expect(page.getByText("Benchmark coverage: OpenAI 3 · Anthropic 3")).toBeVisible();
   await page.getByLabel("Outcome filter").selectOption("conflict");
   await page.getByLabel("Provider filter").selectOption("openai");

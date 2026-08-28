@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDisplayTrace,
+  failActiveTrace,
+  nextDisplayStageAnnouncement,
   type RawTraceState,
 } from "@/components/workbench/trace-model";
 import type { RunStatus } from "@/domain/types";
@@ -12,6 +14,46 @@ function traceState(
 }
 
 describe("Workbench display trace", () => {
+  it("announces grouped stages once and never announces publishing", () => {
+    let previous: "understand" | "verify" | "resolve" | null = null;
+    const messages: string[] = [];
+    for (const rawStage of [
+      "validating",
+      "storing",
+      "extracting",
+      "verifying",
+      "comparing",
+      "deciding",
+      "publishing",
+    ] as const) {
+      const next = nextDisplayStageAnnouncement(rawStage, previous);
+      previous = next.key;
+      if (next.message) messages.push(next.message);
+    }
+
+    expect(messages).toEqual([
+      "Understand document started.",
+      "Verify evidence started.",
+      "Resolve and prepare action started.",
+    ]);
+  });
+
+  it("marks an active visible group failed and stops its active state", () => {
+    const failed = failActiveTrace(
+      traceState({
+        validating: { status: "pass", duration: 20 },
+        storing: { status: "pass", duration: 30 },
+        extracting: { status: "active", duration: null },
+      }),
+    );
+
+    expect(buildDisplayTrace(failed)[0]).toMatchObject({
+      label: "Understand document",
+      status: "error",
+    });
+    expect(Object.values(failed).some((state) => state?.status === "active")).toBe(false);
+  });
+
   it("maps raw workflow stages into three operational groups", () => {
     const display = buildDisplayTrace(
       traceState({

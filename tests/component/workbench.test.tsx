@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PDFDocument } from "pdf-lib";
 import { useState } from "react";
@@ -82,7 +82,7 @@ describe("Workbench controls", () => {
     render(<CustomUploadFields onReadyChange={() => undefined} />);
 
     await user.click(screen.getByRole("button", { name: /validate custom upload/i }));
-    expect(screen.getByLabelText(/document file/i)).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText(/document file/i)).toHaveFocus());
   });
 
   it("groups the approved models and submits the selected model value", async () => {
@@ -171,6 +171,34 @@ describe("NDJSON streaming", () => {
 });
 
 describe("Prepared action", () => {
+  it("allows a review-required action to be staged", async () => {
+    const user = userEvent.setup();
+    const reviewAction: ActionProposal = {
+      ...readyAction,
+      status: "needs_review",
+      reason: "A reviewer must confirm the exception before downstream use.",
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          staging: {
+            status: "staged",
+            action: { ...reviewAction, stagedAt: "2026-08-28T10:00:00.000Z" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ActionCard runId="run_action_review" action={reviewAction} capabilityToken="review_capability" />);
+
+    expect(screen.getAllByText("Review required")[0]).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Stage action" }));
+
+    expect(await screen.findByText("Action staged")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("stages pessimistically and prevents duplicate requests", async () => {
     const user = userEvent.setup();
     let resolveRequest!: (response: Response) => void;
@@ -181,7 +209,7 @@ describe("Prepared action", () => {
         }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<ActionCard runId="run_action_ready" action={readyAction} />);
+    render(<ActionCard runId="run_action_ready" action={readyAction} capabilityToken="ready_capability" />);
 
     const button = screen.getByRole("button", { name: "Stage action" });
     await user.click(button);
@@ -205,8 +233,12 @@ describe("Prepared action", () => {
     expect(await screen.findByText("Action staged")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/runs/run_action_ready/stage-action",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "x-run-capability": "ready_capability" },
+      }),
     );
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("ready_capability");
   });
 
   it("preserves the prepared action and allows retry after failure", async () => {
@@ -231,7 +263,7 @@ describe("Prepared action", () => {
         ),
       );
     vi.stubGlobal("fetch", fetchMock);
-    render(<ActionCard runId="run_action_retry" action={readyAction} />);
+    render(<ActionCard runId="run_action_retry" action={readyAction} capabilityToken="retry_capability" />);
 
     await user.click(screen.getByRole("button", { name: "Stage action" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -314,7 +346,7 @@ describe("Custom document validation", () => {
     await user.click(screen.getByRole("button", { name: "Validate custom upload" }));
 
     expect(screen.getByText("Upload a PDF, PNG or JPG document.")).toBeVisible();
-    expect(screen.getByLabelText("Document file")).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText("Document file")).toHaveFocus());
     expect(onReadyChange).toHaveBeenLastCalledWith(expect.objectContaining({ valid: false }));
   });
 
@@ -362,12 +394,151 @@ describe("Custom document validation", () => {
 
     await user.click(screen.getByRole("button", { name: "Run assurance check" }));
 
-    expect(screen.getByLabelText("Review field 2")).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText("Review field 2")).toHaveFocus());
     expect(screen.getByText("Field labels must be unique.")).toBeVisible();
   });
 });
 
 describe("Workbench request lifecycle", () => {
+  it("locks run configuration from validation through execution", async () => {
+    const user = userEvent.setup();
+    let resolveRun!: (response: Response) => void;
+    let resolveModels!: (response: Response) => void;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return new Promise<Response>((resolve) => {
+          resolveModels = resolve;
+        });
+      }
+      if (init?.method === "POST") {
+        return new Promise<Response>((resolve) => {
+          resolveRun = resolve;
+        });
+      }
+      if (url === "/api/runs/run_locked_configuration") {
+        return new Response(
+          JSON.stringify({ run: { id: "run_locked_configuration", details: { result: { action: readyAction } } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return emptyHistory();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    const selectedFixture = screen.getByRole("button", { name: /Invoice exception packet/i });
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    expect(selectedFixture).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ Add your document" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Live custom-run model" })).toBeDisabled();
+    expect(screen.getByLabelText("Document file")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /Warehouse receiving sheet/i }));
+    expect(selectedFixture).toHaveAttribute("aria-pressed", "true");
+    await act(async () => {
+      resolveModels(
+        new Response(
+          JSON.stringify({
+            models: [
+              { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+              { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+            ],
+            defaults: { openai: "claude-haiku-4-5" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("combobox", { name: "Live custom-run model" })).toHaveValue("gpt-5.6-luna");
+
+    resolveRun(ndjson([
+      { type: "completed", outcome: "clear", runId: "run_locked_configuration", executionMode: "recorded", deletionToken: "locked_token", timestamp: "2026-08-28T00:00:00.100Z" },
+    ]));
+    expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
+  });
+
+  it("shows honest action-detail loading then a recoverable failure", async () => {
+    const user = userEvent.setup();
+    let detailCalls = 0;
+    let resolveFirstDetail!: (response: Response) => void;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        return ndjson([
+          { type: "completed", outcome: "clear", runId: "run_detail_recovery", executionMode: "recorded", deletionToken: "detail_capability", timestamp: "2026-08-28T00:00:00.100Z" },
+        ]);
+      }
+      if (url === "/api/runs/run_detail_recovery") {
+        detailCalls += 1;
+        if (detailCalls === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveFirstDetail = resolve;
+          });
+        }
+        return new Response(
+          JSON.stringify({ run: { id: "run_detail_recovery", details: { result: { action: readyAction } } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return emptyHistory();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    expect(await screen.findByText("Loading prepared action")).toBeVisible();
+    expect(screen.queryByText("No action available")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+
+    resolveFirstDetail(
+      new Response(JSON.stringify({ error: { message: "private upstream detail" } }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    expect(await screen.findByRole("alert", { name: "Prepared action unavailable" })).toHaveTextContent(
+      "The prepared action is temporarily unavailable.",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry prepared action" }));
+    expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
+    expect(detailCalls).toBe(2);
+  });
+
+  it("marks the active grouped stage failed after a terminal failure", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (!init?.method) return emptyHistory();
+        return ndjson([
+          { type: "stage", stage: "comparing", timestamp: "2026-08-28T00:00:00.000Z" },
+          {
+            type: "failed",
+            code: "provider_unavailable",
+            message: "The run stopped safely.",
+            runId: "run_group_failure",
+            deletionToken: "group_failure_token",
+            timestamp: "2026-08-28T00:00:00.100Z",
+          },
+        ]);
+      }),
+    );
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    const failedGroup = screen
+      .getByText("Resolve and prepare action")
+      .closest("li");
+    expect(failedGroup).not.toBeNull();
+    expect(within(failedGroup!).getByText("Needs attention")).toBeVisible();
+    expect(screen.queryByText("In progress")).not.toBeInTheDocument();
+  });
+
   it("shows three visible stages and places the prepared action before evidence", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

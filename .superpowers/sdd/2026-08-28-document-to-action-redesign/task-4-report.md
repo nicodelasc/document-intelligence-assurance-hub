@@ -61,3 +61,62 @@ The rendered interaction check confirmed the Workbench title, meaningful page co
 - Design lint still reports nine existing orphaned-token warnings but no error.
 - Development rendering reports the expected Next CSP `eval()` warning. React does not use that development behavior in production.
 - Live-provider acceptance remains outside this keyless task.
+
+## Fix round 1/5: six Important findings
+
+### Outcome
+
+Operations now renders `Not called (demo)` for both provider and model call fields on deterministic runs. Its provider split counts only live-run configuration while benchmark coverage remains separate.
+
+Ready and review-required proposals can stage. Blocked proposals cannot. The stage mutation requires the browser-held run capability in the `x-run-capability` request header. The server rate-limits first then verifies the capability against the stored deletion-token hash before any mutation. Missing and invalid capabilities return the same safe authorization error. The capability never enters a URL or log.
+
+The Workbench announces only `Understand document`, `Verify evidence` and `Resolve and prepare action`. Repeated raw events inside one group do not repeat the announcement and publishing remains hidden. Terminal failure marks the active visible group as needing attention and clears active state.
+
+Completion now ends cancellation before prepared-action detail loading starts. Loading no longer appears as an absent action. Detail failure exposes safe recovery and retry. Cancellation is guarded independently from render timing and cannot clear one result region while leaving another stale region visible.
+
+Fixture controls, upload activation, custom inputs and the native model select remain disabled during validation and execution. A late model-catalog response cannot change the disabled configuration. The preview and submitted configuration therefore remain aligned for the active attempt.
+
+### Red evidence
+
+- The Operations component test initially found `openai` in a demo row and the metrics test received `{ openai: 1, anthropic: 0 }` after one deterministic run.
+- The review-required action test found only a disabled `Review required` button instead of an enabled `Stage action` control.
+- The grouped trace tests initially had no announcement or failure-settlement functions. The failure component test left `Resolve and prepare action` marked `In progress`.
+- The lifecycle tests initially found mutable fixture controls and `No action available` while action detail was pending. Cancellation remained visible after completion.
+- Missing and invalid capability route tests initially returned 200 and invoked staging. The ActionCard request initially omitted the capability header.
+- The late-catalog regression changed the disabled model select from `gpt-5.6-luna` to `claude-haiku-4-5` during an active run.
+- The first full browser rerun exposed one stale assertion for `Anthropic 0 public runs`. The corrected contract uses `Anthropic 0 live runs`.
+
+### Green evidence
+
+- Focused Workbench, Operations, trace, metrics, repository and action-route suites pass: 6 files and 64 tests.
+- Full Vitest passes: 38 files and 333 tests.
+- Full Playwright passes: 17 tests including review-required staging and capability-authorized server mutation.
+- Dedicated accessibility Playwright passes: 5 tests.
+- ESLint passes.
+- Application and contract TypeScript checks pass.
+- Strict premium audit passes with zero findings.
+- Design lint passes with zero errors and the same nine orphaned-token warnings.
+
+### Accessibility and responsive notes
+
+Axe reports no serious or critical violations for Workbench and Operations at desktop and mobile viewports. The mobile order remains source then preview then trace. Native disabled states expose the locked controls during an active attempt. Loading, terminal failure and recoverable prepared-action failure use explicit status or alert semantics. First-error focus still returns to the invalid upload control after validation unlocks.
+
+The desktop Operations evidence image now reflects demo call attribution and live-run provider configuration. Workbench retains the three-region evidence desk. Mobile retains the approved source-preview-trace order with prepared action before evidence.
+
+### Self-review
+
+- Demo provider counts are excluded in both in-memory aggregation and Neon aggregation.
+- Operations distinguishes deterministic demo execution from a real provider or model call.
+- One pure display model owns grouped trace labels, deduplication and failure settlement.
+- Completion and detail loading are separate states. A private ref closes the cancellation race before the next render.
+- Configuration locking covers user input and delayed model-catalog hydration.
+- Action staging remains pessimistic, duplicate-safe, idempotent and recoverable.
+- The server verifies a hash-backed browser capability before action mutation. Rate limiting remains ahead of capability lookup.
+- No API key was read or used.
+
+### Concerns
+
+- Browser automation covers Chromium only.
+- Design lint still reports nine existing orphaned-token warnings but no error.
+- Development rendering reports the expected Next CSP `eval()` warning. React does not use that development behavior in production.
+- Live-provider acceptance remains outside this keyless task.

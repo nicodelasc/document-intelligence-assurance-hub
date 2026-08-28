@@ -63,6 +63,10 @@ function formatMilliseconds(value: number | null): string {
   return value === null ? "—" : `${milliseconds.format(value)} ms`;
 }
 
+function providerCallDisplay(executionMode: ExplorerRun["executionMode"], value: string): string {
+  return executionMode === "recorded" ? "Not called (demo)" : value;
+}
+
 function readUrlState() {
   const params = new URLSearchParams(window.location.search);
   const rawProvider = params.get("provider");
@@ -151,7 +155,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                 <tr key={run.id} className={selected === run.id ? "selected-row" : ""}>
                   <td><input type="radio" name="explorer-run" aria-label={`Select ${run.id}`} checked={selected === run.id} onChange={() => selectRun(run)} /></td>
                   <td><span className="mono run-id">{run.id}</span></td>
-                  <td>{run.sourceType}</td><td>{run.provider}</td>
+                  <td>{run.sourceType}</td><td>{providerCallDisplay(run.executionMode, run.provider)}</td>
                   <td><span className="status-inline"><StatusMark status={run.status === "failed" ? "error" : run.status === "completed" ? "pass" : "warning"} />{run.status}</span></td>
                   <td>{run.outcome?.replaceAll("_", " ") ?? "—"}</td>
                   <td className="mono">{formatMilliseconds(run.latencyMs)}</td>
@@ -215,7 +219,7 @@ function Inspector({ run }: { run: ExplorerRun }) {
           <section><h3>Reference comparison</h3>{fields.length ? <dl>{fields.map((item) => <div key={item.key}><dt>{item.label}</dt><dd>{item.referenceMatch === null ? "Not applicable" : item.referenceMatch ? "Match" : "Mismatch"}</dd></div>)}</dl> : <p>No field comparison is available.</p>}</section>
           <section><h3>Telemetry and steps</h3><dl><div><dt>Latency</dt><dd>{detail.latencyMs === null ? "Unavailable" : formatMilliseconds(detail.latencyMs)}</dd></div><div><dt>Retries</dt><dd>{detail.retryCount}</dd></div><div><dt>Estimated API cost</dt><dd>US${detail.estimatedCostUsd.toFixed(4)}</dd></div></dl>{steps.length ? <ol className="inspector-steps">{steps.map((step, index) => <li key={`${step.timestamp}-${index}`}><span>{step.stage.replaceAll("_", " ")}</span><time>{formatMilliseconds(step.durationMs)}</time></li>)}</ol> : <p>No step telemetry is available.</p>}</section>
           <section><h3>Safe errors</h3>{safeErrors.length ? <ul className="safe-error-list">{safeErrors.map((step, index) => <li key={`${step.timestamp}-${index}`}><code>{step.safeCode}</code><span>{step.stage.replaceAll("_", " ")}</span></li>)}</ul> : <p>No safe errors were recorded.</p>}</section>
-          <section><h3>Metadata</h3><dl><div><dt>Provider</dt><dd>{detail.provider}</dd></div><div><dt>Model</dt><dd>{detail.model}</dd></div><div><dt>Mode</dt><dd>{detail.executionMode}</dd></div><div><dt>Source</dt><dd>{detail.sourceType}</dd></div><div><dt>Created</dt><dd>{detail.createdAt}</dd></div><div><dt>Expires</dt><dd>{detail.expiresAt}</dd></div><div><dt>File</dt><dd>{detail.file.filename}</dd></div><div><dt>Pages</dt><dd>{detail.file.pageCount ?? "Unavailable"}</dd></div><div><dt>Prompt version ID</dt><dd className="mono">{detail.promptVersion}</dd></div><div><dt>Input tokens</dt><dd>{detail.usage.inputTokens}</dd></div><div><dt>Output tokens</dt><dd>{detail.usage.outputTokens}</dd></div></dl></section>
+          <section><h3>Metadata</h3><dl><div><dt>Provider</dt><dd>{providerCallDisplay(detail.executionMode, detail.provider)}</dd></div><div><dt>Model</dt><dd>{providerCallDisplay(detail.executionMode, detail.model)}</dd></div><div><dt>Mode</dt><dd>{detail.executionMode}</dd></div><div><dt>Source</dt><dd>{detail.sourceType}</dd></div><div><dt>Created</dt><dd>{detail.createdAt}</dd></div><div><dt>Expires</dt><dd>{detail.expiresAt}</dd></div><div><dt>File</dt><dd>{detail.file.filename}</dd></div><div><dt>Pages</dt><dd>{detail.file.pageCount ?? "Unavailable"}</dd></div><div><dt>Prompt version ID</dt><dd className="mono">{detail.promptVersion}</dd></div><div><dt>Input tokens</dt><dd>{detail.usage.inputTokens}</dd></div><div><dt>Output tokens</dt><dd>{detail.usage.outputTokens}</dd></div></dl></section>
         </div>
       )}
     </div>

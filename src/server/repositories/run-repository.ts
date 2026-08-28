@@ -209,7 +209,9 @@ export class InMemoryRunRepository implements RunRepository {
       failureAggregated: false,
     });
     this.aggregate.totalRuns += 1;
-    this.aggregate.providerCounts[record.provider] += 1;
+    if (record.executionMode === "live") {
+      this.aggregate.providerCounts[record.provider] += 1;
+    }
   }
 
   async setStatus(runId: string, status: RunStatus): Promise<void> {
@@ -736,8 +738,8 @@ class NeonRunRepository implements RunRepository {
         COALESCE(SUM((usage ->> 'inputTokens')::bigint), 0) AS input_tokens,
         COALESCE(SUM((usage ->> 'outputTokens')::bigint), 0) AS output_tokens,
         COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd,
-        COUNT(*) FILTER (WHERE provider = 'openai') AS openai_runs,
-        COUNT(*) FILTER (WHERE provider = 'anthropic') AS anthropic_runs,
+        COUNT(*) FILTER (WHERE execution_mode = 'live' AND provider = 'openai') AS openai_runs,
+        COUNT(*) FILTER (WHERE execution_mode = 'live' AND provider = 'anthropic') AS anthropic_runs,
         COUNT(*) FILTER (WHERE outcome = 'clear') AS clear_runs,
         COUNT(*) FILTER (WHERE outcome = 'needs_review') AS needs_review_runs,
         COUNT(*) FILTER (WHERE outcome = 'incomplete') AS incomplete_runs,

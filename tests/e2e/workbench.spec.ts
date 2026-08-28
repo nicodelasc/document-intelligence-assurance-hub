@@ -46,7 +46,10 @@ test("runs operational fixtures with a grouped model select and action-first res
     timeout: connectedRunTimeout,
   });
   await expect(page.getByRole("heading", { name: "Create accounts-payable exception review" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Review required" })).toBeDisabled();
+  await expect(page.getByText("Review required", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stage action" })).toBeEnabled();
+  await page.getByRole("button", { name: "Stage action" }).click();
+  await expect(page.getByText("Action staged", { exact: true })).toBeVisible();
 
   await page.getByLabel("Run A").selectOption({ index: 1 });
   await page.getByLabel("Run B").selectOption({ index: 2 });

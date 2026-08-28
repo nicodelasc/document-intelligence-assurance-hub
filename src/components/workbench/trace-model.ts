@@ -15,6 +15,8 @@ export type DisplayTraceStage = {
   duration: number | null;
 };
 
+export type DisplayTraceKey = DisplayTraceStage["key"];
+
 const DISPLAY_STAGE_DEFINITIONS = [
   {
     key: "understand",
@@ -44,6 +46,37 @@ function groupStatus(states: RawTraceState[]): TraceStageStatus {
     return "active";
   }
   return "idle";
+}
+
+function definitionForRawStage(rawStage: RunStatus) {
+  return DISPLAY_STAGE_DEFINITIONS.find((definition) =>
+    definition.rawStages.some((stage) => stage === rawStage),
+  );
+}
+
+export function nextDisplayStageAnnouncement(
+  rawStage: RunStatus,
+  previousKey: DisplayTraceKey | null,
+): { key: DisplayTraceKey | null; message: string | null } {
+  const definition = definitionForRawStage(rawStage);
+  if (!definition || definition.key === previousKey) {
+    return { key: previousKey, message: null };
+  }
+  return {
+    key: definition.key,
+    message: `${definition.label} started.`,
+  };
+}
+
+export function failActiveTrace(
+  rawTrace: Partial<Record<RunStatus, RawTraceState>>,
+): Partial<Record<RunStatus, RawTraceState>> {
+  return Object.fromEntries(
+    Object.entries(rawTrace).map(([stage, state]) => [
+      stage,
+      state?.status === "active" ? { ...state, status: "error" as const } : state,
+    ]),
+  );
 }
 
 export function buildDisplayTrace(

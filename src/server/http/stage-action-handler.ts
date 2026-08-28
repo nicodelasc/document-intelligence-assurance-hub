@@ -9,6 +9,7 @@ import {
   safeErrorResponse,
   safeJsonResponse,
 } from "@/server/http/responses";
+import { verifyDeletionToken } from "@/server/security/deletion-token";
 
 function validRunId(id: string): boolean {
   return /^[A-Za-z0-9_-]{1,128}$/.test(id);
@@ -50,6 +51,26 @@ export async function handleStageActionPost(
           message: "Action staging was requested too frequently. Retry shortly.",
           requestId,
           status: 429,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+
+    const capability = request.headers.get("x-run-capability")?.trim();
+    const storedCapabilityHash = capability && capability.length <= 512
+      ? await container.repository.getDeletionTokenHash(parameters.id)
+      : null;
+    if (
+      !capability ||
+      !storedCapabilityHash ||
+      !verifyDeletionToken(capability, storedCapabilityHash)
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "stage_action_not_authorized",
+          message: "This browser does not hold the capability required to stage the action.",
+          requestId,
+          status: 401,
           headers: noIndexHeaders,
         }),
       );
