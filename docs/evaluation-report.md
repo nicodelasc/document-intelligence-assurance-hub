@@ -2,17 +2,17 @@
 
 ## Recorded benchmark result
 
-The verified suite replays three synthetic fixtures across both provider selections. That produces six deterministic recorded contract runs.
+The verified suite replays three document fixtures across both provider selections. That produces six deterministic recorded contract runs.
 
 | Fixture                       | OpenAI selection | Anthropic selection | Expected assurance outcome |
 | ----------------------------- | ---------------- | ------------------- | -------------------------- |
-| Clean invoice                 | Recorded replay  | Recorded replay     | Clear                      |
-| Invoice-total mismatch        | Recorded replay  | Recorded replay     | Needs review               |
-| Missing purchase-order number | Recorded replay  | Recorded replay     | Incomplete                 |
+| Invoice exception packet      | Recorded replay  | Recorded replay     | Needs review               |
+| Warehouse receiving sheet     | Recorded replay  | Recorded replay     | Clear                      |
+| Visitor access request        | Recorded replay  | Recorded replay     | Incomplete                 |
 
 Recorded false-clear count: **0**.
 
-This result demonstrates fixture routing, schema conformance, field evaluation and deterministic decision behavior. It does not measure live model accuracy, production reliability or financial impact. No live provider request was made for this report.
+This result is driven by the checked-in fixture outcomes and action statuses: needs review, ready and blocked. It demonstrates fixture routing, schema conformance, field evaluation and deterministic decision behavior. It does not measure live model accuracy, production reliability or financial impact. No live provider request was made for this report.
 
 ## Keyless production verification — 2026-08-28
 

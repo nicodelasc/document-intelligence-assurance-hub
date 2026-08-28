@@ -1,4 +1,4 @@
-import { recordedRunResults } from "@/domain/fixtures";
+import { recordedRunResults, syntheticFixtures } from "@/domain/fixtures";
 import { calculateResourceScenario } from "@/domain/resource-model";
 import type { HttpContainer } from "@/server/http/container";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
@@ -49,42 +49,6 @@ function averageDurations(records: Array<Record<string, number>>): Record<string
   );
 }
 
-const syntheticExtractionTruth = {
-  "clean-match": {
-    vendor_name: "Northstar Paperworks",
-    purchase_order_number: "PO-NP-1001",
-    invoice_total: "1250.00 SGD",
-  },
-  "invoice-total-mismatch": {
-    vendor_name: "Harborline Supplies",
-    purchase_order_number: "PO-HS-2001",
-    invoice_total: "890.00 SGD",
-  },
-  "missing-purchase-order": {
-    vendor_name: "Vireo Office Goods",
-    purchase_order_number: null,
-    invoice_total: "460.00 SGD",
-  },
-} as const;
-
-const syntheticEvaluatorTruth = {
-  "clean-match": {
-    vendor_name: "pass",
-    purchase_order_number: "pass",
-    invoice_total: "pass",
-  },
-  "invoice-total-mismatch": {
-    vendor_name: "pass",
-    purchase_order_number: "pass",
-    invoice_total: "conflict",
-  },
-  "missing-purchase-order": {
-    vendor_name: "pass",
-    purchase_order_number: "not_found",
-    invoice_total: "pass",
-  },
-} as const;
-
 function recordedBenchmark() {
   let exactMatches = 0;
   let totalFields = 0;
@@ -95,11 +59,17 @@ function recordedBenchmark() {
   let falseClearCount = 0;
 
   for (const fixture of [...recordedRunResults, ...recordedRunResults]) {
-    const extractionTruth = syntheticExtractionTruth[fixture.invoiceId];
-    const evaluatorTruth = syntheticEvaluatorTruth[fixture.invoiceId];
+    const extractionTruth = fixture.fields.reduce<Record<string, string | null>>(
+      (truth, field) => ({ ...truth, [field.key]: field.extractedValue }),
+      {},
+    );
+    const evaluatorTruth = fixture.fields.reduce<Record<string, string>>(
+      (truth, field) => ({ ...truth, [field.key]: field.evaluatorStatus }),
+      {},
+    );
     for (const field of fixture.fields) {
-      const expectedValue = extractionTruth[field.key as keyof typeof extractionTruth];
-      const expectedStatus = evaluatorTruth[field.key as keyof typeof evaluatorTruth];
+      const expectedValue = extractionTruth[field.key];
+      const expectedStatus = evaluatorTruth[field.key];
       totalFields += 1;
       evaluatorComparisons += 1;
       if (field.extractedValue === expectedValue) exactMatches += 1;
@@ -128,6 +98,12 @@ function recordedBenchmark() {
     missingFieldRecall: ratio(foundExpectedMissing, expectedMissing),
     evaluatorAgreement: ratio(evaluatorAgreements, evaluatorComparisons),
     falseClearCount,
+    expectedOutcomes: Object.fromEntries(
+      syntheticFixtures.map((fixture) => [fixture.expectedOutcome, 2]),
+    ),
+    actionStatuses: Object.fromEntries(
+      syntheticFixtures.map((fixture) => [fixture.action.status, 2]),
+    ),
   };
 }
 
