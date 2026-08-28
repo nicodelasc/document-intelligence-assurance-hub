@@ -13,7 +13,8 @@ test("active document preview avoids the browser error document", async ({
     multipart: {
       sourceType: "synthetic",
       provider: "openai",
-      sampleId: "clean-match",
+      model: "gpt-5.6-luna",
+      sampleId: "warehouse-receiving-sheet",
       executionMode: "recorded",
     },
   });

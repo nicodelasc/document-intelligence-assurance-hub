@@ -60,8 +60,12 @@ function countReplayValues(values: readonly string[]): Record<string, number> {
   );
 }
 
-function expectedEvaluatorStatus(value: string | null): "pass" | "not_found" {
-  return value === null ? "not_found" : "pass";
+function expectedEvaluatorStatus(
+  documentValue: string | null,
+  referenceValue: string | null,
+): "pass" | "conflict" | "not_found" {
+  if (documentValue === null) return "not_found";
+  return documentValue === referenceValue ? "pass" : "conflict";
 }
 
 export function calculateRecordedFixtureBenchmark(
@@ -80,8 +84,9 @@ export function calculateRecordedFixtureBenchmark(
       (candidate) => candidate.fixtureId === fixture.id,
     );
     for (const requestedField of fixture.requestedFields) {
-      const expectedValue = fixture.referenceData[requestedField.key] ?? null;
-      const expectedStatus = expectedEvaluatorStatus(expectedValue);
+      const expectedValue = fixture.documentData[requestedField.key] ?? null;
+      const referenceValue = fixture.referenceData[requestedField.key] ?? null;
+      const expectedStatus = expectedEvaluatorStatus(expectedValue, referenceValue);
       const field = observation?.fields.find(
         (candidate) => candidate.key === requestedField.key,
       );

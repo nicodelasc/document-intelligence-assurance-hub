@@ -13,8 +13,21 @@ export type CustomUploadState = {
 };
 
 export type CustomUploadHandle = {
+  openFilePicker: () => void;
   validate: () => Promise<boolean>;
 };
+
+export type ModelOption = {
+  id: string;
+  provider: Provider;
+  displayName: string;
+  recommended: boolean;
+};
+
+const modelGroups = [
+  { provider: "openai" as const, label: "OpenAI" },
+  { provider: "anthropic" as const, label: "Anthropic" },
+];
 
 const fileValidationMessage: Record<string, string> = {
   empty_file: "Choose a non-empty document.",
@@ -49,19 +62,41 @@ async function validateDocument(file: File): Promise<string> {
   return validation.valid ? "" : fileValidationMessage[validation.errors[0]] ?? "The document could not be validated.";
 }
 
-export function ProviderSelector({ value, onChange }: { value: Provider; onChange: (provider: Provider) => void }) {
+export function ModelSelector({
+  models,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  models: readonly ModelOption[];
+  value: string;
+  onChange: (model: string) => void;
+  disabled?: boolean;
+}) {
   return (
-    <fieldset className="provider-selector">
-      <legend>Provider for this run <span>Recorded replay</span></legend>
-      <label className={value === "openai" ? "selected-control" : ""}>
-        <input type="radio" name="provider" value="openai" checked={value === "openai"} onChange={() => onChange("openai")} />
-        <span><strong>OpenAI GPT-5 mini</strong><small>Recorded benchmark comparison</small></span>
-      </label>
-      <label className={value === "anthropic" ? "selected-control" : ""}>
-        <input type="radio" name="provider" value="anthropic" checked={value === "anthropic"} onChange={() => onChange("anthropic")} />
-        <span><strong>Anthropic Claude Haiku 4.5</strong><small>Recorded benchmark comparison</small></span>
-      </label>
-    </fieldset>
+    <div className="model-selector">
+      <label htmlFor="workbench-model">Live custom-run model</label>
+      <select
+        id="workbench-model"
+        name="model"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+      >
+        {modelGroups.map((group) => (
+          <optgroup key={group.provider} label={group.label}>
+            {models
+              .filter((model) => model.provider === group.provider)
+              .map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}{model.recommended ? " — Recommended" : ""}
+                </option>
+              ))}
+          </optgroup>
+        ))}
+      </select>
+      <small>The selected model applies only when a live custom run is enabled.</small>
+    </div>
   );
 }
 
@@ -129,7 +164,10 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
     return Object.keys(next).length === 0;
   }, [consent, fields, file]);
 
-  useImperativeHandle(ref, () => ({ validate }), [validate]);
+  useImperativeHandle(ref, () => ({
+    openFilePicker: () => fileRef.current?.click(),
+    validate,
+  }), [validate]);
 
   return (
     <div className="custom-fields">
@@ -209,6 +247,12 @@ export type ComparableRun = {
   outcome: Outcome;
 };
 
+function executionTarget(run: ComparableRun): string {
+  return run.executionMode === "recorded"
+    ? "Not called (demo)"
+    : `${run.provider} · ${run.model}`;
+}
+
 export function ComparisonLedger({ runs, leftId, rightId }: { runs: ComparableRun[]; leftId: string; rightId: string }) {
   const left = runs.find((run) => run.id === leftId);
   const right = runs.find((run) => run.id === rightId);
@@ -219,7 +263,7 @@ export function ComparisonLedger({ runs, leftId, rightId }: { runs: ComparableRu
     ["Requested fields", left.requestedFields.join(" · "), right.requestedFields.join(" · ")],
     ["Extracted and normalized values", left.values.join(" · "), right.values.join(" · ")],
     ["Evidence", left.evidence.join(" · "), right.evidence.join(" · ")],
-    ["Provider and model", `${left.provider} · ${left.model}`, `${right.provider} · ${right.model}`],
+    ["Provider and model", executionTarget(left), executionTarget(right)],
     ["Execution mode", left.executionMode, right.executionMode],
     ["Evaluator status", left.evaluator.join(" · "), right.evaluator.join(" · ")],
     ["Latency", `${left.latencyMs} ms`, `${right.latencyMs} ms`],

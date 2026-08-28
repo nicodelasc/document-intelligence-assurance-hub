@@ -11,7 +11,7 @@ colors:
   primary: "#155EEF"
   primary-soft: "#EAF1FF"
   success: "#168A52"
-  warning: "#B35B00"
+  warning: "#A14F00"
   danger: "#C62934"
   focus: "#155EEF"
 typography:
@@ -50,7 +50,7 @@ The interface borrows from an evidence review desk: ruled ledgers, clipped docum
 
 ### Product context and register
 
-- **Audience and primary job:** A non-technical headquarters interviewer should be able to run a sample, understand the assurance trace and inspect how the prototype is monitored.
+- **Audience and primary job:** A non-technical headquarters interviewer should be able to run a sample, understand the assurance trace and inspect a prepared action with its evidence.
 - **Target market and evidence:** The prototype is designed for a Singapore regional role described in the approved product specification. It does not assume Samsung internal systems or users.
 - **Locale and language policy:** English UI with `en-SG` number and currency formatting. Technical timestamps display an explicit timezone.
 - **Usage scene:** Small-laptop and desktop review first with mobile stacking for link sharing.
@@ -72,7 +72,7 @@ Manrope carries route headings and the product name. Inter owns controls, tables
 
 ## Layout
 
-Workbench uses a three-region evidence desk: source rail, document canvas and assurance rail. Operations uses open metric bands followed by a run ledger and detail inspector. Panels use thin rules instead of nested cards. At widths below 1024 px regions stack in task order. At narrow widths tables retain horizontal scrolling and values are never silently hidden.
+Workbench uses a three-region evidence desk: source rail, document canvas and assurance rail. The source rail presents three fixture cards followed by a native file-picker button. The assurance rail groups the raw workflow into three visible stages then presents the prepared action before the evidence ledger. Operations uses open metric bands followed by a run ledger and detail inspector. Panels use thin rules instead of nested cards. At widths below 1024 px regions stack as source, preview and trace. At narrow widths tables retain horizontal scrolling and values are never silently hidden.
 
 ## Elevation & Depth
 
@@ -98,7 +98,11 @@ The header contains the product name and the two route links only. Tables use se
 
 ### Forms and overlays
 
-Forms use visible labels, app-owned validation, `noValidate` and first-error focus. The upload control always exposes a visible file-picker action. Destructive actions use an accessible app-owned dialog with Cancel initially focused.
+Forms use visible labels, app-owned validation, `noValidate` and first-error focus. The canonical model control is a grouped native select because its platform-owned popup geometry is accepted. The `+ Add your document` tile is a button that invokes the existing native file input while preserving drag-and-drop, validation and consent. Destructive actions use an accessible app-owned dialog with Cancel initially focused.
+
+### Workbench action states
+
+The visible trace is `Understand document`, `Verify evidence` and `Resolve and prepare action`. Publishing remains a server concern and is not shown as a user task. Prepared actions use pessimistic staging: the button becomes busy without changing the proposal then success replaces it with the server-returned staged state. Duplicate clicks are inert while pending. Failure preserves the proposal and exposes a safe retry. Demo mode shows `Demo data — no provider call` once beside the run action. Fixture results are never attributed to the selected live model.
 
 ### Iconography
 

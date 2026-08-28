@@ -81,13 +81,13 @@ describe("extraction provider contract", () => {
     expect(
       createRecordedExtractionProvider({
         provider: "openai",
-        fixtureId: "clean-match",
+        fixtureId: "invoice-exception-packet",
       }).model,
     ).toBe("gpt-5.6-luna");
     expect(() =>
       createRecordedExtractionProvider({
         provider: "openai",
-        fixtureId: "clean-match",
+        fixtureId: "invoice-exception-packet",
         model: "claude-haiku-4-5",
       }),
     ).toThrow("unsupported_live_model");
@@ -98,29 +98,42 @@ describe("extraction provider contract", () => {
     async (providerName) => {
       const provider = createRecordedExtractionProvider({
         provider: providerName,
-        fixtureId: "clean-match",
+        fixtureId: "invoice-exception-packet",
       });
       const result = await provider.extract({ document, requestedFields });
 
       expect(provider.executionMode).toBe("recorded");
       expect(provider.promptVersion).toBe("recorded-fixture-2026-08-27.v1");
       expect(extractionResultSchema.parse(result.extraction)).toEqual({
-        fields: validModelOutput.fields,
-        documentInstruction: null,
+        fields: [
+          {
+            ...validModelOutput.fields[0],
+            evidence: "Vendor name: Northstar Paperworks",
+          },
+          {
+            ...validModelOutput.fields[1],
+            evidence: "Purchase-order number: PO-NP-1001",
+          },
+          {
+            ...validModelOutput.fields[2],
+            evidence: "Invoice total: 1250.00 SGD",
+          },
+        ],
+        documentInstruction: "Hold payment and contact the buyer.",
         action: {
-          type: "create_document_review_task",
-          title: "Prepare document review",
-          summary: "Prepare the extracted fields for an internal dry-run review.",
+          type: "create_ap_exception_case",
+          title: "Create accounts-payable exception review",
+          summary: "Review the invoice total before payment processing continues.",
           payload: [
-            { label: "Vendor name", value: "Northstar Paperworks" },
+            { label: "Vendor", value: "Northstar Paperworks" },
             { label: "Purchase-order number", value: "PO-NP-1001" },
             { label: "Invoice total", value: "1250.00 SGD" },
           ],
-          instructionEvidence: null,
-          page: null,
-          risk: "low",
+          instructionEvidence: "Hold payment and contact the buyer.",
+          page: 1,
+          risk: "medium",
           status: "needs_review",
-          reason: "The recorded result is prepared for internal review.",
+          reason: "The invoice total conflicts with the purchase-order register.",
           stagedAt: null,
         },
       });

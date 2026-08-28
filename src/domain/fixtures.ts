@@ -15,10 +15,15 @@ export const syntheticFixtures: readonly SyntheticFixture[] = [
       { key: "purchase_order_number", label: "Purchase-order number" },
       { key: "invoice_total", label: "Invoice total" },
     ],
-    referenceData: {
+    documentData: {
       vendor_name: "Northstar Paperworks",
       purchase_order_number: "PO-NP-1001",
       invoice_total: "1250.00 SGD",
+    },
+    referenceData: {
+      vendor_name: "Northstar Paperworks",
+      purchase_order_number: "PO-NP-1001",
+      invoice_total: "1200.00 SGD",
     },
     expectedOutcome: "needs_review",
     action: {
@@ -48,6 +53,11 @@ export const syntheticFixtures: readonly SyntheticFixture[] = [
       { key: "purchase_order_number", label: "Purchase-order number" },
       { key: "received_quantity", label: "Received quantity" },
     ],
+    documentData: {
+      shipment_id: "SHIP-4018",
+      purchase_order_number: "PO-WR-4018",
+      received_quantity: "48",
+    },
     referenceData: {
       shipment_id: "SHIP-4018",
       purchase_order_number: "PO-WR-4018",
@@ -81,6 +91,11 @@ export const syntheticFixtures: readonly SyntheticFixture[] = [
       { key: "host", label: "Host" },
       { key: "approval_code", label: "Approval code" },
     ],
+    documentData: {
+      visitor_name: "Jordan Lee",
+      host: "Avery Tan",
+      approval_code: null,
+    },
     referenceData: {
       visitor_name: "Jordan Lee",
       host: "Avery Tan",
@@ -288,8 +303,8 @@ export const recordedDocumentRunResults: RecordedDocumentRunResult[] = [
         normalizedValue: "1250.00 SGD",
         evidence: "Invoice total: 1250.00 SGD",
         page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
+        evaluatorStatus: "conflict",
+        referenceMatch: false,
       },
     ],
   },

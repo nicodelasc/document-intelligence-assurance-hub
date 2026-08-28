@@ -2,14 +2,29 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { FileText, ShieldCheck } from "lucide-react";
-import type { FieldResult, Outcome, Provider, RunEvent, RunStatus } from "@/domain/types";
-import { recordedRunResults, syntheticInvoices } from "@/domain/fixtures";
+import type { ActionProposal, FieldResult, Outcome, Provider, RunEvent, RunStatus } from "@/domain/types";
+import {
+  recordedDocumentRunResults,
+  syntheticFixtures,
+} from "@/domain/fixtures";
+import { liveModelCatalog } from "@/domain/live-model-catalog";
+import { actionProposalSchema } from "@/domain/run-schema";
 import { Button, EmptyState, KeylessNotice, LiveRegion, RulePanel, StatusMark } from "@/components/ui/primitives";
 import { DangerDialog } from "@/components/ui/dialog";
-import { ComparisonLedger, CustomUploadFields, ProviderSelector, type ComparableRun, type CustomUploadHandle, type CustomUploadState } from "./workbench-controls";
+import {
+  ComparisonLedger,
+  CustomUploadFields,
+  ModelSelector,
+  type ComparableRun,
+  type CustomUploadHandle,
+  type CustomUploadState,
+  type ModelOption,
+} from "./workbench-controls";
 import { consumeNdjson } from "./run-stream";
+import { buildDisplayTrace, type RawTraceState } from "./trace-model";
+import { ActionCard } from "./action-card";
 
-const traceStages: Array<{ key: RunStatus; label: string }> = [
+const rawTraceStages: Array<{ key: RunStatus; label: string }> = [
   { key: "validating", label: "Validate" },
   { key: "storing", label: "Store" },
   { key: "extracting", label: "Extract" },
@@ -18,12 +33,6 @@ const traceStages: Array<{ key: RunStatus; label: string }> = [
   { key: "deciding", label: "Decide" },
   { key: "publishing", label: "Publish telemetry" },
 ];
-
-const sampleCopy = {
-  "clean-match": { title: "Clean invoice", description: "Matches its purchase order" },
-  "invoice-total-mismatch": { title: "Invoice-total mismatch", description: "Requires review" },
-  "missing-purchase-order": { title: "Missing purchase-order number", description: "Incomplete evidence" },
-};
 
 const outcomeLabel: Record<Outcome, string> = {
   clear: "Clear",
@@ -34,13 +43,13 @@ const outcomeLabel: Record<Outcome, string> = {
   not_found: "Not found",
 };
 
-type TraceState = Record<string, { status: "idle" | "active" | "pass" | "error"; duration: number | null }>;
+type TraceState = Partial<Record<RunStatus, RawTraceState>>;
 type DeletionReceipt = { runId: string; token: string; expiresAt: string };
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
 function freshTrace(): TraceState {
-  return Object.fromEntries(traceStages.map((stage) => [stage.key, { status: "idle", duration: null }]));
+  return Object.fromEntries(rawTraceStages.map((stage) => [stage.key, { status: "idle", duration: null }]));
 }
 
 function safeStoreDeletion(runId: string, token: string, expiresAt: string) {
@@ -119,18 +128,35 @@ function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
   };
 }
 
+function actionFromPublicPayload(payload: unknown): ActionProposal | null {
+  if (!payload || typeof payload !== "object") return null;
+  const run = (payload as { run?: unknown }).run;
+  if (!run || typeof run !== "object") return null;
+  const details = (run as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return null;
+  const result = (details as { result?: unknown }).result;
+  if (!result || typeof result !== "object") return null;
+  const action = (result as { action?: unknown }).action;
+  if (!action || typeof action !== "object") return null;
+  const parsed = actionProposalSchema.safeParse(action);
+  return parsed.success ? parsed.data : null;
+}
+
 export function WorkbenchView() {
   const [source, setSource] = useState<"synthetic" | "custom">("synthetic");
-  const [sampleId, setSampleId] = useState<(typeof syntheticInvoices)[number]["id"]>("clean-match");
-  const [provider, setProvider] = useState<Provider>("openai");
+  const [sampleId, setSampleId] = useState<(typeof syntheticFixtures)[number]["id"]>(syntheticFixtures[0].id);
+  const [models, setModels] = useState<readonly ModelOption[]>(liveModelCatalog);
+  const [selectedModel, setSelectedModel] = useState<string>(liveModelCatalog[0].id);
   const [custom, setCustom] = useState<CustomUploadState>({ file: null, fields: ["", ""], consent: false, valid: false });
   const [previewUrl, setPreviewUrl] = useState("");
   const [running, setRunning] = useState(false);
   const [trace, setTrace] = useState<TraceState>(freshTrace);
   const [fields, setFields] = useState<FieldResult[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [preparedAction, setPreparedAction] = useState<ActionProposal | null>(null);
+  const [actionRunId, setActionRunId] = useState("");
   const [error, setError] = useState("");
-  const [liveMessage, setLiveMessage] = useState("Ready for a recorded replay.");
+  const [liveMessage, setLiveMessage] = useState("Ready to review a document.");
   const [outcomeFocusVersion, setOutcomeFocusVersion] = useState(0);
   const [history, setHistory] = useState<ComparableRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -162,6 +188,39 @@ export function WorkbenchView() {
 
   useEffect(() => {
     const controller = new AbortController();
+    async function hydrateModels() {
+      try {
+        const response = await fetch("/api/models", { signal: controller.signal });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          models?: unknown;
+          defaults?: Partial<Record<Provider, string>>;
+        };
+        if (!Array.isArray(payload.models)) return;
+        const approvedModels = payload.models.filter(
+          (candidate): candidate is ModelOption => {
+            if (!candidate || typeof candidate !== "object") return false;
+            const model = candidate as Record<string, unknown>;
+            return (
+              typeof model.id === "string" &&
+              (model.provider === "openai" || model.provider === "anthropic") &&
+              typeof model.displayName === "string" &&
+              typeof model.recommended === "boolean"
+            );
+          },
+        );
+        if (!approvedModels.length || controller.signal.aborted) return;
+        setModels(approvedModels);
+        const serverDefault = payload.defaults?.openai;
+        setSelectedModel(
+          approvedModels.some((model) => model.id === serverDefault)
+            ? serverDefault!
+            : approvedModels[0].id,
+        );
+      } catch {
+        // The bundled approved catalogue keeps the selector usable if metadata refresh fails.
+      }
+    }
     async function hydrateHistory() {
       try {
         const response = await fetch("/api/runs?limit=12", { signal: controller.signal });
@@ -191,6 +250,7 @@ export function WorkbenchView() {
         if (!controller.signal.aborted) setHistoryLoading(false);
       }
     }
+    queueMicrotask(() => void hydrateModels());
     queueMicrotask(() => void hydrateHistory());
     return () => controller.abort();
   }, []);
@@ -215,8 +275,19 @@ export function WorkbenchView() {
     return () => URL.revokeObjectURL(url);
   }, [custom.file]);
 
-  const fixture = useMemo(() => recordedRunResults.find((candidate) => candidate.invoiceId === sampleId) ?? recordedRunResults[0], [sampleId]);
-  const selectedInvoice = syntheticInvoices.find((candidate) => candidate.id === sampleId) ?? syntheticInvoices[0];
+  const fixture = useMemo(
+    () =>
+      recordedDocumentRunResults.find((candidate) => candidate.fixtureId === sampleId) ??
+      recordedDocumentRunResults[0],
+    [sampleId],
+  );
+  const selectedFixture =
+    syntheticFixtures.find((candidate) => candidate.id === sampleId) ??
+    syntheticFixtures[0];
+  const selectedModelDefinition =
+    models.find((model) => model.id === selectedModel) ?? models[0];
+  const provider: Provider = selectedModelDefinition?.provider ?? "openai";
+  const displayTrace = buildDisplayTrace(trace);
 
   const onStreamEvent = useCallback((event: RunEvent, requestId: number) => {
     if (requestId !== requestRef.current) return;
@@ -231,7 +302,7 @@ export function WorkbenchView() {
         return next;
       });
       lastStageRef.current = { key: event.stage, at: now };
-      const label = traceStages.find((stage) => stage.key === event.stage)?.label ?? event.stage;
+      const label = rawTraceStages.find((stage) => stage.key === event.stage)?.label ?? event.stage;
       setLiveMessage(`${label} stage started.`);
     } else if (event.type === "field") {
       if (fieldAccumulatorRef.current.requestId === requestId) {
@@ -267,12 +338,15 @@ export function WorkbenchView() {
     lastStageRef.current = null;
     setError("");
     setOutcome(null);
+    setPreparedAction(null);
+    setActionRunId("");
     setFields([]);
     setTrace(freshTrace());
     setLiveMessage("Assurance run started.");
     const form = new FormData();
     form.set("sourceType", source);
     form.set("provider", provider);
+    form.set("model", selectedModel);
     form.set("executionMode", source === "synthetic" ? "recorded" : "live");
     if (source === "synthetic") form.set("sampleId", sampleId);
     else if (custom.file) {
@@ -304,7 +378,7 @@ export function WorkbenchView() {
       }
       setTrace((current) => {
         const next = { ...current };
-        for (const stage of traceStages) next[stage.key] = { status: "pass", duration: next[stage.key]?.duration ?? Math.max(1, elapsed / traceStages.length) };
+        for (const stage of rawTraceStages) next[stage.key] = { status: "pass", duration: next[stage.key]?.duration ?? Math.max(1, elapsed / rawTraceStages.length) };
         return next;
       });
       setOutcome(terminal.outcome);
@@ -315,7 +389,7 @@ export function WorkbenchView() {
       const comparable: ComparableRun = {
         id: terminal.runId,
         provider,
-        model: provider === "openai" ? "GPT-5 mini" : "Claude Haiku 4.5",
+        model: selectedModelDefinition?.displayName ?? selectedModel,
         executionMode: terminal.executionMode,
         requestedFields: completedFields.map((field) => field.label),
         values: completedFields.map(comparisonValue),
@@ -325,6 +399,23 @@ export function WorkbenchView() {
         outcome: terminal.outcome,
       };
       setHistory((current) => [comparable, ...current.filter((run) => run.id !== comparable.id)]);
+      let resolvedAction: ActionProposal | null =
+        source === "synthetic" ? selectedFixture.action : null;
+      try {
+        const detailResponse = await fetch(
+          `/api/runs/${encodeURIComponent(terminal.runId)}`,
+          { signal: controller.signal },
+        );
+        if (detailResponse.ok) {
+          resolvedAction =
+            actionFromPublicPayload(await detailResponse.json()) ?? resolvedAction;
+        }
+      } catch (reason) {
+        if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
+      }
+      if (requestId !== requestRef.current) return;
+      setPreparedAction(resolvedAction);
+      setActionRunId(terminal.runId);
       setOutcomeFocusVersion((current) => current + 1);
     } catch (reason) {
       if (requestId !== requestRef.current) return;
@@ -349,6 +440,8 @@ export function WorkbenchView() {
     abortRef.current = null;
     setRunning(false);
     setTrace(freshTrace());
+    setPreparedAction(null);
+    setActionRunId("");
     setLiveMessage("Run cancelled. The selected source is still available.");
     requestAnimationFrame(() => runButtonRef.current?.focus());
   }
@@ -383,32 +476,76 @@ export function WorkbenchView() {
       <form noValidate onSubmit={(event) => { event.preventDefault(); runAssurance(); }}>
         <div className="workbench-desk">
           <RulePanel className="source-rail" title="1. Source">
-            <fieldset className="source-mode">
-              <legend>Document source</legend>
-              <label><input type="radio" name="source-mode" checked={source === "synthetic"} onChange={() => setSource("synthetic")} /> Synthetic fixture</label>
-              <label><input type="radio" name="source-mode" checked={source === "custom"} onChange={() => setSource("custom")} /> Custom upload</label>
-            </fieldset>
-            {source === "synthetic" ? (
-              <fieldset className="sample-list"><legend>Choose a sample</legend>{syntheticInvoices.map((sample) => <label key={sample.id} className={sampleId === sample.id ? "selected-control" : ""}><input type="radio" name="sample" value={sample.id} checked={sampleId === sample.id} onChange={() => setSampleId(sample.id)} /><span><strong>{sampleCopy[sample.id].title}</strong><small>{sampleCopy[sample.id].description}</small></span></label>)}</fieldset>
-            ) : <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} />}
+            <div className="source-list" aria-label="Document source">
+              {syntheticFixtures.map((sample) => (
+                <button
+                  key={sample.id}
+                  type="button"
+                  className={`source-tile${source === "synthetic" && sampleId === sample.id ? " selected-control" : ""}`}
+                  aria-pressed={source === "synthetic" && sampleId === sample.id}
+                  onClick={() => {
+                    setSource("synthetic");
+                    setSampleId(sample.id);
+                    setError("");
+                  }}
+                >
+                  <strong>{sample.title}</strong>
+                  <small>{sample.description}</small>
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`source-tile source-tile--upload${source === "custom" ? " selected-control" : ""}`}
+                aria-pressed={source === "custom"}
+                onClick={() => {
+                  setSource("custom");
+                  setError("");
+                  customUploadRef.current?.openFilePicker();
+                }}
+              >
+                <strong>+ Add your document</strong>
+              </button>
+            </div>
+            <div className="custom-upload-panel" hidden={source !== "custom"}>
+              <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} />
+            </div>
           </RulePanel>
 
           <section className="document-work-area">
             <div className="run-controls">
-              <ProviderSelector value={provider} onChange={setProvider} />
-              <div className="run-actions"><Button ref={runButtonRef} type="submit" busy={running}>Run assurance check</Button>{running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}</div>
+              <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} />
+              <div className="run-actions">
+                {source === "synthetic" ? <span className="demo-mode-label">Demo data — no provider call</span> : null}
+                <Button ref={runButtonRef} type="submit" busy={running}>Run assurance check</Button>
+                {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
+              </div>
             </div>
-            {error ? <div className="inline-error recovery-error" role="alert"><strong>Run unavailable</strong><span>{error}</span>{source === "custom" ? <Button type="button" intent="neutral" onClick={() => { setSource("synthetic"); setError(""); }}>Use a synthetic recorded replay</Button> : null}</div> : null}
-            <DocumentPreview source={source} sampleId={sampleId} selectedInvoice={selectedInvoice} custom={custom} previewUrl={previewUrl} />
+            {error ? <div className="inline-error recovery-error" role="alert"><strong>Run unavailable</strong><span>{error}</span>{source === "custom" ? <Button type="button" intent="neutral" onClick={() => { setSource("synthetic"); setError(""); }}>Use a synthetic sample</Button> : null}</div> : null}
+            <DocumentPreview source={source} selectedFixture={selectedFixture} custom={custom} previewUrl={previewUrl} />
           </section>
 
           <aside className="assurance-rail">
             <RulePanel title="Assurance trace">
-              <ol className="trace-list">{traceStages.map((stage) => { const state = trace[stage.key]; return <li key={stage.key} className={state.status === "active" ? "trace-active" : ""}><StatusMark status={state.status} /><span><strong>{stage.label}</strong><small>{state.status === "active" ? "In progress" : state.status === "pass" ? "Completed" : "Pending"}</small></span><time>{state.duration === null ? "—" : `${(state.duration / 1000).toFixed(1)} s`}</time></li>; })}</ol>
+              <ol className="trace-list">{displayTrace.map((stage) => <li key={stage.key} className={stage.status === "active" ? "trace-active" : ""}><StatusMark status={stage.status} /><span><strong>{stage.label}</strong><small>{stage.status === "active" ? "In progress" : stage.status === "pass" ? "Completed" : stage.status === "error" ? "Needs attention" : "Pending"}</small></span><time>{stage.duration === null ? "—" : `${(stage.duration / 1000).toFixed(1)} s`}</time></li>)}</ol>
             </RulePanel>
-            <RulePanel title="Result and extracted fields">
-              {!outcome ? <EmptyState title="Awaiting a run">Field evidence will appear here without shifting the trace.</EmptyState> : <ResultLedger outcome={outcome} fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []} headingRef={outcomeHeadingRef} />}
-            </RulePanel>
+            {!outcome ? (
+              <RulePanel title="Prepared action">
+                <EmptyState title="Awaiting a run">A safe action proposal will appear here before its evidence.</EmptyState>
+              </RulePanel>
+            ) : (
+              <>
+                <RulePanel title="Prepared action">
+                  {preparedAction && actionRunId ? (
+                    <ActionCard key={actionRunId} runId={actionRunId} action={preparedAction} />
+                  ) : (
+                    <EmptyState title="No action available">The run did not return a safe action proposal.</EmptyState>
+                  )}
+                </RulePanel>
+                <RulePanel title="Evidence ledger">
+                  <ResultLedger outcome={outcome} fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []} headingRef={outcomeHeadingRef} />
+                </RulePanel>
+              </>
+            )}
           </aside>
         </div>
       </form>
@@ -417,7 +554,7 @@ export function WorkbenchView() {
         <header><div><h2 id="history-heading">Public run history</h2><p>Active details remain visible for less than 24 hours.</p></div><span>{history.length} active public runs</span></header>
         {historyLoading ? <p className="history-status" role="status">Loading active public runs…</p> : null}
         {historyError ? <div className="inline-error history-error" role="alert" aria-label="Public run history unavailable">{historyError}</div> : null}
-        {!historyLoading && !history.length ? <EmptyState title="No active public runs">Complete two recorded replays to compare their evidence and outcomes.</EmptyState> : history.length ? (
+        {!historyLoading && !history.length ? <EmptyState title="No active public runs">Complete two demo runs to compare their evidence and outcomes.</EmptyState> : history.length ? (
           <div className="comparison-controls"><label>Run A<select value={leftId} onChange={(event) => setLeftId(event.target.value)}><option value="">Select run A</option>{history.map((run) => <option value={run.id} key={run.id}>{run.id}</option>)}</select></label><label>Run B<select value={rightId} onChange={(event) => setRightId(event.target.value)}><option value="">Select run B</option>{history.map((run) => <option value={run.id} key={run.id}>{run.id}</option>)}</select></label></div>
         ) : null}
         <ComparisonLedger runs={history} leftId={leftId} rightId={rightId} />
@@ -429,7 +566,17 @@ export function WorkbenchView() {
   );
 }
 
-function DocumentPreview({ source, sampleId, selectedInvoice, custom, previewUrl }: { source: "synthetic" | "custom"; sampleId: string; selectedInvoice: (typeof syntheticInvoices)[number]; custom: CustomUploadState; previewUrl: string }) {
+function DocumentPreview({
+  source,
+  selectedFixture,
+  custom,
+  previewUrl,
+}: {
+  source: "synthetic" | "custom";
+  selectedFixture: (typeof syntheticFixtures)[number];
+  custom: CustomUploadState;
+  previewUrl: string;
+}) {
   if (source === "custom") {
     let preview = <EmptyState title="Choose a local file">The file remains local until consented submission.</EmptyState>;
     if (custom.file?.type.startsWith("image/") && previewUrl) {
@@ -442,15 +589,13 @@ function DocumentPreview({ source, sampleId, selectedInvoice, custom, previewUrl
     }
     return <RulePanel className="document-preview" title="Document preview">{preview}</RulePanel>;
   }
-  const fixture = recordedRunResults.find((candidate) => candidate.invoiceId === sampleId) ?? recordedRunResults[0];
-  const values = Object.fromEntries(fixture.fields.map((field) => [field.key, field.extractedValue]));
   return (
-    <RulePanel className="document-preview" title="Document preview" action={<a href={`/samples/${selectedInvoice.filename}`} target="_blank" rel="noreferrer">Open fixture PDF</a>}>
-      <article className="invoice-sheet" aria-label={`Synthetic invoice from ${selectedInvoice.vendor}`}>
-        <header><div><span className="invoice-kicker">Synthetic supplier invoice</span><h2>{selectedInvoice.vendor}</h2><p>Public-safe recorded fixture</p></div><strong>INVOICE</strong></header>
-        <div className="invoice-meta"><dl><div><dt>Vendor name</dt><dd>{values.vendor_name}</dd></div><div><dt>Purchase-order number</dt><dd>{values.purchase_order_number ?? "Not present"}</dd></div><div><dt>Invoice total</dt><dd>{values.invoice_total}</dd></div></dl></div>
-        <div className="invoice-lines"><span>Evidence line</span><span>Description</span><span>Amount</span><span>01</span><span>Regional office materials</span><span>{values.invoice_total}</span><span>02</span><span>Reference comparison</span><span>Recorded</span></div>
-        <footer><span>Fixture ID</span><code>{sampleId}</code></footer>
+    <RulePanel className="document-preview" title="Document preview" action={<a href={`/samples/${selectedFixture.filename}`} target="_blank" rel="noreferrer">Open fixture PDF</a>}>
+      <article className="invoice-sheet" aria-label={`Synthetic document: ${selectedFixture.title}`}>
+        <header><div><span className="invoice-kicker">Synthetic document</span><h2>{selectedFixture.title}</h2><p>{selectedFixture.description}</p></div><strong>REVIEW</strong></header>
+        <div className="invoice-meta"><dl>{selectedFixture.requestedFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{selectedFixture.documentData[field.key] ?? "Not present"}</dd></div>)}</dl></div>
+        <div className="document-instruction"><span>Document instruction</span><strong>{selectedFixture.action.instructionEvidence ?? "No document instruction found"}</strong></div>
+        <footer><span>Fixture ID</span><code>{selectedFixture.id}</code></footer>
       </article>
     </RulePanel>
   );
@@ -458,5 +603,5 @@ function DocumentPreview({ source, sampleId, selectedInvoice, custom, previewUrl
 
 function ResultLedger({ outcome, fields, headingRef }: { outcome: Outcome; fields: FieldResult[]; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const custom = outcome === "evidence_consistent" || outcome === "conflict" || outcome === "not_found";
-  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{outcomeLabel[outcome]}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from a recorded replay."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
+  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{outcomeLabel[outcome]}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
 }

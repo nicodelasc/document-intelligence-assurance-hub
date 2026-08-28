@@ -1,5 +1,5 @@
 import { PDFDocument } from "pdf-lib";
-import { syntheticInvoices } from "@/domain/fixtures";
+import { syntheticFixtures } from "@/domain/fixtures";
 import { validateUpload } from "@/domain/file-validation";
 import type { Provider, SyntheticFixture } from "@/domain/types";
 import type {
@@ -15,14 +15,11 @@ const MAX_MULTIPART_BYTES = 4_000_000;
 const MAX_FILENAME_LENGTH = 120;
 const MAX_FIELD_LABEL_LENGTH = 80;
 
-type SyntheticInvoice = (typeof syntheticInvoices)[number];
-
 export type ParsedRunRequest = {
   sourceType: SourceType;
   provider: Provider;
   model: string;
   executionMode: ExecutionMode;
-  sample: SyntheticInvoice | null;
   fixture: SyntheticFixture | null;
   file: {
     filename: string;
@@ -233,35 +230,6 @@ async function parseForm(request: Request): Promise<FormData> {
   }
 }
 
-function fixedRequestedFields(): RequestedField[] {
-  return [
-    { key: "vendor_name", label: "Vendor name" },
-    { key: "purchase_order_number", label: "Purchase-order number" },
-    { key: "invoice_total", label: "Invoice total" },
-  ];
-}
-
-function referenceData(sampleId: SyntheticInvoice["id"]): Record<string, string | null> {
-  const references = {
-    "clean-match": {
-      vendor_name: "Northstar Paperworks",
-      purchase_order_number: "PO-NP-1001",
-      invoice_total: "1250.00 SGD",
-    },
-    "invoice-total-mismatch": {
-      vendor_name: "Harborline Supplies",
-      purchase_order_number: "PO-HS-2001",
-      invoice_total: "840.00 SGD",
-    },
-    "missing-purchase-order": {
-      vendor_name: "Vireo Office Goods",
-      purchase_order_number: "PO-VO-3001",
-      invoice_total: "460.00 SGD",
-    },
-  } as const;
-  return references[sampleId];
-}
-
 export async function parseRunMultipart(
   request: Request,
   container: Pick<HttpContainer, "loadSyntheticDocument">,
@@ -282,20 +250,20 @@ export async function parseRunMultipart(
 
   if (sourceType === "synthetic") {
     const sampleId = requiredString(form, "sampleId");
-    const sample = syntheticInvoices.find((candidate) => candidate.id === sampleId);
-    if (!sample) {
+    const fixture = syntheticFixtures.find((candidate) => candidate.id === sampleId);
+    if (!fixture) {
       throw new MultipartInputError(
         "sample_not_found",
         "Choose one of the available synthetic samples.",
         400,
       );
     }
-    const bytes = await container.loadSyntheticDocument(sample.filename);
+    const bytes = await container.loadSyntheticDocument(fixture.filename);
     const pageCount = await pdfPageCount(bytes);
-    const requestedFields = fixedRequestedFields();
+    const requestedFields = fixture.requestedFields.map((field) => ({ ...field }));
     const validation = validateUpload({
       bytes,
-      filename: sample.filename,
+      filename: fixture.filename,
       reportedType: "application/pdf",
       requestedFields: requestedFields.map((field) => field.label),
       consent: false,
@@ -308,17 +276,16 @@ export async function parseRunMultipart(
       provider,
       model,
       executionMode,
-      sample,
-      fixture: null,
+      fixture,
       file: {
-        filename: sample.filename,
+        filename: fixture.filename,
         mediaType: "application/pdf",
         bytes,
         pageCount,
       },
       requestedFields,
       consent: false,
-      referenceData: referenceData(sample.id),
+      referenceData: { ...fixture.referenceData },
     };
   }
 
@@ -363,7 +330,6 @@ export async function parseRunMultipart(
     provider,
     model,
     executionMode,
-    sample: null,
     fixture: null,
     file: {
       filename,

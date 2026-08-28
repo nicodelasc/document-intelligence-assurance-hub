@@ -3,7 +3,10 @@ import {
   defaultModelForProvider,
   requireEnabledModel,
 } from "@/domain/live-model-catalog";
-import { recordedRunResults } from "@/domain/fixtures";
+import {
+  recordedDocumentRunResults,
+  syntheticFixtures,
+} from "@/domain/fixtures";
 import {
   validateExtractionForRequest,
   type ExtractionProvider,
@@ -11,15 +14,20 @@ import {
   type ProviderExtractionResponse,
 } from "@/server/workflow/provider";
 
-type FixtureId = (typeof recordedRunResults)[number]["invoiceId"];
+type FixtureId = (typeof syntheticFixtures)[number]["id"];
 
 export function createRecordedExtractionProvider(input: {
   provider: Provider;
   fixtureId: FixtureId;
   model?: string;
 }): ExtractionProvider {
-  const fixture = recordedRunResults.find((result) => result.invoiceId === input.fixtureId);
-  if (!fixture) throw new Error("recorded_fixture_not_found");
+  const fixture = recordedDocumentRunResults.find(
+    (result) => result.fixtureId === input.fixtureId,
+  );
+  const metadata = syntheticFixtures.find(
+    (candidate) => candidate.id === input.fixtureId,
+  );
+  if (!fixture || !metadata) throw new Error("recorded_fixture_not_found");
   const model = input.model ?? defaultModelForProvider(input.provider);
   requireEnabledModel(input.provider, model);
 
@@ -42,32 +50,10 @@ export function createRecordedExtractionProvider(input: {
             page: field?.page ?? null,
           };
         }),
-        documentInstruction: null,
+        documentInstruction: metadata.action.instructionEvidence,
         action: {
-          type: "create_document_review_task" as const,
-          title: "Prepare document review",
-          summary: "Prepare the extracted fields for an internal dry-run review.",
-          payload: request.requestedFields.map((requestedField) => {
-            const field = fixture.fields.find(
-              (candidate) => candidate.key === requestedField.key,
-            );
-            return {
-              label: requestedField.label,
-              value: field?.normalizedValue ?? "Not found",
-            };
-          }),
-          instructionEvidence: null,
-          page: null,
-          risk: fixture.outcome === "incomplete" ? ("high" as const) : ("low" as const),
-          status:
-            fixture.outcome === "incomplete"
-              ? ("blocked" as const)
-              : ("needs_review" as const),
-          reason:
-            fixture.outcome === "incomplete"
-              ? "Required evidence is incomplete."
-              : "The recorded result is prepared for internal review.",
-          stagedAt: null,
+          ...metadata.action,
+          payload: metadata.action.payload.map((entry) => ({ ...entry })),
         },
       };
 

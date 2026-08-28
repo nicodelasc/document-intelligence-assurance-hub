@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-test("quota failure offers recorded fallback", async ({ page }) => {
-  await page.route("**/api/runs", async (route) => route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "recorded_run_limit", message: "The recorded replay limit is active.", requestId: "safe" } }) }));
+test("quota failure offers a demo fallback", async ({ page }) => {
+  await page.route("**/api/runs", async (route) => route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "recorded_run_limit", message: "The demo run limit is active.", requestId: "safe" } }) }));
   await page.goto("/workbench");
   await page.getByRole("button", { name: "Run assurance check" }).click();
-  await expect(page.getByText("The recorded replay limit is active.", { exact: true })).toBeVisible();
+  await expect(page.getByText("The demo run limit is active.", { exact: true })).toBeVisible();
 });
 
 test("mocked custom completion keeps raw token in uploader context and deletes pessimistically", async ({ page }) => {
@@ -21,8 +21,9 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
   });
   await page.route("**/api/runs/run_mock_delete", async (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ deletion: { status: "accepted", runId: "run_mock_delete" } }) }));
   await page.goto("/workbench");
-  await page.getByText("Custom upload", { exact: true }).click();
-  await page.getByLabel("Document file").setInputFiles({ name: "safe.png", mimeType: "image/png", buffer: Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]) });
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "+ Add your document" }).click();
+  await (await chooserPromise).setFiles({ name: "safe.png", mimeType: "image/png", buffer: Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]) });
   await page.getByLabel("Review field 1").fill("Vendor");
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();

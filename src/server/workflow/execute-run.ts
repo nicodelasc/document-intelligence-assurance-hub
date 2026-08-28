@@ -327,9 +327,9 @@ function publicError(
       provider_auth_failed: "Live provider access is not configured.",
       provider_request_rejected: "The selected provider rejected this request.",
       live_provider_disabled:
-        "Live processing is disabled. A recorded replay remains available.",
+        "Live processing is disabled. A demo sample remains available.",
       live_provider_key_missing:
-        "Live processing is not configured. A recorded replay remains available.",
+        "Live processing is not configured. A demo sample remains available.",
       provider_schema_mismatch:
         "The provider response did not pass the extraction contract.",
     };

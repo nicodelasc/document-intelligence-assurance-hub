@@ -46,8 +46,9 @@ test("failed custom receipts survive refresh then delete independently", async (
     return route.fulfill({ status: 200, contentType: "application/x-ndjson", body });
   });
   await page.goto("/workbench");
-  await page.getByText("Custom upload", { exact: true }).click();
-  await page.getByLabel("Document file").setInputFiles({
+  const firstChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "+ Add your document" }).click();
+  await (await firstChooserPromise).setFiles({
     name: "safe.png",
     mimeType: "image/png",
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -83,15 +84,13 @@ test("picker and drop validation block invalid custom documents before POST", as
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(emptyRuns) });
   });
   await page.goto("/workbench");
-  await page.getByText("Custom upload", { exact: true }).click();
+  const invalidChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "+ Add your document" }).click();
+  const invalidChooser = await invalidChooserPromise;
+  await invalidChooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("plain") });
   await page.getByLabel("Review field 1").fill("Vendor");
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
-
-  const fileChooserPromise = page.waitForEvent("filechooser");
-  await page.getByText("Choose document", { exact: true }).click();
-  const fileChooser = await fileChooserPromise;
-  await fileChooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("plain") });
   const pointerOnlyPickerFocus = await page.locator(".drop-zone").evaluate((dropZone) => getComputedStyle(dropZone).outlineStyle);
   expect(pointerOnlyPickerFocus).toBe("none");
   await page.getByRole("button", { name: "Run assurance check" }).click();
@@ -193,8 +192,9 @@ test("custom streams stay isolated then public history restores after refresh", 
     });
   });
   await page.goto("/workbench");
-  await page.getByText("Custom upload", { exact: true }).click();
-  await page.getByLabel("Document file").setInputFiles({
+  const streamChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "+ Add your document" }).click();
+  await (await streamChooserPromise).setFiles({
     name: "safe.png",
     mimeType: "image/png",
     buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

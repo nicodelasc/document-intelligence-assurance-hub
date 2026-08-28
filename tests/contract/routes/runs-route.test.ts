@@ -16,6 +16,62 @@ import {
 } from "./test-support";
 
 describe("POST /api/runs", () => {
+  it("runs an operational fixture with its verified action semantics", async () => {
+    const container = createTestContainer();
+    const response = await handleRunsPost(
+      syntheticRequest(
+        "warehouse-receiving-sheet",
+        "openai",
+        "operational-fixture-action-20260828",
+      ),
+      container,
+    );
+    const events = await readLines(response);
+    const completed = events.find(
+      (event) =>
+        typeof event === "object" &&
+        event !== null &&
+        (event as { type?: unknown }).type === "completed",
+    ) as { runId: string; outcome: string };
+    const stored = await container.repository.readPublicRun(
+      completed.runId,
+      container.clock(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(completed.outcome).toBe("clear");
+    expect(stored?.file.filename).toBe("warehouse-receiving-sheet.pdf");
+    expect(stored?.requestedFields.map((field) => field.key)).toEqual([
+      "shipment_id",
+      "purchase_order_number",
+      "received_quantity",
+    ]);
+    expect(stored?.details?.result?.action).toEqual(
+      syntheticFixtures[1].action,
+    );
+  });
+
+  it("derives the invoice review outcome from conflicting document evidence", async () => {
+    const container = createTestContainer();
+    const response = await handleRunsPost(
+      syntheticRequest(
+        "invoice-exception-packet",
+        "openai",
+        "invoice-conflict-outcome-20260828",
+      ),
+      container,
+    );
+    const events = await readLines(response);
+    const completed = events.find(
+      (event) =>
+        typeof event === "object" &&
+        event !== null &&
+        (event as { type?: unknown }).type === "completed",
+    ) as { outcome: string };
+
+    expect(completed.outcome).toBe("needs_review");
+  });
+
   it("passes a valid catalogue model through provider construction", async () => {
     let selectedModel: string | undefined;
     const base = createTestContainer();
@@ -28,7 +84,7 @@ describe("POST /api/runs", () => {
 
     const response = await handleRunsPost(
       syntheticRequest(
-        "clean-match",
+        "warehouse-receiving-sheet",
         "openai",
         "valid-model-selection-20260828",
         "gpt-5.6-terra",
@@ -54,7 +110,7 @@ describe("POST /api/runs", () => {
 
     const response = await handleRunsPost(
       syntheticRequest(
-        "clean-match",
+        "warehouse-receiving-sheet",
         "openai",
         "unknown-model-selection-20260828",
         "gpt-unknown",
@@ -72,7 +128,7 @@ describe("POST /api/runs", () => {
   it("rejects a provider-model mismatch before provider construction", async () => {
     const response = await handleRunsPost(
       syntheticRequest(
-        "clean-match",
+        "warehouse-receiving-sheet",
         "openai",
         "mismatched-model-selection-20260828",
         "claude-haiku-4-5",
@@ -154,7 +210,7 @@ describe("POST /api/runs", () => {
     const request = formRequest([
       ["sourceType", "synthetic"],
       ["provider", "openai"],
-      ["sampleId", "clean-match"],
+      ["sampleId", "warehouse-receiving-sheet"],
       ["ignored", "x".repeat(4_000_100)],
     ]);
     expect(request.headers.get("content-length")).toBeNull();
@@ -324,11 +380,11 @@ describe("POST /api/runs", () => {
 
     const responses = await Promise.all([
       handleRunsPost(
-        syntheticRequest("clean-match", "openai", idempotencyKey),
+        syntheticRequest("warehouse-receiving-sheet", "openai", idempotencyKey),
         container,
       ),
       handleRunsPost(
-        syntheticRequest("clean-match", "openai", idempotencyKey),
+        syntheticRequest("warehouse-receiving-sheet", "openai", idempotencyKey),
         container,
       ),
     ]);
@@ -460,7 +516,7 @@ describe("POST /api/runs", () => {
     const request = formRequest([
       ["sourceType", "synthetic"],
       ["provider", "openai"],
-      ["sampleId", "clean-match"],
+      ["sampleId", "warehouse-receiving-sheet"],
       ["executionMode", "live"],
     ]);
 
@@ -500,7 +556,7 @@ describe("POST /api/runs", () => {
       response,
     );
     expect(body.error.code).toBe("live_disabled");
-    expect(body.error.message).toContain("synthetic recorded replay");
+    expect(body.error.message).toContain("synthetic sample");
     expect(providerCreations).toBe(0);
     expect(
       (await container.repository.aggregateAnonymousUsage()).totalRuns,
@@ -530,7 +586,7 @@ describe("POST /api/runs", () => {
       response,
     );
     expect(body.error.code).toBe("recorded_custom_unavailable");
-    expect(body.error.message).toContain("synthetic recorded replay");
+    expect(body.error.message).toContain("synthetic sample");
     expect(
       (await container.repository.aggregateAnonymousUsage()).totalRuns,
     ).toBe(0);
@@ -801,7 +857,7 @@ describe("GET /api/runs", () => {
       runs: [
         {
           executionMode: "recorded",
-          filename: "clean-match-invoice.pdf",
+          filename: "warehouse-receiving-sheet.pdf",
         },
       ],
       pagination: { limit: 20, offset: 0, returned: 1 },
@@ -811,9 +867,9 @@ describe("GET /api/runs", () => {
   it("uses bounded limit and offset pagination", async () => {
     const container = createTestContainer();
     for (const sampleId of [
-      "clean-match",
-      "invoice-total-mismatch",
-      "missing-purchase-order",
+      "invoice-exception-packet",
+      "warehouse-receiving-sheet",
+      "visitor-access-request",
     ]) {
       await (
         await handleRunsPost(syntheticRequest(sampleId), container)

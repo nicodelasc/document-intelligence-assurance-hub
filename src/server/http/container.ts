@@ -24,20 +24,20 @@ import { defaultBucketTokenSource } from "@/server/http/anonymous-bucket";
 import type { ExtractionProvider } from "@/server/workflow/provider";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import type { ExecutionMode } from "@/server/repositories/run-repository";
-import { syntheticInvoices } from "@/domain/fixtures";
+import { syntheticFixtures } from "@/domain/fixtures";
 import {
   createNeonAbuseControl,
   InMemoryAbuseControl,
   type AbuseControl,
 } from "@/server/security/abuse-control";
 
-type SyntheticInvoiceId = (typeof syntheticInvoices)[number]["id"];
+type SyntheticFixtureId = (typeof syntheticFixtures)[number]["id"];
 
 export type ProviderFactoryInput = {
   provider: Provider;
   model: string;
   executionMode: ExecutionMode;
-  sampleId: SyntheticInvoiceId | null;
+  sampleId: SyntheticFixtureId | null;
 };
 
 export class HttpContainerConfigurationError extends Error {

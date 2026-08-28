@@ -82,7 +82,7 @@ export function formRequest(
 }
 
 export function syntheticRequest(
-  sampleId = "clean-match",
+  sampleId = "warehouse-receiving-sheet",
   provider = "openai",
   idempotencyKey?: string,
   model: string = defaultModelForProvider(provider as Provider),

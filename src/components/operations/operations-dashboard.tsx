@@ -75,7 +75,7 @@ export function OperationsDashboard() {
       <header className="page-intro"><div><h1>Operations</h1><p>Inspect prototype runs, recorded benchmark quality and illustrative resource assumptions.</p></div><KeylessNotice /></header>
       {loading ? <div className="loading-band" role="status">Loading operational ledger…</div> : null}
       <section className="metric-band" aria-label="Run summary metrics">
-        <Metric label="Total runs" value={String(summary.totalRuns)} detail="Public prototype runs" />
+        <Metric label="Total runs" value={String(summary.totalRuns)} detail="Public runs" />
         <Metric label="Completion rate" value={percent.format(summary.completionRate)} detail="Current public run ledger" />
         <Metric label="Review rate" value={percent.format(summary.reviewRate)} detail="Needs-review or incomplete outcomes" />
         <Metric label="Failure rate" value={percent.format(summary.failureRate)} detail="Safe terminal failures" />

@@ -104,7 +104,7 @@ async function createDocument(fixture, textureBytes) {
 
   let y = 584;
   for (const field of fixture.requestedFields) {
-    const value = formValue(fixture.referenceData[field.key]);
+    const value = formValue(fixture.documentData[field.key]);
     page.drawText(field.label.toUpperCase(), {
       x: 58,
       y: y + 7,

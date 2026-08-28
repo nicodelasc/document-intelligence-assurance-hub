@@ -55,7 +55,7 @@ export function KeylessNotice() {
   return (
     <div className="keyless-notice" role="note">
       <StatusMark status="active" />
-      <span>Recorded replay is active. Live provider calls remain off until server credentials are explicitly configured.</span>
+      <span>Live provider calls remain off until server credentials are explicitly configured.</span>
     </div>
   );
 }

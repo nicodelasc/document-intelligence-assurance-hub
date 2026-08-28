@@ -62,11 +62,11 @@ function quotaError(reason: string, requestId: string): Response {
     custom_upload_limit: "This browser has reached the daily custom-upload limit.",
     global_custom_upload_limit: "The public daily custom-upload limit has been reached.",
     live_run_limit: "This browser has reached the daily live-run limit.",
-    recorded_run_limit: "This browser has reached the daily recorded-replay limit.",
-    global_recorded_run_limit: "The public daily recorded-replay limit has been reached.",
+    recorded_run_limit: "This browser has reached the daily demo-run limit.",
+    global_recorded_run_limit: "The public daily demo-run limit has been reached.",
     daily_budget: "The daily live model budget is unavailable.",
     live_disabled:
-      "Live processing is disabled. Choose a synthetic recorded replay to continue.",
+      "Live processing is disabled. Choose a synthetic sample to continue.",
   };
   return safeErrorResponse({
     code: reason,
@@ -137,7 +137,7 @@ export async function handleRunsPost(
         safeErrorResponse({
           code: "recorded_custom_unavailable",
           message:
-            "Recorded mode cannot extract a custom document. Choose a synthetic recorded replay or enable live processing.",
+            "Demo mode cannot extract a custom document. Choose a synthetic sample or enable live processing.",
           requestId,
           status: 409,
           headers: noIndexHeaders,
@@ -170,7 +170,7 @@ export async function handleRunsPost(
         safeErrorResponse({
           code: "recorded_custom_unavailable",
           message:
-            "Recorded mode cannot extract a custom document. Choose a synthetic recorded replay or enable live processing.",
+            "Demo mode cannot extract a custom document. Choose a synthetic sample or enable live processing.",
           requestId,
           status: 409,
           headers: noIndexHeaders,
@@ -208,7 +208,7 @@ export async function handleRunsPost(
         provider: input.provider,
         model: input.model,
         executionMode: input.executionMode,
-        sampleId: input.sample?.id ?? null,
+        sampleId: input.fixture?.id ?? null,
       });
     } catch {
       await container.repository.releaseRunRequest(claimedRunId);

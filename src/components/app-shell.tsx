@@ -16,7 +16,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Link href="/workbench" aria-current={pathname === "/workbench" ? "page" : undefined}>Workbench</Link>
             <Link href="/operations" aria-current={pathname === "/operations" ? "page" : undefined}>Operations</Link>
           </nav>
-          <span className="prototype-status">Public prototype · recorded</span>
         </header>
         {children}
       </div>

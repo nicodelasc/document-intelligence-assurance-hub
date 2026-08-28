@@ -48,6 +48,7 @@ export interface SyntheticFixture {
   title: string;
   description: string;
   requestedFields: Array<{ key: string; label: string }>;
+  documentData: Record<string, string | null>;
   referenceData: Record<string, string | null>;
   expectedOutcome: Outcome;
   action: ActionProposal;

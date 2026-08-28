@@ -2,15 +2,17 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PDFDocument } from "pdf-lib";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ComparisonLedger,
   CustomUploadFields,
-  ProviderSelector,
+  ModelSelector,
 } from "@/components/workbench/workbench-controls";
 import { consumeNdjson } from "@/components/workbench/run-stream";
 import { WorkbenchView } from "@/components/workbench/workbench-view";
-import type { FieldResult, RunEvent } from "@/domain/types";
+import { ActionCard } from "@/components/workbench/action-card";
+import type { ActionProposal, FieldResult, RunEvent } from "@/domain/types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -43,6 +45,22 @@ const emptyHistory = () => new Response(JSON.stringify({ runs: [], pagination: {
   headers: { "content-type": "application/json" },
 });
 
+const readyAction: ActionProposal = {
+  type: "stage_inventory_receipt",
+  title: "Stage inventory receipt",
+  summary: "Stage the verified receipt for internal inventory posting.",
+  payload: [
+    { label: "Shipment ID", value: "SHIP-4018" },
+    { label: "Received quantity", value: "48" },
+  ],
+  instructionEvidence: "Corrected received quantity: 48.",
+  page: 1,
+  risk: "low",
+  status: "ready",
+  reason: "The corrected quantity matches the expected delivery.",
+  stagedAt: null,
+};
+
 describe("Workbench controls", () => {
   it("starts custom consent unchecked and keeps exactly two or three field labels", async () => {
     const user = userEvent.setup();
@@ -67,15 +85,62 @@ describe("Workbench controls", () => {
     expect(screen.getByLabelText(/document file/i)).toHaveFocus();
   });
 
-  it("lets a keyboard user select either provider", async () => {
+  it("groups the approved models and submits the selected model value", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<ProviderSelector value="openai" onChange={onChange} />);
+    const models = [
+      { id: "gpt-5.6-luna", provider: "openai" as const, displayName: "GPT-5.6 Luna", recommended: true },
+      { id: "gpt-5.6-terra", provider: "openai" as const, displayName: "GPT-5.6 Terra", recommended: false },
+      { id: "claude-haiku-4-5", provider: "anthropic" as const, displayName: "Claude Haiku 4.5", recommended: true },
+      { id: "claude-sonnet-5", provider: "anthropic" as const, displayName: "Claude Sonnet 5", recommended: false },
+    ];
+    function ModelHarness() {
+      const [value, setValue] = useState("gpt-5.6-luna");
+      return (
+        <ModelSelector
+          models={models}
+          value={value}
+          onChange={(model) => {
+            onChange(model);
+            setValue(model);
+          }}
+        />
+      );
+    }
+    const { container } = render(
+      <form>
+        <ModelHarness />
+      </form>,
+    );
 
-    const anthropic = screen.getByRole("radio", { name: /anthropic claude haiku 4.5/i });
-    anthropic.focus();
+    expect(screen.getByRole("group", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Anthropic" })).toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Live custom-run model" });
+    await user.selectOptions(select, "claude-sonnet-5");
+    expect(onChange).toHaveBeenCalledWith("claude-sonnet-5");
+    expect(new FormData(container.querySelector("form")!).get("model")).toBe(
+      "claude-sonnet-5",
+    );
+  });
+
+  it("shows three fixture cards followed by an upload button that opens the native picker", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
+    render(<WorkbenchView />);
+
+    const invoice = screen.getByRole("button", { name: /Invoice exception packet/i });
+    const warehouse = screen.getByRole("button", { name: /Warehouse receiving sheet/i });
+    const visitor = screen.getByRole("button", { name: /Visitor access request/i });
+    const upload = screen.getByRole("button", { name: "+ Add your document" });
+    expect(invoice.compareDocumentPosition(warehouse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(warehouse.compareDocumentPosition(visitor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(visitor.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    upload.focus();
     await user.keyboard(" ");
-    expect(onChange).toHaveBeenCalledWith("anthropic");
+    expect(clickSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText("Document file")).toBeInTheDocument();
   });
 });
 
@@ -102,6 +167,81 @@ describe("NDJSON streaming", () => {
 
     expect(seen).toEqual(["validating", "storing", "completed"]);
     expect(terminal).toMatchObject({ type: "completed", runId: "run_a" });
+  });
+});
+
+describe("Prepared action", () => {
+  it("stages pessimistically and prevents duplicate requests", async () => {
+    const user = userEvent.setup();
+    let resolveRequest!: (response: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ActionCard runId="run_action_ready" action={readyAction} />);
+
+    const button = screen.getByRole("button", { name: "Stage action" });
+    await user.click(button);
+    await user.click(button);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
+    expect(screen.queryByText("Action staged")).not.toBeInTheDocument();
+
+    resolveRequest(
+      new Response(
+        JSON.stringify({
+          staging: {
+            status: "staged",
+            action: { ...readyAction, stagedAt: "2026-08-28T10:00:00.000Z" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    expect(await screen.findByText("Action staged")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/runs/run_action_ready/stage-action",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("preserves the prepared action and allows retry after failure", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { message: "Action staging is temporarily unavailable." } }),
+          { status: 503, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            staging: {
+              status: "already_staged",
+              action: { ...readyAction, stagedAt: "2026-08-28T10:00:00.000Z" },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ActionCard runId="run_action_retry" action={readyAction} />);
+
+    await user.click(screen.getByRole("button", { name: "Stage action" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Action staging is temporarily unavailable.",
+    );
+    expect(screen.getByRole("heading", { name: readyAction.title })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Stage action" }));
+    expect(await screen.findByText("Action staged")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -152,6 +292,12 @@ describe("Comparison ledger", () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+    const comparison = screen.getByRole("table", {
+      name: /comparison of two assurance runs/i,
+    });
+    expect(comparison).not.toHaveTextContent("gpt-5-mini");
+    expect(comparison).not.toHaveTextContent("claude-haiku-4-5");
+    expect(within(comparison).getAllByText("Not called (demo)")).toHaveLength(2);
   });
 });
 
@@ -205,7 +351,7 @@ describe("Custom document validation", () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
     render(<WorkbenchView />);
-    await user.click(screen.getByText("Custom upload", { exact: true }));
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
     await user.upload(
       screen.getByLabelText("Document file"),
       new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
@@ -222,6 +368,75 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
+  it("shows three visible stages and places the prepared action before evidence", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return new Response(
+          JSON.stringify({
+            models: [
+              { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+              { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+            ],
+            defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_action_result") {
+        return new Response(
+          JSON.stringify({
+            run: {
+              id: "run_action_result",
+              details: { result: { action: readyAction } },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (init?.method === "POST") {
+        return ndjson([
+          { type: "stage", stage: "validating", timestamp: "2026-08-28T00:00:00.000Z" },
+          { type: "stage", stage: "storing", timestamp: "2026-08-28T00:00:00.100Z" },
+          { type: "stage", stage: "extracting", timestamp: "2026-08-28T00:00:00.200Z" },
+          { type: "stage", stage: "verifying", timestamp: "2026-08-28T00:00:00.300Z" },
+          { type: "stage", stage: "comparing", timestamp: "2026-08-28T00:00:00.400Z" },
+          { type: "stage", stage: "deciding", timestamp: "2026-08-28T00:00:00.500Z" },
+          { type: "stage", stage: "publishing", timestamp: "2026-08-28T00:00:00.600Z" },
+          { type: "completed", outcome: "clear", runId: "run_action_result", executionMode: "recorded", deletionToken: "delete_action_result", timestamp: "2026-08-28T00:00:00.700Z" },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: /Warehouse receiving sheet/i }));
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    expect(await screen.findByRole("heading", { name: "Stage inventory receipt" })).toBeVisible();
+    for (const label of [
+      "Understand document",
+      "Verify evidence",
+      "Resolve and prepare action",
+    ]) {
+      expect(screen.getByText(label)).toBeVisible();
+    }
+    expect(screen.queryByText(/publish telemetry/i)).not.toBeInTheDocument();
+    const actionHeading = screen.getByRole("heading", { name: "Prepared action" });
+    const evidenceHeading = screen.getByRole("heading", { name: "Evidence ledger" });
+    expect(
+      actionHeading.compareDocumentPosition(evidenceHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/runs/run_action_result",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it("sends custom preflight metadata with a failed terminal event", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -237,7 +452,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
-    await user.click(screen.getByText("Custom upload", { exact: true }));
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
     await user.upload(
       screen.getByLabelText("Document file"),
       new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
@@ -352,7 +567,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
-    await user.click(screen.getByText("Custom upload", { exact: true }));
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
     await user.upload(
       screen.getByLabelText("Document file"),
       new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
@@ -438,7 +653,7 @@ describe("Public run history", () => {
     const comparison = screen.getByRole("table", { name: /comparison of two assurance runs/i });
     expect(comparison).toHaveTextContent("Public Alpha");
     expect(comparison).toHaveTextContent("Public Beta");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("shows a safe history error without displacing the Workbench", async () => {

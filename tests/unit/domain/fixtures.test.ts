@@ -28,6 +28,15 @@ describe("synthetic document fixtures", () => {
     ]);
   });
 
+  it("keeps document evidence independent from trusted reference data", () => {
+    const invoice = syntheticFixtures.find(
+      (fixture) => fixture.id === "invoice-exception-packet",
+    );
+
+    expect(invoice?.documentData.invoice_total).toBe("1250.00 SGD");
+    expect(invoice?.referenceData.invoice_total).toBe("1200.00 SGD");
+  });
+
   it("publishes one-page sample PDFs with their exact fixture evidence", async () => {
     for (const fixture of syntheticFixtures) {
       const document = await readFile(
