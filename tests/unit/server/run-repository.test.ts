@@ -301,6 +301,51 @@ describe("InMemoryRunRepository", () => {
     ]);
   });
 
+  it("locks the Neon action result before classifying and inserts from the successful update", async () => {
+    let stagingSql = "";
+    const stagedAt = "2026-08-27T00:05:00.000Z";
+    const action = {
+      ...structuredClone(syntheticFixtures[1].action),
+      stagedAt,
+    };
+    const driver: NeonDriver = {
+      async query(sql) {
+        stagingSql = sql;
+        return [
+          {
+            decision: "staged",
+            result_json: {
+              fields: [],
+              outcome: "clear",
+              documentInstruction: action.instructionEvidence,
+              action,
+              usage: { inputTokens: 0, outputTokens: 0 },
+              estimatedCostUsd: 0,
+              retryCount: 0,
+              latencyMs: 10,
+              stepDurations: {},
+              completedAt: "2026-08-27T00:00:01.000Z",
+            },
+          },
+        ];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await expect(
+      repository.stageAction("run-neon", new Date(stagedAt)),
+    ).resolves.toEqual({ status: "staged", action });
+    expect(stagingSql).toMatch(
+      /LEFT JOIN LATERAL \(\s*SELECT result_json\s*FROM run_results AS locked_result\s*WHERE locked_result\.run_id = runs\.id\s*FOR UPDATE OF locked_result\s*\) AS result ON true/,
+    );
+    expect(stagingSql).toMatch(
+      /INSERT INTO run_steps \(run_id, step_json\)\s*SELECT run_id, \$3::jsonb FROM updated/,
+    );
+  });
+
   it("keeps a Neon tombstone immutable when a late status update arrives", async () => {
     const queries: Array<{ sql: string; parameters: unknown[] }> = [];
     const driver: NeonDriver = {

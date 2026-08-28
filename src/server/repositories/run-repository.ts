@@ -585,13 +585,21 @@ class NeonRunRepository implements RunRepository {
       decision: unknown;
       result_json: unknown;
     }>(
-      `WITH target AS (
+      `WITH locked_run AS (
+        SELECT id, status, expires_at, details_deleted
+        FROM runs
+        WHERE id = $1
+        FOR UPDATE
+      ), target AS (
         SELECT runs.id, runs.status, runs.expires_at, runs.details_deleted,
           result.result_json
-        FROM runs
-        LEFT JOIN run_results AS result ON result.run_id = runs.id
-        WHERE runs.id = $1
-        FOR UPDATE OF runs
+        FROM locked_run AS runs
+        LEFT JOIN LATERAL (
+          SELECT result_json
+          FROM run_results AS locked_result
+          WHERE locked_result.run_id = runs.id
+          FOR UPDATE OF locked_result
+        ) AS result ON true
       ), classified AS (
         SELECT *, CASE
           WHEN details_deleted OR status = 'deleted' THEN 'deleted'
