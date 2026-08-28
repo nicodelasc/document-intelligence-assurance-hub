@@ -116,7 +116,6 @@ function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
   if (typeof record.id !== "string" || typeof record.providerCalled !== "boolean") return null;
   if (record.executionMode !== "recorded" && record.executionMode !== "live") return null;
   if (!isProvider(record.configuredProvider) || typeof record.configuredModel !== "string") return null;
-  if (record.providerCalled !== (record.executionMode === "live")) return null;
   if (record.providerCalled && (!isProvider(record.provider) || typeof record.model !== "string")) return null;
   if (!record.providerCalled && (record.provider !== null || record.model !== null)) return null;
   if (typeof record.outcome !== "string" || !outcomes.has(record.outcome as Outcome)) return null;

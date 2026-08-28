@@ -28,6 +28,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_public_resource_contr
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0004_conservative_provider_budget.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0005_provider_dispatch_budget.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0006_bounded_provider_settlement.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0007_provider_dispatch_attribution.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -37,10 +38,12 @@ psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER
 - [ ] `0004_conservative_provider_budget` appears exactly once.
 - [ ] `0005_provider_dispatch_budget` appears exactly once.
 - [ ] `0006_bounded_provider_settlement` appears exactly once.
+- [ ] `0007_provider_dispatch_attribution` appears exactly once.
 - [ ] Reapplying the migration succeeds.
 - [ ] `document_cleanup_jobs` and `run_submission_claims` exist.
 - [ ] `reserve_daily_quota`, `settle_daily_quota`, `settle_reserved_daily_quota` and `reconcile_stale_daily_quota` exist.
 - [ ] `model_budget_reservations.expires_at` exists and expired pending leases move their stored reservation into daily spend after 15 minutes.
+- [ ] `runs.provider_dispatched` defaults to false and changes only from confirmed live-provider dispatch.
 - [ ] `public_rate_limit_windows` and `consume_public_resource_limit` exist.
 - [ ] Parallel requests from rotated test cookies stop at the configured global minute ceiling.
 - [ ] A normal application request produces no schema DDL.

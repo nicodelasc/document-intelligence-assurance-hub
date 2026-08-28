@@ -16,6 +16,7 @@ function runRecord(id = "run-1") {
     model: "gpt-5-mini",
     promptVersion: "recorded-fixture-2026-08-27.v1",
     executionMode: "recorded" as const,
+    providerDispatched: false,
     sourceType: "synthetic" as const,
     file: {
       filename: "clean-match-invoice.pdf",
@@ -58,7 +59,7 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
-  it("counts only live-run provider configuration in provider usage", async () => {
+  it("counts provider usage only after one idempotent confirmed dispatch", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun(runRecord("recorded-run"));
     await repository.createRun({
@@ -71,8 +72,67 @@ describe("InMemoryRunRepository", () => {
 
     expect((await repository.aggregateAnonymousUsage()).providerCounts).toEqual({
       openai: 0,
+      anthropic: 0,
+    });
+    await expect(repository.markProviderDispatched("live-run")).resolves.toBe(true);
+    await expect(repository.markProviderDispatched("live-run")).resolves.toBe(true);
+    await expect(repository.markProviderDispatched("recorded-run")).resolves.toBe(false);
+
+    expect((await repository.aggregateAnonymousUsage()).providerCounts).toEqual({
+      openai: 0,
       anthropic: 1,
     });
+    await expect(
+      repository.readPublicRun("live-run", new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({ providerDispatched: true });
+  });
+
+  it("persists confirmed dispatch idempotently in Neon and reads the durable fact", async () => {
+    const queries: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queries.push({ sql, parameters });
+        if (sql.includes("UPDATE runs SET provider_dispatched = true")) {
+          return [{ id: "run-neon" }];
+        }
+        if (sql.includes("SELECT * FROM runs WHERE id")) {
+          return [{
+            id: "run-neon",
+            provider: "openai",
+            model: "gpt-5.6-luna",
+            prompt_version: "live.v1",
+            execution_mode: "live",
+            provider_dispatched: true,
+            source_type: "custom",
+            file_metadata: { filename: "invoice.pdf", mediaType: "application/pdf", sizeBytes: 100, pageCount: 1 },
+            requested_fields: [],
+            status: "failed",
+            outcome: null,
+            usage: { inputTokens: 0, outputTokens: 0 },
+            estimated_cost_usd: 0,
+            consent: true,
+            created_at: createdAt,
+            expires_at: expiresAt,
+            deleted_at: null,
+            retry_count: 1,
+            latency_ms: 10,
+            step_durations: {},
+            details_deleted: false,
+          }];
+        }
+        if (sql.includes("SELECT step_json") || sql.includes("SELECT result_json")) return [];
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await expect(repository.markProviderDispatched("run-neon")).resolves.toBe(true);
+    await expect(repository.markProviderDispatched("run-neon")).resolves.toBe(true);
+    await expect(
+      repository.readPublicRun("run-neon", new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({ providerDispatched: true });
+    expect(queries.filter((entry) => entry.sql.includes("UPDATE runs SET provider_dispatched = true"))).toHaveLength(2);
+    expect(queries[0]?.sql).toMatch(/execution_mode = 'live'/);
   });
 
   it("stages a permitted action once with one internal action step", async () => {
@@ -609,7 +669,7 @@ describe("InMemoryRunRepository", () => {
       outcomeCounts: { clear: 1, needs_review: 1, incomplete: 1, conflict: 1 },
     });
     expect(aggregateSql).toContain("COUNT(*) FILTER");
-    expect(aggregateSql).toContain("execution_mode = 'live'");
+    expect(aggregateSql).toContain("provider_dispatched");
     expect(aggregateSql).not.toContain("SELECT provider, outcome");
   });
 });

@@ -578,6 +578,7 @@ export async function* executeRun(
       model: dependencies.provider.model,
       promptVersion: dependencies.provider.promptVersion,
       executionMode: dependencies.provider.executionMode,
+      providerDispatched: false,
       sourceType: input.sourceType,
       file: {
         filename: safeFilename(input.file.filename),
@@ -632,24 +633,33 @@ export async function* executeRun(
         dependencies.provider,
         input,
         async () => {
-          if (dependencies.quotaReservation) {
-            const marked =
-              await dependencies.quotaReservation.repository.markLiveReservationDispatched(
-                dependencies.quotaReservation.reservationId,
-              );
-            if (!marked) throw new Error("quota_dispatch_mark_failed");
-          }
-          try {
-            signal?.throwIfAborted();
-          } catch (error) {
-            if (dependencies.quotaReservation) {
-              await dependencies.quotaReservation.repository
-                .clearLiveReservationDispatched(
-                  dependencies.quotaReservation.reservationId,
-                )
-                .catch(() => false);
+          signal?.throwIfAborted();
+          if (dependencies.provider.executionMode === "live") {
+            let quotaMarked = false;
+            try {
+              if (dependencies.quotaReservation) {
+                quotaMarked =
+                  await dependencies.quotaReservation.repository.markLiveReservationDispatched(
+                    dependencies.quotaReservation.reservationId,
+                  );
+                if (!quotaMarked) throw new Error("quota_dispatch_mark_failed");
+              }
+              signal?.throwIfAborted();
+              const attributed = await dependencies.repository.markProviderDispatched(runId);
+              if (!attributed) throw new Error("provider_dispatch_attribution_failed");
+            } catch (error) {
+              if (quotaMarked && dependencies.quotaReservation) {
+                const cleared = await dependencies.quotaReservation.repository
+                  .clearLiveReservationDispatched(dependencies.quotaReservation.reservationId)
+                  .catch(() => false);
+                if (!cleared) {
+                  await dependencies.quotaReservation.repository
+                    .releaseLiveReservation(dependencies.quotaReservation.reservationId)
+                    .catch(() => false);
+                }
+              }
+              throw error;
             }
-            throw error;
           }
           providerDispatchCount += 1;
         },

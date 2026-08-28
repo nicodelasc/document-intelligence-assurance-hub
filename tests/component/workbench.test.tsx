@@ -873,6 +873,41 @@ describe("Public run history", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("accepts a configured live run with no confirmed provider call", async () => {
+    const listRun = {
+      id: "live_pre_dispatch_failure",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: "anthropic",
+      configuredModel: "claude-sonnet-5",
+      executionMode: "live",
+      sourceType: "custom",
+      status: "failed",
+      outcome: "incomplete",
+      createdAt: "2026-08-27T00:00:00.000Z",
+      expiresAt: "2026-08-28T00:00:00.000Z",
+      deletedAt: null,
+      retryCount: 0,
+      latencyMs: 10,
+      estimatedCostUsd: 0,
+      filename: "invoice.pdf",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/runs?limit=12") {
+        return new Response(JSON.stringify({ runs: [listRun], pagination: { limit: 12, offset: 0, returned: 1 } }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ run: {
+        ...listRun,
+        requestedFields: [{ key: "vendor", label: "Vendor" }],
+        details: { result: { fields: [field("vendor", "Public vendor", "Public vendor")], outcome: "incomplete", latencyMs: 10 } },
+      } }), { status: 200 });
+    }));
+    render(<WorkbenchView />);
+
+    expect(await screen.findAllByRole("option", { name: "live_pre_dispatch_failure" })).toHaveLength(2);
+  });
+
   it("shows a safe history error without displacing the Workbench", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("untrusted detail", { status: 503 })));
     render(<WorkbenchView />);

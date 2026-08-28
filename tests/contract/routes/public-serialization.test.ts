@@ -15,6 +15,7 @@ function poisonedRun(): PublicRunRecord {
     model: "gpt-5-mini",
     promptVersion: "prompt-public-v1",
     executionMode: "recorded",
+    providerDispatched: false,
     sourceType: "custom",
     file: {
       filename: "invoice.pdf",
@@ -94,6 +95,7 @@ describe("public serializers", () => {
   it("returns actual attribution for a live provider call", () => {
     const run = poisonedRun();
     run.executionMode = "live";
+    run.providerDispatched = true;
     run.provider = "anthropic";
     run.model = "claude-sonnet-5";
 
@@ -108,6 +110,21 @@ describe("public serializers", () => {
       providerCalled: true,
       provider: "anthropic",
       model: "claude-sonnet-5",
+      configuredProvider: "anthropic",
+      configuredModel: "claude-sonnet-5",
+    });
+  });
+
+  it("does not attribute a configured live run before confirmed dispatch", () => {
+    const run = poisonedRun();
+    run.executionMode = "live";
+    run.provider = "anthropic";
+    run.model = "claude-sonnet-5";
+
+    expect(serializePublicRunDetail(run)).toMatchObject({
+      providerCalled: false,
+      provider: null,
+      model: null,
       configuredProvider: "anthropic",
       configuredModel: "claude-sonnet-5",
     });

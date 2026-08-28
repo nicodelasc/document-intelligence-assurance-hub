@@ -41,6 +41,7 @@ export type StoredRunRecord = {
   model: string;
   promptVersion: string;
   executionMode: ExecutionMode;
+  providerDispatched: boolean;
   sourceType: SourceType;
   file: SafeFileMetadata;
   documentKey: string | null;
@@ -126,6 +127,7 @@ export interface RunRepository {
   claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean>;
   releaseRunRequest(runId: string): Promise<void>;
   createRun(record: StoredRunRecord): Promise<void>;
+  markProviderDispatched(runId: string): Promise<boolean>;
   setStatus(runId: string, status: RunStatus): Promise<void>;
   appendStep(runId: string, step: RunStepRecord): Promise<void>;
   saveResults(runId: string, result: SaveRunResultsInput): Promise<void>;
@@ -200,8 +202,10 @@ export class InMemoryRunRepository implements RunRepository {
 
   async createRun(record: StoredRunRecord): Promise<void> {
     if (this.runs.has(record.id)) throw new Error("run_already_exists");
+    const initialRecord = clone(record);
+    initialRecord.providerDispatched = false;
     this.runs.set(record.id, {
-      record: clone(record),
+      record: initialRecord,
       steps: [],
       result: null,
       detailsDeleted: false,
@@ -209,9 +213,16 @@ export class InMemoryRunRepository implements RunRepository {
       failureAggregated: false,
     });
     this.aggregate.totalRuns += 1;
-    if (record.executionMode === "live") {
-      this.aggregate.providerCounts[record.provider] += 1;
+  }
+
+  async markProviderDispatched(runId: string): Promise<boolean> {
+    const run = this.runs.get(runId);
+    if (!run || run.detailsDeleted || run.record.executionMode !== "live") return false;
+    if (!run.record.providerDispatched) {
+      run.record.providerDispatched = true;
+      this.aggregate.providerCounts[run.record.provider] += 1;
     }
+    return true;
   }
 
   async setStatus(runId: string, status: RunStatus): Promise<void> {
@@ -493,10 +504,10 @@ class NeonRunRepository implements RunRepository {
         id, provider, model, execution_mode, source_type, file_metadata, document_key,
         requested_fields, status, outcome, usage, estimated_cost_usd, consent, created_at,
         expires_at, deleted_at, deletion_token_hash, retry_count, latency_ms, step_durations,
-        prompt_version
+        prompt_version, provider_dispatched
       ) VALUES (
         $1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12,
-        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21
+        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false
       )`,
       [
         record.id,
@@ -522,6 +533,17 @@ class NeonRunRepository implements RunRepository {
         record.promptVersion,
       ],
     );
+  }
+
+  async markProviderDispatched(runId: string): Promise<boolean> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query(
+      `UPDATE runs SET provider_dispatched = true
+      WHERE id = $1 AND execution_mode = 'live' AND details_deleted = false
+      RETURNING id`,
+      [runId],
+    );
+    return rows.length === 1;
   }
 
   async setStatus(runId: string, status: RunStatus): Promise<void> {
@@ -700,6 +722,7 @@ class NeonRunRepository implements RunRepository {
   ): Promise<PublicRunRecord[]> {
     const driver = await this.readyDriver();
     const publicColumns = `id, provider, model, prompt_version, execution_mode,
+      provider_dispatched,
       source_type, file_metadata, requested_fields, status, outcome, usage,
       estimated_cost_usd, consent, created_at, expires_at, deleted_at,
       retry_count, latency_ms, step_durations, details_deleted`;
@@ -738,8 +761,8 @@ class NeonRunRepository implements RunRepository {
         COALESCE(SUM((usage ->> 'inputTokens')::bigint), 0) AS input_tokens,
         COALESCE(SUM((usage ->> 'outputTokens')::bigint), 0) AS output_tokens,
         COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd,
-        COUNT(*) FILTER (WHERE execution_mode = 'live' AND provider = 'openai') AS openai_runs,
-        COUNT(*) FILTER (WHERE execution_mode = 'live' AND provider = 'anthropic') AS anthropic_runs,
+        COUNT(*) FILTER (WHERE provider_dispatched AND provider = 'openai') AS openai_runs,
+        COUNT(*) FILTER (WHERE provider_dispatched AND provider = 'anthropic') AS anthropic_runs,
         COUNT(*) FILTER (WHERE outcome = 'clear') AS clear_runs,
         COUNT(*) FILTER (WHERE outcome = 'needs_review') AS needs_review_runs,
         COUNT(*) FILTER (WHERE outcome = 'incomplete') AS incomplete_runs,
@@ -964,6 +987,7 @@ class NeonRunRepository implements RunRepository {
       model: String(row.model),
       promptVersion: String(row.prompt_version),
       executionMode: row.execution_mode as ExecutionMode,
+      providerDispatched: Boolean(row.provider_dispatched),
       sourceType: row.source_type as SourceType,
       file: asJson<SafeFileMetadata>(row.file_metadata),
       requestedFields: asJson<RequestedField[]>(row.requested_fields),

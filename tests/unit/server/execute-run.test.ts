@@ -596,6 +596,9 @@ describe("executeRun", () => {
     });
     expect(JSON.stringify(events)).not.toContain("blob-debug-payload");
     await expect(
+      repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({ providerDispatched: false });
+    await expect(
       deleteRunNow({
         repository,
         documentStore: value.documentStore,
@@ -713,7 +716,7 @@ describe("executeRun", () => {
     });
     if (!reservation.allowed || !reservation.reservationId)
       throw new Error("reservation_missing");
-    const { value } = dependencies(
+    const { value, repository } = dependencies(
       provider({
         extract: async () => {
           throw new ProviderRequestError("provider_unavailable", 503);
@@ -732,11 +735,54 @@ describe("executeRun", () => {
       code: "provider_unavailable",
     });
     await expect(
+      repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({ providerDispatched: true });
+    await expect(
       quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
     ).resolves.toMatchObject({
       globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
       reservedSpendUsd: 0,
     });
+  });
+
+  it("does not call the provider when durable dispatch attribution cannot be recorded", async () => {
+    class DispatchWriteFailureRepository extends InMemoryRunRepository {
+      override async markProviderDispatched(): Promise<boolean> {
+        return false;
+      }
+    }
+    const quotas = new InMemoryQuotaRepository(3, () => "quota-attribution-failure");
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    let providerCalls = 0;
+    const selected = provider({
+      extract: async () => {
+        providerCalls += 1;
+        return extraction;
+      },
+    });
+    const { value } = dependencies(selected);
+    value.repository = new DispatchWriteFailureRepository();
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({ type: "failed", code: "workflow_failed" });
+    expect(providerCalls).toBe(0);
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({ globalSpendUsd: 0, reservedSpendUsd: 0 });
   });
 
   it("charges the stored reservation when final response usage is untrustworthy", async () => {

@@ -21,6 +21,7 @@ async function seedRun(input: {
     model: "gpt-5.6-luna",
     promptVersion: "recorded-fixture-2026-08-27.v1",
     executionMode: "recorded",
+    providerDispatched: false,
     sourceType: "synthetic",
     file: {
       filename: "sample.pdf",

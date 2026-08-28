@@ -100,7 +100,7 @@ export type PublicRunAttribution = {
 };
 
 function serializeAttribution(run: PublicRunRecord): PublicRunAttribution {
-  const providerCalled = run.executionMode === "live";
+  const providerCalled = run.providerDispatched;
   return {
     providerCalled,
     provider: providerCalled ? run.provider : null,

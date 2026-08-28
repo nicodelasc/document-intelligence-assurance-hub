@@ -57,6 +57,7 @@ describe("InMemoryDocumentStore", () => {
       model: "gpt-5-mini",
       promptVersion: "recorded-fixture-2026-08-27.v1",
       executionMode: "recorded",
+      providerDispatched: false,
       sourceType: "synthetic",
       file: { filename: "invoice.pdf", mediaType: "application/pdf", sizeBytes: 3, pageCount: 1 },
       documentKey: key,

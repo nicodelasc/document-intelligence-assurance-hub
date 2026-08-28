@@ -4,8 +4,11 @@ import { runEventSchema } from "@/domain/run-schema";
 import type { RunEvent } from "@/domain/types";
 import type { HttpContainer } from "@/server/http/container";
 import type { ExtractionProvider } from "@/server/workflow/provider";
+import { ProviderRequestError } from "@/server/workflow/provider";
 import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
 import { handleRunsGet, handleRunsPost } from "@/server/http/runs-handler";
+import { handleRunGet } from "@/server/http/run-detail-handler";
+import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import {
   createTestContainer,
   formRequest,
@@ -661,6 +664,21 @@ describe("POST /api/runs", () => {
       provider: "anthropic",
       model: "claude-haiku-4-5",
       executionMode: "live",
+      providerDispatched: true,
+    });
+    const listResponse = await handleRunsGet(
+      new Request("http://local.test/api/runs"),
+      container,
+    );
+    expect(await listResponse.json()).toMatchObject({
+      runs: [{
+        id: completed.runId,
+        providerCalled: true,
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+        configuredProvider: "anthropic",
+        configuredModel: "claude-haiku-4-5",
+      }],
     });
     expect(
       (await container.quotaRepository.snapshot(container.clock()))
@@ -702,6 +720,127 @@ describe("POST /api/runs", () => {
       code: "live_provider_key_missing",
       runId: expect.any(String),
       deletionToken: expect.any(String),
+    });
+    const failed = events.at(-1) as { runId: string };
+    const listResponse = await handleRunsGet(
+      new Request("http://local.test/api/runs"),
+      container,
+    );
+    expect(await listResponse.json()).toMatchObject({
+      runs: [{
+        id: failed.runId,
+        executionMode: "live",
+        providerCalled: false,
+        provider: null,
+        model: null,
+        configuredProvider: "openai",
+        configuredModel: "gpt-5.6-luna",
+      }],
+    });
+    const detailResponse = await handleRunGet(
+      new Request(`http://local.test/api/runs/${failed.runId}`),
+      { id: failed.runId },
+      container,
+    );
+    expect(await detailResponse.json()).toMatchObject({
+      run: {
+        id: failed.runId,
+        providerCalled: false,
+        provider: null,
+        model: null,
+        configuredProvider: "openai",
+        configuredModel: "gpt-5.6-luna",
+      },
+    });
+  });
+
+  it("keeps public attribution uncalled when document storage fails before dispatch", async () => {
+    class FailingDocumentStore extends InMemoryDocumentStore {
+      override async storePrivateDocument(): Promise<never> {
+        throw new Error("storage_unavailable");
+      }
+    }
+    let providerCalls = 0;
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      documentStore: new FailingDocumentStore(),
+      async createProvider() {
+        return {
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          promptVersion: "storage-failure.v1",
+          executionMode: "live",
+          async extract() {
+            providerCalls += 1;
+            throw new Error("provider_must_not_be_called");
+          },
+        };
+      },
+    });
+    const response = await handleRunsPost(formRequest([
+      ["sourceType", "custom"],
+      ["provider", "openai"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]), container);
+    const events = await readLines(response);
+    const failed = events.at(-1) as { runId: string };
+
+    expect(events.at(-1)).toMatchObject({ type: "failed", code: "storage_unavailable" });
+    expect(providerCalls).toBe(0);
+    const detailResponse = await handleRunGet(
+      new Request(`http://local.test/api/runs/${failed.runId}`),
+      { id: failed.runId },
+      container,
+    );
+    expect(await detailResponse.json()).toMatchObject({
+      run: { providerCalled: false, provider: null, model: null },
+    });
+  });
+
+  it("returns actual attribution after a confirmed dispatch ends in provider failure", async () => {
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      async createProvider() {
+        return {
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          promptVersion: "post-dispatch-failure.v1",
+          executionMode: "live",
+          async extract(input) {
+            await input.onDispatch?.();
+            throw new ProviderRequestError("provider_request_rejected", 400);
+          },
+        };
+      },
+    });
+    const response = await handleRunsPost(formRequest([
+      ["sourceType", "custom"],
+      ["provider", "anthropic"],
+      ["requestedField", "Vendor name"],
+      ["requestedField", "Invoice total"],
+      ["consent", "true"],
+      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
+    ]), container);
+    const events = await readLines(response);
+    const failed = events.at(-1) as { runId: string };
+
+    expect(events.at(-1)).toMatchObject({ type: "failed", code: "provider_request_rejected" });
+    const detailResponse = await handleRunGet(
+      new Request(`http://local.test/api/runs/${failed.runId}`),
+      { id: failed.runId },
+      container,
+    );
+    expect(await detailResponse.json()).toMatchObject({
+      run: {
+        providerCalled: true,
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+        configuredProvider: "anthropic",
+        configuredModel: "claude-haiku-4-5",
+      },
     });
   });
 

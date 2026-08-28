@@ -128,6 +128,7 @@ describe("document streaming", () => {
       model: "gpt-5-mini",
       promptVersion: "recorded-fixture-2026-08-27.v1",
       executionMode: "recorded",
+      providerDispatched: false,
       sourceType: "custom",
       file: {
         filename: "invoice\"\r\nX-Injected: true.pdf",
