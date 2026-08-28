@@ -85,6 +85,33 @@ export function scanPaths(paths) {
 }
 
 const MAX_ORIGIN_RUN_DETAILS = 8;
+const MAX_SAME_ORIGIN_REDIRECTS = 5;
+
+async function fetchSameOrigin(fetchImpl, url, base) {
+  let current = url;
+  for (
+    let redirectCount = 0;
+    redirectCount <= MAX_SAME_ORIGIN_REDIRECTS;
+    redirectCount += 1
+  ) {
+    const response = await fetchImpl(current, { redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) {
+      return { response, url: current };
+    }
+    const location = response.headers.get("location");
+    if (!location) {
+      throw new Error(
+        `public_surface_redirect_missing_location ${current.href}`,
+      );
+    }
+    const next = new URL(location, current);
+    if (next.origin !== base.origin) {
+      throw new Error(`public_surface_cross_origin_redirect ${next.href}`);
+    }
+    current = next;
+  }
+  throw new Error(`public_surface_too_many_redirects ${url.href}`);
+}
 
 function activeRunIds(payload) {
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.runs)) {
@@ -115,23 +142,29 @@ export async function scanOrigin(origin, fetchImpl = fetch) {
     const url = pending.shift();
     if (!url || visited.has(url.href)) continue;
     visited.add(url.href);
-    const response = await fetchImpl(url, { redirect: "error" });
+    const fetched = await fetchSameOrigin(fetchImpl, url, base);
+    const { response } = fetched;
+    visited.add(fetched.url.href);
     if (!response.ok)
       throw new Error(
-        `public_surface_fetch_failed ${response.status} ${url.href}`,
+        `public_surface_fetch_failed ${response.status} ${fetched.url.href}`,
       );
     const text = await response.text();
-    findings.push(...scanText(text, url.href));
+    findings.push(...scanText(text, fetched.url.href));
     if (response.headers.get("content-type")?.includes("text/html")) {
       for (const match of text.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)) {
-        const asset = new URL(match[1], url);
+        const asset = new URL(match[1], fetched.url);
         if (asset.origin === base.origin) pending.push(asset);
       }
     }
   }
 
   const runsUrl = new URL("/api/runs?limit=50", base);
-  const runsResponse = await fetchImpl(runsUrl, { redirect: "error" });
+  const { response: runsResponse } = await fetchSameOrigin(
+    fetchImpl,
+    runsUrl,
+    base,
+  );
   if (!runsResponse.ok) {
     throw new Error(
       `public_surface_fetch_failed ${runsResponse.status} ${runsUrl.href}`,
@@ -147,7 +180,11 @@ export async function scanOrigin(origin, fetchImpl = fetch) {
   }
 
   const metricsUrl = new URL("/api/metrics", base);
-  const metricsResponse = await fetchImpl(metricsUrl, { redirect: "error" });
+  const { response: metricsResponse } = await fetchSameOrigin(
+    fetchImpl,
+    metricsUrl,
+    base,
+  );
   if (!metricsResponse.ok) {
     throw new Error(
       `public_surface_fetch_failed ${metricsResponse.status} ${metricsUrl.href}`,
@@ -157,7 +194,11 @@ export async function scanOrigin(origin, fetchImpl = fetch) {
 
   for (const runId of activeRunIds(runsPayload)) {
     const detailUrl = new URL(`/api/runs/${encodeURIComponent(runId)}`, base);
-    const detailResponse = await fetchImpl(detailUrl, { redirect: "error" });
+    const { response: detailResponse } = await fetchSameOrigin(
+      fetchImpl,
+      detailUrl,
+      base,
+    );
     if (!detailResponse.ok) {
       throw new Error(
         `public_surface_fetch_failed ${detailResponse.status} ${detailUrl.href}`,

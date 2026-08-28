@@ -2,8 +2,10 @@
 
 Review a document against purchase-order reference data then inspect field evidence and a deterministic assurance decision. The Workbench streams each stage. Operations exposes public-safe traces, recorded benchmark quality and an illustrative resource calculator.
 
-- [Workbench deployment placeholder](https://replace-after-deployment.invalid/workbench)
-- [Operations deployment placeholder](https://replace-after-deployment.invalid/operations)
+- [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
+- [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
+
+The stable production deployment currently runs in recorded keyless mode with Neon telemetry and private Blob document storage. `AI_LIVE_ENABLED` remains false and model-provider keys are absent.
 
 This is a public-safe prototype. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
@@ -90,6 +92,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_assurance_hub.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0002_provider_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0003_public_resource_controls.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0004_conservative_provider_budget.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0005_provider_dispatch_budget.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0006_bounded_provider_settlement.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -135,7 +139,7 @@ The prototype does not provide user accounts or private per-user run visibility.
 
 The repository contains an hourly Vercel Cron schedule at `0 * * * *`. A Vercel plan that cannot run hourly Cron is a rollout blocker. Routes use the Node.js runtime for streaming, crypto, Neon and Blob compatibility.
 
-Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). External deployment is intentionally controller-owned and was not performed by this implementation task.
+Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The public keyless deployment is active at the stable links above. Live-provider acceptance remains a separate credential-gated activity.
 
 ## Limitations and live-acceptance gate
 

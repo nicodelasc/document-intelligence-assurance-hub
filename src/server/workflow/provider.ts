@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  MAX_PROVIDER_OUTPUT_TOKENS,
+  requireSupportedLiveModel,
+} from "@/domain/pricing";
 import type { Provider } from "@/domain/types";
 import type {
   ExecutionMode,
@@ -36,6 +40,7 @@ export type ProviderExtractionInput = {
   document: ProviderDocument;
   requestedFields: RequestedField[];
   signal?: AbortSignal;
+  onDispatch?: () => Promise<void>;
 };
 
 export type ProviderExtractionResponse = {
@@ -63,6 +68,35 @@ export class ProviderRequestError extends Error {
   ) {
     super(safeCode, options);
   }
+}
+
+export function isTrustworthyTokenUsage(
+  usage: {
+    inputTokens: unknown;
+    outputTokens: unknown;
+  },
+  provider: Provider,
+  model: string,
+): boolean {
+  let contextWindowTokens: number;
+  try {
+    contextWindowTokens = requireSupportedLiveModel(
+      provider,
+      model,
+    ).contextWindowTokens;
+  } catch {
+    return false;
+  }
+  return (
+    typeof usage.inputTokens === "number" &&
+    Number.isSafeInteger(usage.inputTokens) &&
+    usage.inputTokens >= 0 &&
+    typeof usage.outputTokens === "number" &&
+    Number.isSafeInteger(usage.outputTokens) &&
+    usage.outputTokens >= 0 &&
+    usage.outputTokens <= MAX_PROVIDER_OUTPUT_TOKENS &&
+    usage.inputTokens + usage.outputTokens <= contextWindowTokens
+  );
 }
 
 export function validateExtractionForRequest(

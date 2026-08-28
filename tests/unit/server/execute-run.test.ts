@@ -77,14 +77,19 @@ function provider(
     name?: Provider;
     executionMode?: "recorded" | "live";
     extract?: ExtractionProvider["extract"];
+    dispatches?: boolean;
   } = {},
 ): ExtractionProvider {
+  const extract = input.extract ?? (async () => extraction);
   return {
     provider: input.name ?? "openai",
     model: input.name === "anthropic" ? "claude-haiku-4-5" : "gpt-5-mini",
     promptVersion: "test-prompt.v1",
     executionMode: input.executionMode ?? "live",
-    extract: input.extract ?? (async () => extraction),
+    extract: async (providerInput) => {
+      if (input.dispatches !== false) await providerInput.onDispatch?.();
+      return extract(providerInput);
+    },
   };
 }
 
@@ -726,6 +731,216 @@ describe("executeRun", () => {
     });
   });
 
+  it("rejects unsafe provider token counts despite a trustworthy flag", async () => {
+    const response = {
+      ...extraction,
+      usage: {
+        inputTokens: Number.MAX_SAFE_INTEGER + 1,
+        outputTokens: 1.5,
+      },
+      usageTrustworthy: true,
+    } satisfies ProviderExtractionResponse;
+    const { value, repository } = dependencies(
+      provider({ extract: async () => response }),
+    );
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "clear",
+    });
+    await expect(
+      repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
+    ).resolves.toMatchObject({
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimatedCostUsd: 0,
+    });
+  });
+
+  it("releases a reservation when provider setup fails before dispatch", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-provider-setup-failure",
+    );
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const { value } = dependencies(
+      provider({
+        dispatches: false,
+        extract: async () => {
+          throw new ProviderRequestError("provider_failed", null);
+        },
+      }),
+    );
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_failed",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("does not bill a pre-dispatch lease when immediate release fails", async () => {
+    class ReleaseUnavailableQuotaRepository extends InMemoryQuotaRepository {
+      override async releaseLiveReservation(): Promise<never> {
+        throw new Error("quota-release-unavailable");
+      }
+    }
+    const quotas = new ReleaseUnavailableQuotaRepository(
+      3,
+      () => "quota-release-failure",
+    );
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const { value } = dependencies(
+      provider({
+        dispatches: false,
+        extract: async () => {
+          throw new ProviderRequestError("provider_failed", null);
+        },
+      }),
+    );
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_failed",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("clears a marked reservation when cancellation wins and immediate release fails", async () => {
+    let markStartedResolve: (() => void) | null = null;
+    let continueMarkResolve: (() => void) | null = null;
+    const markStarted = new Promise<void>((resolve) => {
+      markStartedResolve = resolve;
+    });
+    const continueMark = new Promise<void>((resolve) => {
+      continueMarkResolve = resolve;
+    });
+    class DelayedDispatchQuotaRepository extends InMemoryQuotaRepository {
+      override async markLiveReservationDispatched(
+        reservationId: string,
+      ): Promise<boolean> {
+        const marked = await super.markLiveReservationDispatched(reservationId);
+        markStartedResolve?.();
+        await continueMark;
+        return marked;
+      }
+
+      override async releaseLiveReservation(): Promise<never> {
+        throw new Error("quota-release-unavailable");
+      }
+    }
+    const quotas = new DelayedDispatchQuotaRepository(
+      3,
+      () => "quota-aborted-dispatch-marker",
+    );
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const controller = new AbortController();
+    const { value } = dependencies(provider());
+    value.abortSignal = controller.signal;
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const run = collect(input, value);
+    await markStarted;
+    controller.abort("reviewer_cancelled");
+    continueMarkResolve?.();
+    await run;
+
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("fails closed when a live provider returns without dispatch confirmation", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-unconfirmed-dispatch",
+    );
+    const reservation = await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now: new Date("2026-08-27T00:00:00.000Z"),
+    });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("reservation_missing");
+    const { value } = dependencies(provider({ dispatches: false }));
+    value.quotaReservation = {
+      repository: quotas,
+      reservationId: reservation.reservationId,
+    };
+
+    const events = await collect(input, value);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+    });
+    await expect(
+      quotas.snapshot(new Date("2026-08-27T00:16:00.000Z")),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      reservedSpendUsd: 0,
+    });
+  });
+
   it("charges an ambiguous provider reservation conservatively", async () => {
     const quotas = new InMemoryQuotaRepository(3, () => "quota-failure");
     const reservation = await quotas.reserve({
@@ -1275,6 +1490,44 @@ describe("executeRun", () => {
     });
   });
 
+  it("cannot false-clear a provider value that contradicts grounded evidence", async () => {
+    const response = structuredClone(extraction);
+    response.extraction.fields[2] = {
+      ...response.extraction.fields[2],
+      extractedValue: "999.00 SGD",
+      normalizedValue: "999.00 SGD",
+      evidence: "Invoice total: 100.00 SGD",
+    };
+    const contradictoryInput = {
+      ...input,
+      referenceData: { ...input.referenceData, invoice_total: "999.00 SGD" },
+    };
+    const { value } = dependencies(provider({ extract: async () => response }));
+    value.documentGrounder = async () => [
+      [
+        "Supplier: Northstar Paperworks",
+        "PO: PO-NP-1001",
+        "Invoice total: 100.00 SGD",
+      ].join("\n"),
+    ];
+
+    const events = await collect(contradictoryInput, value);
+
+    expect(
+      events.find(
+        (event) =>
+          event.type === "field" && event.field.key === "invoice_total",
+      ),
+    ).toMatchObject({
+      type: "field",
+      field: { evaluatorStatus: "conflict", referenceMatch: true },
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
+  });
+
   it("does not treat an unrelated invoice number as total evidence", async () => {
     const response = structuredClone(extraction);
     response.extraction.fields[2] = {
@@ -1325,6 +1578,47 @@ describe("executeRun", () => {
           event.type === "field" && event.field.key === "purchase_order_number",
       ),
     ).toMatchObject({ type: "field", field: { evaluatorStatus: "conflict" } });
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "needs_review",
+    });
+  });
+
+  it("keeps distinct Unicode identifier characters during evidence matching", async () => {
+    const response = structuredClone(extraction);
+    response.extraction.fields[1] = {
+      ...response.extraction.fields[1],
+      extractedValue: "AÅ",
+      normalizedValue: "AÅ",
+      evidence: "Purchase order reference: AÄ",
+    };
+    const identifierInput = {
+      ...input,
+      referenceData: {
+        ...input.referenceData,
+        purchase_order_number: "AÅ",
+      },
+    };
+    const { value } = dependencies(provider({ extract: async () => response }));
+    value.documentGrounder = async () => [
+      [
+        "Supplier: Northstar Paperworks",
+        "Purchase order reference: AÄ",
+        "Total due: 1250.00 SGD",
+      ].join("\n"),
+    ];
+
+    const events = await collect(identifierInput, value);
+
+    expect(
+      events.find(
+        (event) =>
+          event.type === "field" && event.field.key === "purchase_order_number",
+      ),
+    ).toMatchObject({
+      type: "field",
+      field: { evaluatorStatus: "conflict", referenceMatch: true },
+    });
     expect(events.at(-1)).toMatchObject({
       type: "completed",
       outcome: "needs_review",

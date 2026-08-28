@@ -473,6 +473,7 @@ describe("POST /api/runs", () => {
       promptVersion: "live-contract-test.v1",
       executionMode: "live",
       async extract(input) {
+        await input.onDispatch?.();
         return {
           extraction: {
             fields: input.requestedFields.map((field) => ({

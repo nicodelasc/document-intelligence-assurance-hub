@@ -6,6 +6,7 @@ import {
 } from "@/domain/pricing";
 import {
   extractionResultSchema,
+  isTrustworthyTokenUsage,
   ProviderRequestError,
   validateExtractionForRequest,
   type ExtractionProvider,
@@ -42,6 +43,7 @@ export type StructuredGenerationRequest = {
   document: ProviderDocument;
   requestedFields: RequestedField[];
   signal: AbortSignal;
+  onDispatch: () => Promise<void>;
   timeoutMs: number;
   maxOutputTokens: number;
   maxRetries: 0;
@@ -91,6 +93,9 @@ async function defaultStructuredGenerator(
       : (await import("@ai-sdk/anthropic")).createAnthropic({
           apiKey: input.apiKey,
         })(input.model);
+  input.signal.throwIfAborted();
+  await input.onDispatch();
+  input.signal.throwIfAborted();
   const startedAt = performance.now();
   const result = await generateText({
     model,
@@ -121,11 +126,14 @@ async function defaultStructuredGenerator(
 
   const inputTokens = result.usage.inputTokens;
   const outputTokens = result.usage.outputTokens;
-  const usageTrustworthy =
-    Number.isFinite(inputTokens) &&
-    Number(inputTokens) >= 0 &&
-    Number.isFinite(outputTokens) &&
-    Number(outputTokens) >= 0;
+  const usageTrustworthy = isTrustworthyTokenUsage(
+    {
+      inputTokens,
+      outputTokens,
+    },
+    input.provider,
+    input.model,
+  );
   return {
     output: result.output,
     usage: {
@@ -202,6 +210,7 @@ function createLiveExtractionProvider(
           document: input.document,
           requestedFields: input.requestedFields,
           signal: boundedSignal.signal,
+          onDispatch: input.onDispatch ?? (async () => undefined),
           timeoutMs: LIVE_PROVIDER_TIMEOUT_MS,
           maxOutputTokens: MAX_PROVIDER_OUTPUT_TOKENS,
           maxRetries: 0,
@@ -214,10 +223,7 @@ function createLiveExtractionProvider(
           usage: result.usage,
           usageTrustworthy:
             result.usageTrustworthy ??
-            (Number.isFinite(result.usage.inputTokens) &&
-              result.usage.inputTokens >= 0 &&
-              Number.isFinite(result.usage.outputTokens) &&
-              result.usage.outputTokens >= 0),
+            isTrustworthyTokenUsage(result.usage, provider, model),
           latencyMs: result.latencyMs,
         };
       } catch (error) {

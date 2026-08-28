@@ -70,9 +70,13 @@ describe("InMemoryQuotaRepository", () => {
       liveEnabled: true,
     };
 
-    await expect(quotas.reserve({ ...request, now })).resolves.toMatchObject({
-      allowed: true,
-    });
+    const reservation = await quotas.reserve({ ...request, now });
+    expect(reservation).toMatchObject({ allowed: true });
+    if (!reservation.allowed || !reservation.reservationId)
+      throw new Error("expected_live_reservation");
+    await expect(
+      quotas.markLiveReservationDispatched(reservation.reservationId),
+    ).resolves.toBe(true);
     await expect(
       quotas.reserve({
         ...request,
@@ -99,6 +103,31 @@ describe("InMemoryQuotaRepository", () => {
       quotas.snapshot(new Date(now.getTime() + 60_000)),
     ).resolves.toMatchObject({
       globalSpendUsd: MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 0,
+    });
+  });
+
+  it("releases a stale reservation that was never dispatched", async () => {
+    const quotas = new InMemoryQuotaRepository(
+      MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      () => "undispatched-reservation",
+      MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      {},
+      60_000,
+    );
+    await quotas.reserve({
+      bucket: "browser-a",
+      sourceType: "synthetic",
+      executionMode: "live",
+      estimatedCostUsd: 0,
+      liveEnabled: true,
+      now,
+    });
+
+    await expect(
+      quotas.snapshot(new Date(now.getTime() + 60_000)),
+    ).resolves.toMatchObject({
+      globalSpendUsd: 0,
       reservedSpendUsd: 0,
     });
   });
@@ -205,10 +234,10 @@ describe("InMemoryQuotaRepository", () => {
       quotas.settleLiveReservation(reservation.reservationId, 1.01),
     ).resolves.toEqual({
       status: "reservation_exceeded",
-      actualCostUsd: 1.01,
+      actualCostUsd: reservation.reservedCostUsd,
     });
     expect(await quotas.snapshot(now)).toMatchObject({
-      globalSpendUsd: 1.01,
+      globalSpendUsd: reservation.reservedCostUsd,
       reservedSpendUsd: 0,
     });
   });

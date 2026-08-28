@@ -21,6 +21,7 @@ import {
   type DocumentGrounder,
 } from "@/server/workflow/document-grounding";
 import {
+  isTrustworthyTokenUsage,
   isRetryableProviderError,
   ProviderRequestError,
   type ExtractedField,
@@ -104,7 +105,11 @@ function safeFilename(filename: string): string {
 }
 
 function comparable(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
 }
 
 function optionalText(value: string | null): string | null {
@@ -156,7 +161,7 @@ function normalizeFieldValue(
 
 function comparisonToken(field: RequestedField, value: string): string {
   if (isIdentifierField(field))
-    return comparable(value).replace(/[^a-z0-9]/g, "");
+    return comparable(value).replace(/[^\p{L}\p{N}]/gu, "");
   return comparable(value)
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
@@ -346,30 +351,20 @@ function publicError(
   };
 }
 
-function isDefinitelyPreDispatchProviderError(error: unknown): boolean {
-  return (
-    error instanceof ProviderRequestError &&
-    (error.safeCode === "live_provider_disabled" ||
-      error.safeCode === "live_provider_key_missing" ||
-      error.safeCode === "live_provider_model_unsupported")
-  );
-}
-
-function hasTrustworthyUsage(response: ProviderExtractionResponse): boolean {
+function hasTrustworthyUsage(
+  response: ProviderExtractionResponse,
+  provider: ExtractionProvider,
+): boolean {
   return (
     response.usageTrustworthy !== false &&
-    Number.isFinite(response.usage.inputTokens) &&
-    response.usage.inputTokens >= 0 &&
-    Number.isFinite(response.usage.outputTokens) &&
-    response.usage.outputTokens >= 0
+    isTrustworthyTokenUsage(response.usage, provider.provider, provider.model)
   );
 }
 
 async function extractWithOneRetry(
   provider: ExtractionProvider,
   input: ExecuteRunInput,
-  onDispatch: () => void,
-  onPreDispatchFailure: () => void,
+  onDispatch: () => Promise<void>,
   onRetry: (error: ProviderRequestError) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<{ response: ProviderExtractionResponse; retryCount: number }> {
@@ -377,7 +372,6 @@ async function extractWithOneRetry(
   for (;;) {
     try {
       signal?.throwIfAborted();
-      onDispatch();
       return {
         response: await provider.extract({
           document: {
@@ -387,14 +381,11 @@ async function extractWithOneRetry(
           },
           requestedFields: input.requestedFields,
           signal,
+          onDispatch,
         }),
         retryCount,
       };
     } catch (error) {
-      if (isDefinitelyPreDispatchProviderError(error)) {
-        onPreDispatchFailure();
-        throw error;
-      }
       if (retryCount === 0 && isRetryableProviderError(error)) {
         retryCount = 1;
         await onRetry(error as ProviderRequestError);
@@ -633,11 +624,27 @@ export async function* executeRun(
       await extractWithOneRetry(
         dependencies.provider,
         input,
-        () => {
+        async () => {
+          if (dependencies.quotaReservation) {
+            const marked =
+              await dependencies.quotaReservation.repository.markLiveReservationDispatched(
+                dependencies.quotaReservation.reservationId,
+              );
+            if (!marked) throw new Error("quota_dispatch_mark_failed");
+          }
+          try {
+            signal?.throwIfAborted();
+          } catch (error) {
+            if (dependencies.quotaReservation) {
+              await dependencies.quotaReservation.repository
+                .clearLiveReservationDispatched(
+                  dependencies.quotaReservation.reservationId,
+                )
+                .catch(() => false);
+            }
+            throw error;
+          }
           providerDispatchCount += 1;
-        },
-        () => {
-          providerDispatchCount = Math.max(0, providerDispatchCount - 1);
         },
         async (error) => {
           retryCount = 1;
@@ -652,7 +659,17 @@ export async function* executeRun(
         },
         signal,
       );
-    finalUsageTrustworthy = hasTrustworthyUsage(response);
+    if (
+      dependencies.quotaReservation &&
+      dependencies.provider.executionMode === "live" &&
+      providerDispatchCount === 0
+    ) {
+      throw new Error("provider_dispatch_unconfirmed");
+    }
+    finalUsageTrustworthy = hasTrustworthyUsage(
+      response,
+      dependencies.provider,
+    );
     billableCostUsd =
       dependencies.provider.executionMode === "live" && finalUsageTrustworthy
         ? estimateRunCost({

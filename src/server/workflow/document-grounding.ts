@@ -207,14 +207,31 @@ async function ocrImages(
 
 async function extractPdfPages(
   input: DocumentGroundingInput,
+  registerCancel?: (cancel: () => Promise<void>) => void,
 ): Promise<string[]> {
-  const { extractText, getDocumentProxy, renderPageAsImage } = await import(
+  const { extractText, getResolvedPDFJS, renderPageAsImage } = await import(
     "unpdf"
   );
-  const pdf = await getDocumentProxy(input.bytes, {
+  throwIfGroundingAborted(input.signal);
+  const pdfjs = await getResolvedPDFJS();
+  throwIfGroundingAborted(input.signal);
+  const loadingTask = pdfjs.getDocument({
+    data: input.bytes,
+    useSystemFonts: true,
+    disableFontFace: true,
     maxImageSize: MAX_GROUNDING_IMAGE_PIXELS,
   });
+  let destroyPromise: Promise<void> | null = null;
+  const destroyPdf = async (): Promise<void> => {
+    destroyPromise ??= Promise.resolve(loadingTask.destroy());
+    await destroyPromise;
+  };
+  registerCancel?.(destroyPdf);
+  if (input.signal?.aborted) await destroyPdf().catch(() => undefined);
+  let pdf: Awaited<typeof loadingTask.promise> | null = null;
   try {
+    pdf = await loadingTask.promise;
+    throwIfGroundingAborted(input.signal);
     if (pdf.numPages < 1 || pdf.numPages > MAX_PDF_PAGES) {
       throw groundingError("document_grounding_page_limit");
     }
@@ -265,14 +282,17 @@ async function extractPdfPages(
     }
     return assertPageText(pages);
   } finally {
-    await Promise.resolve(pdf.cleanup()).catch(() => undefined);
+    await Promise.resolve(pdf?.cleanup()).catch(() => undefined);
+    await destroyPdf().catch(() => undefined);
   }
 }
 
 async function extractDocumentPages(
   input: DocumentGroundingInput,
+  registerPdfCancel?: (cancel: () => Promise<void>) => void,
 ): Promise<string[]> {
-  if (input.mediaType === "application/pdf") return extractPdfPages(input);
+  if (input.mediaType === "application/pdf")
+    return extractPdfPages(input, registerPdfCancel);
   if (input.mediaType === "image/png" || input.mediaType === "image/jpeg") {
     assertImageAllocation(input.bytes, input.mediaType);
     return assertPageText(await ocrImages([input.bytes], input.signal));
@@ -286,12 +306,19 @@ export const groundDocument: DocumentGrounder = async (input) => {
   const signal = input.signal
     ? AbortSignal.any([input.signal, groundingController.signal])
     : groundingController.signal;
+  let cancelPdf: (() => Promise<void>) | null = null;
   try {
     return await bounded({
-      operation: extractDocumentPages({ ...input, signal }),
+      operation: extractDocumentPages({ ...input, signal }, (cancel) => {
+        cancelPdf = cancel;
+        if (signal.aborted) void cancel();
+      }),
       signal: input.signal,
       timeoutMs: DOCUMENT_GROUNDING_TIMEOUT_MS,
-      onCancel: () => groundingController.abort("document_grounding_cancelled"),
+      onCancel: () => {
+        groundingController.abort("document_grounding_cancelled");
+        return cancelPdf?.();
+      },
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

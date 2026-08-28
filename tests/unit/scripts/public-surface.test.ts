@@ -6,10 +6,15 @@ import {
 
 describe("public-surface verifier", () => {
   it("reports credential values without treating safe environment names as leaks", () => {
-    expect(scanText("OPENAI_API_KEY=\nANTHROPIC_API_KEY=", "safe.env")).toEqual([]);
+    expect(scanText("OPENAI_API_KEY=\nANTHROPIC_API_KEY=", "safe.env")).toEqual(
+      [],
+    );
 
     expect(
-      scanText("const leaked = 'sk-proj-abcdefghijklmnopqrstuvwxyz123456';", "bundle.js"),
+      scanText(
+        "const leaked = 'sk-proj-abcdefghijklmnopqrstuvwxyz123456';",
+        "bundle.js",
+      ),
     ).toEqual([
       expect.objectContaining({
         category: "credential-shaped value",
@@ -55,7 +60,13 @@ describe("public-surface verifier", () => {
     const fetcher = async (input: RequestInfo | URL): Promise<Response> => {
       const url = new URL(String(input));
       requested.push(`${url.pathname}${url.search}`);
-      if (["/", "/workbench", "/operations"].includes(url.pathname)) {
+      if (url.pathname === "/") {
+        return new Response(null, {
+          status: 307,
+          headers: { location: "/workbench" },
+        });
+      }
+      if (["/workbench", "/operations"].includes(url.pathname)) {
         return new Response("<html><body>Safe page</body></html>", {
           headers: { "content-type": "text/html" },
         });
@@ -77,7 +88,9 @@ describe("public-surface verifier", () => {
             run: {
               id: `run_${suffix}`,
               documentUrl: `/api/runs/run_${suffix}/document`,
-              ...(suffix === "0" ? { documentKey: "runs/private/document" } : {}),
+              ...(suffix === "0"
+                ? { documentKey: "runs/private/document" }
+                : {}),
             },
           }),
           { headers: safeHeaders },
@@ -93,9 +106,21 @@ describe("public-surface verifier", () => {
     );
     expect(requested).toContain("/api/runs?limit=50");
     expect(requested).toContain("/api/metrics");
-    expect(requested.filter((path) => /^\/api\/runs\/run_\d+$/.test(path))).toHaveLength(
-      8,
-    );
+    expect(
+      requested.filter((path) => /^\/api\/runs\/run_\d+$/.test(path)),
+    ).toHaveLength(8);
     expect(requested.some((path) => path.endsWith("/document"))).toBe(false);
+  });
+
+  it("rejects redirects that leave the configured public origin", async () => {
+    const fetcher = async (): Promise<Response> =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://unexpected.example/login" },
+      });
+
+    await expect(
+      scanOrigin("https://portfolio.example", fetcher),
+    ).rejects.toThrow("public_surface_cross_origin_redirect");
   });
 });

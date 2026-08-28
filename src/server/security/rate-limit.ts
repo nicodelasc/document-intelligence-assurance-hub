@@ -81,6 +81,7 @@ type LiveReservation = {
   reservedCostUsd: number;
   actualCostUsd: number;
   status: "pending" | "settled" | "released";
+  dispatched: boolean;
   expiresAtMs: number;
 };
 
@@ -96,6 +97,8 @@ export type QuotaSettlement = {
 
 export interface QuotaRepository {
   reserve(input: QuotaReservation): Promise<QuotaDecision>;
+  markLiveReservationDispatched(reservationId: string): Promise<boolean>;
+  clearLiveReservationDispatched(reservationId: string): Promise<boolean>;
   settleLiveReservation(
     reservationId: string,
     actualCostUsd: number,
@@ -237,6 +240,7 @@ export class InMemoryQuotaRepository implements QuotaRepository {
           reservedCostUsd: reservationCostUsd,
           actualCostUsd: 0,
           status: "pending",
+          dispatched: false,
           expiresAtMs: input.now.getTime() + this.reservationLeaseMs,
         });
         if (input.sourceType === "custom") {
@@ -262,6 +266,26 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     });
   }
 
+  async markLiveReservationDispatched(reservationId: string): Promise<boolean> {
+    return this.withLock(() => {
+      const reservation = this.reservations.get(reservationId);
+      if (!reservation || reservation.status !== "pending") return false;
+      reservation.dispatched = true;
+      return true;
+    });
+  }
+
+  async clearLiveReservationDispatched(
+    reservationId: string,
+  ): Promise<boolean> {
+    return this.withLock(() => {
+      const reservation = this.reservations.get(reservationId);
+      if (!reservation || reservation.status !== "pending") return false;
+      reservation.dispatched = false;
+      return true;
+    });
+  }
+
   async settleLiveReservation(
     reservationId: string,
     actualCostUsd: number,
@@ -280,15 +304,15 @@ export class InMemoryQuotaRepository implements QuotaRepository {
           actualCostUsd: reservation.actualCostUsd,
         };
       }
-      const actual = actualCostUsd;
+      const reservationExceeded = actualCostUsd > reservation.reservedCostUsd;
+      const actual = reservationExceeded
+        ? reservation.reservedCostUsd
+        : actualCostUsd;
       reservation.status = "settled";
       reservation.actualCostUsd = actual;
       this.days.get(reservation.day)!.globalSpendUsd += actual;
       return {
-        status:
-          actual > reservation.reservedCostUsd
-            ? "reservation_exceeded"
-            : "settled",
+        status: reservationExceeded ? "reservation_exceeded" : "settled",
         actualCostUsd: actual,
       };
     });
@@ -377,10 +401,14 @@ export class InMemoryQuotaRepository implements QuotaRepository {
         reservation.status === "pending" &&
         reservation.expiresAtMs <= nowMs
       ) {
-        reservation.status = "settled";
-        reservation.actualCostUsd = reservation.reservedCostUsd;
-        this.days.get(reservation.day)!.globalSpendUsd +=
-          reservation.reservedCostUsd;
+        if (reservation.dispatched) {
+          reservation.status = "settled";
+          reservation.actualCostUsd = reservation.reservedCostUsd;
+          this.days.get(reservation.day)!.globalSpendUsd +=
+            reservation.reservedCostUsd;
+        } else {
+          reservation.status = "released";
+        }
       }
     }
   }
@@ -509,6 +537,29 @@ class NeonQuotaRepository implements QuotaRepository {
       throw new Error("quota_settlement_failed");
     }
     return { status, actualCostUsd: Number(response?.actualCostUsd ?? 0) };
+  }
+
+  async markLiveReservationDispatched(reservationId: string): Promise<boolean> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query<{ result: unknown }>(
+      "SELECT mark_daily_quota_dispatched($1) AS result",
+      [reservationId],
+    );
+    return parseJsonRecord(rows[0]?.result)?.status === "dispatched";
+  }
+
+  async clearLiveReservationDispatched(
+    reservationId: string,
+  ): Promise<boolean> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query<{ id: unknown }>(
+      `UPDATE model_budget_reservations
+        SET dispatched_at = NULL
+        WHERE id = $1 AND status = 'pending'
+        RETURNING id`,
+      [reservationId],
+    );
+    return rows.length === 1;
   }
 
   async settleLiveReservationConservatively(
