@@ -1,5 +1,6 @@
 import { generateText, Output } from "ai";
 import type { Provider } from "@/domain/types";
+import { defaultModelForProvider } from "@/domain/live-model-catalog";
 import {
   MAX_PROVIDER_OUTPUT_TOKENS,
   requireSupportedLiveModel,
@@ -19,8 +20,8 @@ import type {
   TokenUsage,
 } from "@/server/repositories/run-repository";
 
-export const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
-export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5";
+export const DEFAULT_OPENAI_MODEL = defaultModelForProvider("openai");
+export const DEFAULT_ANTHROPIC_MODEL = defaultModelForProvider("anthropic");
 export const LIVE_PROVIDER_TIMEOUT_MS = 45_000;
 
 const SYSTEM_INSTRUCTION = [

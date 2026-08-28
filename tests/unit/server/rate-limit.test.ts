@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
+import {
+  DEFAULT_LIVE_MODEL_RESERVATION_USD as MAX_SUPPORTED_LIVE_RUN_COST_USD,
+} from "@/domain/pricing";
 import {
   InMemoryQuotaRepository,
   createNeonQuotaRepository,
@@ -17,7 +19,25 @@ function quotaRepository() {
 }
 
 describe("InMemoryQuotaRepository", () => {
-  it("reserves a complete worst-case two-attempt run before provider dispatch", async () => {
+  it("admits a default-model reservation below the daily budget instead of charging the catalogue maximum", async () => {
+    const quotas = quotaRepository();
+
+    await expect(
+      quotas.reserve({
+        bucket: "browser-default-model",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: 0.424,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toMatchObject({
+      allowed: true,
+      reservedCostUsd: 0.424,
+    });
+  });
+
+  it("reserves a complete default-model two-attempt run before provider dispatch", async () => {
     const quotas = new InMemoryQuotaRepository(
       MAX_SUPPORTED_LIVE_RUN_COST_USD + 0.01,
       () => "worst-case-reservation",

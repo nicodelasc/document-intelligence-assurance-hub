@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_LIVE_MODEL_RESERVATION_USD,
   MAX_LIVE_PROVIDER_ATTEMPTS,
   MAX_PROVIDER_OUTPUT_TOKENS,
   estimateMaximumLiveRunCost,
@@ -63,5 +64,9 @@ describe("estimateRunCost", () => {
     expect(
       estimateMaximumLiveRunCost("anthropic", "claude-sonnet-5"),
     ).toBeCloseTo(4.032, 9);
+  });
+
+  it("uses the recommended provider defaults for the fallback live reservation", () => {
+    expect(DEFAULT_LIVE_MODEL_RESERVATION_USD).toBeCloseTo(0.424, 9);
   });
 });

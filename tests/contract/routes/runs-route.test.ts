@@ -801,7 +801,9 @@ describe("GET /api/runs", () => {
         return {
           provider: input.provider,
           model:
-            input.provider === "openai" ? "gpt-5-mini" : "claude-haiku-4-5",
+            input.provider === "openai"
+              ? "gpt-5.6-luna"
+              : "claude-haiku-4-5",
           promptVersion: "live-cookie-limit-test.v1",
           executionMode: "live",
           async extract(request) {

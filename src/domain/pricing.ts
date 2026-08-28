@@ -1,4 +1,5 @@
 import {
+  defaultModelForProvider,
   liveModelCatalog,
   requireEnabledModel,
   type LiveModelDefinition,
@@ -37,6 +38,17 @@ export function estimateMaximumLiveRunCost(
 export const MAX_SUPPORTED_LIVE_RUN_COST_USD = Math.max(
   ...liveModelCatalog.map((model) =>
     estimateMaximumLiveRunCost(model.provider, model.id),
+  ),
+);
+
+export const DEFAULT_LIVE_MODEL_RESERVATION_USD = Math.max(
+  estimateMaximumLiveRunCost(
+    "openai",
+    defaultModelForProvider("openai"),
+  ),
+  estimateMaximumLiveRunCost(
+    "anthropic",
+    defaultModelForProvider("anthropic"),
   ),
 );
 

@@ -12,6 +12,7 @@ import {
 } from "@/server/http/responses";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
 import { invalidateMetricsCache } from "@/server/http/metrics-handler";
+import { estimateMaximumLiveRunCost } from "@/domain/pricing";
 import { createHash } from "node:crypto";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -201,19 +202,6 @@ export async function handleRunsPost(
       );
     }
 
-    const quota = await container.quotaRepository.reserve({
-      bucket: bucket.protectedBucket,
-      sourceType: input.sourceType,
-      executionMode: input.executionMode,
-      estimatedCostUsd: 0,
-      liveEnabled: container.liveModeEnabled,
-      now: container.clock(),
-    });
-    if (!quota.allowed) {
-      await container.repository.releaseRunRequest(claimedRunId);
-      claimedRunId = null;
-      return attachBucketCookie(quotaError(quota.reason, requestId), bucket);
-    }
     let provider;
     try {
       provider = await container.createProvider({
@@ -222,12 +210,25 @@ export async function handleRunsPost(
         sampleId: input.sample?.id ?? null,
       });
     } catch {
-      if (quota.reservationId) {
-        await container.quotaRepository.releaseLiveReservation(quota.reservationId);
-      }
       await container.repository.releaseRunRequest(claimedRunId);
       claimedRunId = null;
       throw new Error("provider_initialization_failed");
+    }
+    const quota = await container.quotaRepository.reserve({
+      bucket: bucket.protectedBucket,
+      sourceType: input.sourceType,
+      executionMode: input.executionMode,
+      estimatedCostUsd:
+        input.executionMode === "live"
+          ? estimateMaximumLiveRunCost(provider.provider, provider.model)
+          : 0,
+      liveEnabled: container.liveModeEnabled,
+      now: container.clock(),
+    });
+    if (!quota.allowed) {
+      await container.repository.releaseRunRequest(claimedRunId);
+      claimedRunId = null;
+      return attachBucketCookie(quotaError(quota.reason, requestId), bucket);
     }
 
     const abortController = new AbortController();

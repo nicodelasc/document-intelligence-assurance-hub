@@ -134,7 +134,7 @@ describe("HTTP persistence container", () => {
     expect(container.liveModeEnabled).toBe(true);
     expect(provider).toMatchObject({
       provider: "openai",
-      model: "gpt-5-mini",
+      model: "gpt-5.6-luna",
       executionMode: "live",
     });
   });

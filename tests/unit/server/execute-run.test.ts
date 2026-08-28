@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import type { FieldResult, Provider } from "@/domain/types";
-import { MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
+import {
+  DEFAULT_LIVE_MODEL_RESERVATION_USD as MAX_SUPPORTED_LIVE_RUN_COST_USD,
+} from "@/domain/pricing";
 import {
   InMemoryRunRepository,
   type RunStepRecord,
@@ -83,7 +85,7 @@ function provider(
   const extract = input.extract ?? (async () => extraction);
   return {
     provider: input.name ?? "openai",
-    model: input.name === "anthropic" ? "claude-haiku-4-5" : "gpt-5-mini",
+    model: input.name === "anthropic" ? "claude-haiku-4-5" : "gpt-5.6-luna",
     promptVersion: "test-prompt.v1",
     executionMode: input.executionMode ?? "live",
     extract: async (providerInput) => {
@@ -435,7 +437,7 @@ describe("executeRun", () => {
     await expect(
       quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0.000075,
+      globalSpendUsd: 0.00005,
       reservedSpendUsd: 0,
     });
   });
@@ -589,13 +591,13 @@ describe("executeRun", () => {
     const snapshot = await quotas.snapshot(
       new Date("2026-08-27T01:00:00.000Z"),
     );
-    expect(snapshot.globalSpendUsd).toBeCloseTo(0.000075, 9);
+    expect(snapshot.globalSpendUsd).toBeCloseTo(0.00005, 9);
     expect(snapshot.reservedSpendUsd).toBe(0);
     await expect(
       quotas.settleLiveReservation("quota-success", 2),
     ).resolves.toEqual({
       status: "already_settled",
-      actualCostUsd: 0.000075,
+      actualCostUsd: 0.00005,
     });
   });
 
@@ -643,7 +645,7 @@ describe("executeRun", () => {
       repository.readPublicRun("run-123", new Date("2026-08-27T00:01:00.000Z")),
     ).resolves.toMatchObject({
       usage: extraction.usage,
-      estimatedCostUsd: 0.000075,
+      estimatedCostUsd: 0.00005,
       retryCount: 1,
     });
   });
@@ -1097,12 +1099,12 @@ describe("executeRun", () => {
     await expect(
       quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0.000075,
+      globalSpendUsd: 0.00005,
       reservedSpendUsd: 0,
     });
     await expect(
       quotas.settleLiveReservation(reservation.reservationId, 0.5),
-    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.000075 });
+    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.00005 });
   });
 
   it("settles billable cost once when extraction trace persistence fails", async () => {
@@ -1148,12 +1150,12 @@ describe("executeRun", () => {
     await expect(
       quotas.snapshot(new Date("2026-08-27T01:00:00.000Z")),
     ).resolves.toMatchObject({
-      globalSpendUsd: 0.000075,
+      globalSpendUsd: 0.00005,
       reservedSpendUsd: 0,
     });
     await expect(
       quotas.settleLiveReservation(reservation.reservationId, 0.5),
-    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.000075 });
+    ).resolves.toEqual({ status: "already_settled", actualCostUsd: 0.00005 });
   });
 
   it("rejects fabricated evidence that is absent from the claimed document page", async () => {

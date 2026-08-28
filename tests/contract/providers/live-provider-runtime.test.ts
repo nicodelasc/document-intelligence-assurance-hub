@@ -209,7 +209,7 @@ describe("default live provider runtime contract", () => {
     },
     {
       label: "over-context-limit",
-      usage: { inputTokens: 399_000, outputTokens: 1_001 },
+      usage: { inputTokens: 1_050_000, outputTokens: 1_001 },
     },
   ])("marks $label SDK usage as untrustworthy", async ({ usage }) => {
     generateTextMock.mockResolvedValueOnce({ output: modelOutput, usage });

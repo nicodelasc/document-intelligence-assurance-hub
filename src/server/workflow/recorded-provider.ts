@@ -1,4 +1,8 @@
 import type { Provider } from "@/domain/types";
+import {
+  defaultModelForProvider,
+  requireEnabledModel,
+} from "@/domain/live-model-catalog";
 import { recordedRunResults } from "@/domain/fixtures";
 import {
   validateExtractionForRequest,
@@ -9,11 +13,6 @@ import {
 
 type FixtureId = (typeof recordedRunResults)[number]["invoiceId"];
 
-const defaultModels: Record<Provider, string> = {
-  openai: "gpt-5-mini",
-  anthropic: "claude-haiku-4-5",
-};
-
 export function createRecordedExtractionProvider(input: {
   provider: Provider;
   fixtureId: FixtureId;
@@ -21,10 +20,12 @@ export function createRecordedExtractionProvider(input: {
 }): ExtractionProvider {
   const fixture = recordedRunResults.find((result) => result.invoiceId === input.fixtureId);
   if (!fixture) throw new Error("recorded_fixture_not_found");
+  const model = input.model ?? defaultModelForProvider(input.provider);
+  requireEnabledModel(input.provider, model);
 
   return {
     provider: input.provider,
-    model: input.model ?? defaultModels[input.provider],
+    model,
     promptVersion: "recorded-fixture-2026-08-27.v1",
     executionMode: "recorded",
     async extract(request: ProviderExtractionInput): Promise<ProviderExtractionResponse> {

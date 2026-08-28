@@ -51,6 +51,31 @@ const validModelOutput = {
 };
 
 describe("extraction provider contract", () => {
+  it("uses the enabled OpenAI catalogue default", () => {
+    expect(
+      createOpenAIExtractionProvider({
+        liveEnabled: false,
+        apiKey: undefined,
+      }).model,
+    ).toBe("gpt-5.6-luna");
+  });
+
+  it("uses an enabled recorded default and rejects a mismatched override", () => {
+    expect(
+      createRecordedExtractionProvider({
+        provider: "openai",
+        fixtureId: "clean-match",
+      }).model,
+    ).toBe("gpt-5.6-luna");
+    expect(() =>
+      createRecordedExtractionProvider({
+        provider: "openai",
+        fixtureId: "clean-match",
+        model: "claude-haiku-4-5",
+      }),
+    ).toThrow("unsupported_live_model");
+  });
+
   it.each(["openai", "anthropic"] as const)(
     "validates the %s recorded replay through the shared strict schema",
     async (providerName) => {

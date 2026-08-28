@@ -49,3 +49,39 @@ The existing 2,000-token maximum output policy and two-attempt policy remain unc
 
 - The requested `npm run test:unit -- ...` invocation runs the entire `tests/unit` directory because of the script's positional `tests/unit` argument. After the new high-cost catalogue entries it reports 24 legacy quota and workflow failures because their fixed assumptions use the old global maximum reservation. The dedicated four-file command passes. Task 2 should make quota reservation model-specific as planned then update those legacy tests.
 - No sample PDFs were added in this task. Task 3 must create the files named by the new neutral fixtures before runtime sample selection is migrated.
+
+## Fix round 1 of 5
+
+### Findings addressed
+
+- Live quota reservation is now derived from the model created for the request. The default fallback reservation is the larger recommended-provider maximum of $0.424 rather than the $4.032 catalogue-wide maximum. A selected higher-cost model still reserves its own full maximum and is correctly denied when the daily budget cannot cover it.
+- OpenAI live providers now default to the enabled `gpt-5.6-luna` catalogue entry. Recorded providers use the catalogue default and validate every supplied override against the selected provider.
+
+### Files changed
+
+- `src/domain/pricing.ts`
+- `src/server/http/runs-handler.ts`
+- `src/server/security/rate-limit.ts`
+- `src/server/workflow/live-provider.ts`
+- `src/server/workflow/recorded-provider.ts`
+- `tests/unit/domain/pricing.test.ts`
+- `tests/unit/server/rate-limit.test.ts`
+- `tests/unit/server/execute-run.test.ts`
+- `tests/contract/providers/provider-contract.test.ts`
+- `tests/contract/providers/live-provider-runtime.test.ts`
+- `tests/contract/routes/container.test.ts`
+- `tests/contract/routes/runs-route.test.ts`
+
+### Commands and exact results
+
+- Red: `npx vitest run tests/unit/domain/pricing.test.ts tests/unit/server/rate-limit.test.ts tests/contract/providers/provider-contract.test.ts` reported 23 failures before the correction. The new default reservation was denied under the $4.032 global floor and the OpenAI default was rejected as unsupported.
+- Green: `npx vitest run tests/unit/domain/pricing.test.ts tests/unit/server/rate-limit.test.ts tests/unit/server/execute-run.test.ts tests/contract/providers/provider-contract.test.ts` passed: 4 files and 94 tests.
+- Green: `npx vitest run tests/contract/providers/live-provider-runtime.test.ts tests/contract/routes/container.test.ts tests/contract/routes/runs-route.test.ts` passed: 3 files and 55 tests.
+- Green: `npm test` passed: 34 files and 296 tests.
+- Green: `npm run typecheck` passed.
+
+### Self-review and concerns
+
+- Provider construction completes before quota reservation without any provider call. This allows the quota to reserve the exact server-validated model maximum.
+- The legacy `MAX_SUPPORTED_LIVE_RUN_COST_USD` remains a correct catalogue-wide ceiling for callers that need the largest possible model cost. Runtime quota admission no longer uses it as a floor.
+- A higher-cost selected model can legitimately be unavailable under the existing $3.00 daily public budget. That is a safe budget decision rather than a default-model outage.
