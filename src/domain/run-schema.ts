@@ -1,6 +1,19 @@
 import { z } from "zod";
 import type { ActionProposal, RunEvent } from "./types";
 
+function requiredPublicText(max: number) {
+  return z
+    .string()
+    .max(max)
+    .transform((value) =>
+      value
+        .normalize("NFKC")
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .trim(),
+    )
+    .pipe(z.string().min(1).max(max));
+}
+
 export const actionProposalSchema: z.ZodType<ActionProposal> = z
   .object({
     type: z.enum([
@@ -9,14 +22,14 @@ export const actionProposalSchema: z.ZodType<ActionProposal> = z
       "create_security_review",
       "create_document_review_task",
     ]),
-    title: z.string().min(1).max(160),
-    summary: z.string().min(1).max(600),
+    title: requiredPublicText(160),
+    summary: requiredPublicText(600),
     payload: z
       .array(
         z
           .object({
-            label: z.string().min(1).max(120),
-            value: z.string().min(1).max(500),
+            label: requiredPublicText(120),
+            value: requiredPublicText(500),
           })
           .strict(),
       )
@@ -26,7 +39,7 @@ export const actionProposalSchema: z.ZodType<ActionProposal> = z
     page: z.number().int().positive().nullable(),
     risk: z.enum(["low", "medium", "high"]),
     status: z.enum(["ready", "needs_review", "blocked"]),
-    reason: z.string().min(1).max(600),
+    reason: requiredPublicText(600),
     stagedAt: z.string().datetime().nullable(),
   })
   .strict();

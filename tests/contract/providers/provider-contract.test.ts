@@ -303,6 +303,21 @@ describe("extraction provider contract", () => {
   });
 
   it.each([
+    { title: " \t " },
+    { summary: "\u0000\u001f" },
+    { reason: "\r\n" },
+    { payload: [{ label: "\u0001", value: "Shipment value" }] },
+    { payload: [{ label: "Shipment label", value: "\u0002" }] },
+  ])("rejects provider action text that sanitizes to empty", (actionPatch) => {
+    expect(() =>
+      extractionResultSchema.parse({
+        ...validModelOutput,
+        action: { ...validModelOutput.action, ...actionPatch },
+      }),
+    ).toThrow();
+  });
+
+  it.each([
     [429, "provider_rate_limited"],
     [503, "provider_unavailable"],
     [401, "provider_auth_failed"],

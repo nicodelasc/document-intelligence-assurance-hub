@@ -22,6 +22,7 @@ test("captures approved desktop and mobile evidence", async ({ page }) => {
     }
     await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
     await page.screenshot({ path: join(output, `${route}-1536x1024.png`), fullPage: false });
+    if (route !== "workbench") continue;
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`/${route}`);

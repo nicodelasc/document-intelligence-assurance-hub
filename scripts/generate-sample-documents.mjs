@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import {
   PDFDocument,
   StandardFonts,
@@ -42,6 +43,14 @@ function drawRule(page, y) {
   });
 }
 
+async function preparePageTexture(textureBytes) {
+  const source = await loadImage(textureBytes);
+  const canvas = createCanvas(612, 792);
+  const context = canvas.getContext("2d");
+  context.drawImage(source, 0, 0, 612, 792);
+  return canvas.toBuffer("image/jpeg", 70);
+}
+
 async function createDocument(fixture, textureBytes) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(fixture.title);
@@ -54,7 +63,7 @@ async function createDocument(fixture, textureBytes) {
   pdf.setModificationDate(generatedAt);
 
   const page = pdf.addPage([612, 792]);
-  const texture = await pdf.embedPng(textureBytes);
+  const texture = await pdf.embedJpg(textureBytes);
   const helvetica = await pdf.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const courierOblique = await pdf.embedFont(StandardFonts.CourierOblique);
@@ -202,7 +211,7 @@ async function createDocument(fixture, textureBytes) {
 }
 
 const fixtures = await loadSyntheticFixtures();
-const textureBytes = await readFile(texturePath);
+const textureBytes = await preparePageTexture(await readFile(texturePath));
 for (const fixture of fixtures) {
   const document = await createDocument(fixture, textureBytes);
   await writeFile(resolve(samplesDirectory, fixture.filename), document);

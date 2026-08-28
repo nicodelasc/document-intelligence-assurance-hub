@@ -15,6 +15,7 @@
 | Surface language | Thin rules and tonal sections create hierarchy without floating cards. | Shared rule panels use one-pixel borders and no static shadows. | Match |
 | Public history | The lower ledger keeps recent work available for comparison. | The render hydrates a bounded public ledger from `GET /api/runs` with explicit loading, empty and safe-error states. Two active public details remain comparison-ready after refresh. | Match with public-only data controls |
 | Responsive order | Source, document and trace remain the task order. | CSS stacks source then preview then trace below 1024 px while action remains before evidence. | Match |
+| Verification evidence | The accepted surface remains readable at desktop and mobile sizes. | `verification/workbench-1536x1024.png` and `verification/workbench-390x844-reduced-motion.png` were recaptured by the 18-test Chromium suite. Browser production inspection confirmed a 380 px document width at a 390 px viewport with the source before the preview and the preview before the trace. | Match |
 
 Above-the-fold copy diff: the render keeps the required heading, plain-language source sentence, keyless notice, grouped model selector and run action. Demo mode states `Demo data — no provider call` once near the action. Prohibited prototype and replay labels are absent. The public-visibility copy remains less than 24 hours.
 
@@ -28,9 +29,23 @@ Above-the-fold copy diff: the render keeps the required heading, plain-language 
 | Run ledger | The semantic table stays open beside a detail inspector. | The explorer and inspector retain their side-by-side relationship at desktop. | Match |
 | Run inspector | The selected run combines preview, extracted values, comparison evidence and telemetry. | Honest section headings replace inert tab labels. An active same-origin preview sits with structured extraction, per-field reference comparison, formatted telemetry, safe errors and public metadata. | Match with safer navigation semantics |
 | Scenario rail | Numeric assumptions and results stay in a narrow right rail. | Every scenario result repeats the illustrative claim boundary. | Match with stronger claim labeling |
-| Mobile transformation | Narrow layouts preserve complete information. | `verification/operations-390x844-reduced-motion.png` stacks metrics and panels while tables keep horizontal overflow. | Match |
+| Mobile transformation | Narrow layouts preserve complete information. | Browser production inspection at 390 by 844 confirmed a 380 px document width after run selection. The run table keeps its own horizontal overflow and the long run identifier wraps inside the inspector header. | Match after overflow fix |
 
 Above-the-fold copy diff: the route uses `Operations` instead of the concept-only `Operations console`. It adds the mandatory keyless notice and labels the benchmark source as recorded. Demo rows and metadata state `Not called (demo)`. Live-run provider configuration remains separate from the six recorded fixture-provider combinations. Concept-only help and reviewer controls were removed.
+
+## Verification evidence — 2026-08-28
+
+| Check | Evidence | Result |
+|---|---|---|
+| Premium static audit | Strict mode reported 0 findings, 0 violations and 0 warnings. | Passed |
+| Design contract lint | `DESIGN.md` reported 0 errors and 9 orphan-token warnings because the documented semantic aliases are consumed through runtime CSS variables rather than component references in the design schema. | Passed with non-error warnings |
+| Anti-pattern review | Searches over the redesign UI diff returned no native dialog calls and no clickable non-semantic elements. The search control has an app-owned clear action. Product storage calls are guarded by `try` and `catch`. Native selects are the documented platform-owned variant. Remaining `!important` declarations are limited to the commented reduced-motion accessibility override. | Passed |
+| Desktop browser | Browser production checks at 1536 by 1024 covered fixture selection, safe upload rejection, a deterministic warehouse run, action staging and Operations drill-down. Both routes had the expected title with no framework overlay and no console warning or error. | Passed |
+| Keyboard model choice | The in-app Browser kept focus on the native select but its platform popup did not commit injected ArrowDown events. The focused Chromium E2E assertion pressed ArrowDown and changed the value from `gpt-5.6-luna` to `gpt-5.6-terra`. | Passed with documented Browser automation limitation |
+| Mobile and reduced motion | Browser checks covered Workbench and Operations at 390 by 844. The project visual test emulated reduced motion and captured `verification/workbench-390x844-reduced-motion.png` because the Browser capability does not expose media emulation. | Passed |
+| Screenshot set | The current evidence paths are `verification/workbench-1536x1024.png`, `verification/workbench-390x844-reduced-motion.png` and `verification/operations-1536x1024.png`. | Passed |
+
+Deferred-minor rulings: required provider action text that becomes empty after control-character removal now fails the shared schema boundary. Five regression cases cover title, summary, reason, payload label and payload value. The sample generator now rasterizes the 1055 by 1491 source texture to a 612 by 792 JPEG before embedding it. The three generated PDFs are 17,690 bytes, 17,580 bytes and 17,507 bytes and each remains below the 256 KiB regression ceiling.
 
 ## Intentional deviations and remaining risk
 
@@ -39,3 +54,4 @@ Above-the-fold copy diff: the route uses `Operations` instead of the concept-onl
 - The concepts show unsupported corporate metadata and a nonzero false-clear count. The implementation follows the specification and keeps false clears at zero.
 - Final screenshot capture waits for the Operations loading state to settle. Screenshot-only styling removes the Next development portal without changing the product UI.
 - Mobile evidence covers Chromium at 390 by 844 with reduced motion. Physical device and 200 percent zoom checks remain recommended rollout work.
+- Live-provider behavior remains outside deterministic verification. OpenAI and Anthropic acceptance stays gated on explicit key authorization.

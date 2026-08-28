@@ -20,7 +20,11 @@ test("runs operational fixtures with a grouped model select and action-first res
   await expect(page.getByText("Publish telemetry", { exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: /Warehouse receiving sheet/i }).click();
-  await page.getByLabel("Live custom-run model").selectOption("claude-haiku-4-5");
+  const modelSelect = page.getByLabel("Live custom-run model");
+  await modelSelect.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(modelSelect).toHaveValue("gpt-5.6-terra");
+  await modelSelect.selectOption("claude-haiku-4-5");
   await page.getByRole("button", { name: "Run assurance check" }).click();
   await expect(page.getByRole("heading", { name: "Clear" })).toBeVisible({
     timeout: connectedRunTimeout,

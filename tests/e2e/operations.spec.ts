@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("monitors persisted action readiness and opens dry-run action details", async ({ page }) => {
   const run = {
-    id: "ops_action_1",
+    id: "run_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     provider: "openai",
     model: "gpt-5.6-luna",
     executionMode: "recorded",
@@ -46,7 +46,7 @@ test("monitors persisted action readiness and opens dry-run action details", asy
     contentType: "application/json",
     body: JSON.stringify(metrics),
   }));
-  await page.route("**/api/runs/ops_action_1", async (route) => route.fulfill({
+  await page.route("**/api/runs/run_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", async (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ run: {
@@ -56,7 +56,7 @@ test("monitors persisted action readiness and opens dry-run action details", asy
       requestedFields: [{ key: "shipment_id", label: "Shipment ID" }],
       usage: { inputTokens: 0, outputTokens: 0 },
       stepDurations: { validating: 20 },
-      documentUrl: "/api/runs/ops_action_1/document",
+      documentUrl: "/api/runs/run_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/document",
       details: {
         steps: [{ kind: "stage", stage: "validating", timestamp: "2026-08-27T00:00:00.000Z", durationMs: 20 }],
         result: {
@@ -85,7 +85,7 @@ test("monitors persisted action readiness and opens dry-run action details", asy
   await expect(page.getByRole("heading", { name: "Latency and step duration" })).toHaveCount(0);
   await expect(page.getByText(/Public prototype|replay/i)).toHaveCount(0);
 
-  await page.getByRole("radio", { name: "Select ops_action_1" }).check();
+  await page.getByRole("radio", { name: "Select run_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }).check();
   const prepared = page.getByRole("heading", { name: "Prepared action" }).locator("..");
   await expect(prepared).toContainText("Stage inventory receipt");
   await expect(prepared).toContainText("stage inventory receipt");
@@ -95,4 +95,7 @@ test("monitors persisted action readiness and opens dry-run action details", asy
   const metadata = page.getByRole("heading", { name: "Metadata" }).locator("..");
   await expect(metadata.getByText("Not called (demo)")).toHaveCount(2);
   await expect(metadata).not.toContainText("gpt-5.6-luna");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

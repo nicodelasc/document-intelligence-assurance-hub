@@ -45,6 +45,7 @@ describe("synthetic document fixtures", () => {
       const pdf = await getDocumentProxy(new Uint8Array(document));
       const extracted = await extractText(pdf, { mergePages: true });
 
+      expect(document.byteLength).toBeLessThan(256 * 1024);
       expect(extracted.totalPages).toBe(1);
       expect(extracted.text).toContain(fixture.title);
       expect(extracted.text).toContain(fixture.action.instructionEvidence);
