@@ -1,4 +1,5 @@
 import type { HttpContainer } from "@/server/http/container";
+import { invalidateMetricsCache } from "@/server/http/metrics-handler";
 import { serializePublicRunDetail } from "@/server/http/public-serialization";
 import {
   noIndexHeaders,
@@ -111,6 +112,9 @@ export async function handleRunDelete(
       now: container.clock(),
     });
     if (result === "unauthorized" || result === "not_found" || result === "deleted") {
+      if (result === "deleted") {
+        invalidateMetricsCache(container.repository);
+      }
       return safeJsonResponse(
         { deletion: { status: "accepted", runId: parameters.id } },
         { status: 202, headers: noIndexHeaders },

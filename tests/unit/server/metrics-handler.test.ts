@@ -9,6 +9,7 @@ import {
   readLines,
 } from "../../contract/routes/test-support";
 import { handleRunsPost } from "@/server/http/runs-handler";
+import { handleRunDelete } from "@/server/http/run-detail-handler";
 import { handleStageActionPost } from "@/server/http/stage-action-handler";
 import { syntheticRequest } from "../../contract/routes/test-support";
 
@@ -120,6 +121,63 @@ describe("recorded benchmark metrics", () => {
       )
     ).json()) as { actions: { stagedDryRuns: number } };
     expect(after.actions.stagedDryRuns).toBe(1);
+  });
+
+  it("removes a deleted action from a warm metrics snapshot", async () => {
+    const container = createTestContainer();
+    const events = await readLines(
+      await handleRunsPost(
+        syntheticRequest("warehouse-receiving-sheet"),
+        container,
+      ),
+    );
+    const completed = events.find(
+      (
+        event,
+      ): event is { type: "completed"; runId: string; deletionToken: string } =>
+        typeof event === "object" &&
+        event !== null &&
+        (event as { type?: unknown }).type === "completed" &&
+        typeof (event as { runId?: unknown }).runId === "string" &&
+        typeof (event as { deletionToken?: unknown }).deletionToken === "string",
+    );
+    if (!completed) throw new Error("Completed run event is required");
+
+    const before = (await (
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
+    ).json()) as {
+      actions: { ready: number; population: { activeRuns: number } };
+    };
+    expect(before.actions).toMatchObject({
+      ready: 1,
+      population: { activeRuns: 1 },
+    });
+
+    const deleted = await handleRunDelete(
+      new Request(`http://local.test/api/runs/${completed.runId}`, {
+        method: "DELETE",
+        headers: { "x-delete-token": completed.deletionToken },
+      }),
+      { id: completed.runId },
+      container,
+    );
+    expect(deleted.status).toBe(202);
+
+    const after = (await (
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
+    ).json()) as {
+      actions: { ready: number; population: { activeRuns: number } };
+    };
+    expect(after.actions).toMatchObject({
+      ready: 0,
+      population: { activeRuns: 0 },
+    });
   });
 
   it("excludes deterministic demo runs from actual provider usage", async () => {
