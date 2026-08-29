@@ -1,12 +1,23 @@
 import { expect, test } from "@playwright/test";
 
+// Headed Chromium owns its PDF viewer. Headless mode intentionally downloads PDFs.
+test.use({ headless: false });
+
 test("Workbench previews the selected actual PDF with stable geometry", async ({
   page,
 }) => {
   const runPosts: string[] = [];
+  const failedPdfRequests: string[] = [];
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/runs")) {
       runPosts.push(request.url());
+    }
+  });
+  page.on("requestfailed", (request) => {
+    if (request.url().endsWith(".pdf")) {
+      failedPdfRequests.push(
+        `${request.url()} ${request.failure()?.errorText ?? "unknown failure"}`,
+      );
     }
   });
   await page.goto("/workbench");
@@ -25,6 +36,16 @@ test("Workbench previews the selected actual PDF with stable geometry", async ({
   const invoiceBox = await invoicePreview.boundingBox();
   expect(invoiceBox).not.toBeNull();
   expect(invoiceBox!.height).toBeGreaterThanOrEqual(600);
+  const expectedInvoiceUrl = new URL(
+    "/samples/invoice-clean-match.pdf",
+    page.url(),
+  ).href;
+  await expect
+    .poll(async () => {
+      const element = await invoicePreview.elementHandle();
+      return (await element?.contentFrame())?.url() ?? "";
+    })
+    .toBe(expectedInvoiceUrl);
 
   await page.getByRole("tab", { name: "Warehouse goods receipts" }).click();
   await page.getByRole("button", { name: /Item and lot mismatch/i }).click();
@@ -42,13 +63,25 @@ test("Workbench previews the selected actual PDF with stable geometry", async ({
   expect(receiptBox!.height).toBe(invoiceBox!.height);
   expect(runPosts).toHaveLength(0);
 
+  const expectedReceiptUrl = new URL(
+    "/samples/warehouse-item-lot-mismatch.pdf",
+    page.url(),
+  ).href;
   await expect
     .poll(async () => {
       const element = await receiptPreview.elementHandle();
-      const frame = await element?.contentFrame();
-      return frame?.url() ?? "";
+      return (await element?.contentFrame())?.url() ?? "";
     })
-    .not.toMatch(/^(?:about:blank|chrome-error:\/\/chromewebdata\/)$/);
+    .toBe(expectedReceiptUrl);
+  await expect.poll(() => failedPdfRequests).toEqual([]);
+  await expect
+    .poll(() =>
+      page.frames().some((frame) =>
+        frame.url().startsWith("chrome-extension://") &&
+        frame.url().endsWith("/index.html"),
+      ),
+    )
+    .toBe(true);
 });
 
 test("the mobile PDF preview and differences panel stack without page overflow", async ({

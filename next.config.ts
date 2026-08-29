@@ -62,6 +62,16 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
       },
+      {
+        source: "/samples/:path*.pdf",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: sameOriginDocumentContentSecurityPolicy,
+          },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
     ];
   },
 };

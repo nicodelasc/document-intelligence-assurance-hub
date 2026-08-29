@@ -53,10 +53,6 @@ export function FixtureLibrary(props: {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedId);
   const activeFamily = selectedFixture?.family ?? familyDefinitions[0].id;
-  const familyFixtures = fixtures.filter(
-    (fixture) => fixture.family === activeFamily,
-  );
-
   function activateFamily(index: number) {
     const family = familyDefinitions[index];
     const firstFixture = fixtures.find(
@@ -116,39 +112,50 @@ export function FixtureLibrary(props: {
         })}
       </div>
 
-      <div
-        id={`fixture-family-panel-${activeFamily}`}
-        className="fixture-family-panel"
-        role="tabpanel"
-        aria-labelledby={`fixture-family-tab-${activeFamily}`}
-        tabIndex={0}
-      >
-        <div className="fixture-variant-list">
-          {familyFixtures.map((fixture) => {
-            const selected = fixture.id === selectedId;
-            return (
-              <button
-                key={fixture.id}
-                type="button"
-                className="fixture-tile"
-                data-testid="fixture-variant"
-                data-classification={fixture.classification}
-                aria-pressed={selected}
-                disabled={disabled}
-                onClick={() => onSelect(fixture.id)}
-              >
-                <span className="fixture-tile__heading">
-                  <strong>{fixture.variantLabel}</strong>
-                  <span className="fixture-classification">
-                    <ClassificationIcon classification={fixture.classification} />
-                    {classificationLabels[fixture.classification]}
-                  </span>
-                </span>
-                <small>{fixture.title}</small>
-              </button>
-            );
-          })}
-        </div>
+      {familyDefinitions.map((family) => {
+        const selected = family.id === activeFamily;
+        return (
+          <div
+            key={family.id}
+            id={`fixture-family-panel-${family.id}`}
+            className="fixture-family-panel"
+            role="tabpanel"
+            aria-labelledby={`fixture-family-tab-${family.id}`}
+            tabIndex={selected ? 0 : -1}
+            hidden={!selected}
+          >
+            <div className="fixture-variant-list">
+              {fixtures
+                .filter((fixture) => fixture.family === family.id)
+                .map((fixture) => {
+                  const variantSelected = fixture.id === selectedId;
+                  return (
+                    <button
+                      key={fixture.id}
+                      type="button"
+                      className="fixture-tile"
+                      data-testid="fixture-variant"
+                      data-classification={fixture.classification}
+                      aria-pressed={variantSelected}
+                      disabled={disabled}
+                      onClick={() => onSelect(fixture.id)}
+                    >
+                      <span className="fixture-tile__heading">
+                        <strong>{fixture.variantLabel}</strong>
+                        <span className="fixture-classification">
+                          <ClassificationIcon classification={fixture.classification} />
+                          {classificationLabels[fixture.classification]}
+                        </span>
+                      </span>
+                      <small>{fixture.title}</small>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        );
+      })}
+      <div className="fixture-upload-row">
         <button
           type="button"
           className={`fixture-upload-tile${selectedFixture ? "" : " selected-control"}`}

@@ -158,10 +158,11 @@ describe("Workbench controls", () => {
     expect(
       screen.getByRole("tab", { name: "Warehouse goods receipts" }),
     ).toBeVisible();
-    expect(screen.getAllByTestId("fixture-variant")).toHaveLength(5);
-    expect(screen.getByText("Correct")).toBeVisible();
-    expect(screen.getAllByText("Needs attention")).toHaveLength(2);
-    expect(screen.getAllByText("Incorrect")).toHaveLength(2);
+    const invoicePanel = screen.getByRole("tabpanel");
+    expect(within(invoicePanel).getAllByTestId("fixture-variant")).toHaveLength(5);
+    expect(within(invoicePanel).getByText("Correct")).toBeVisible();
+    expect(within(invoicePanel).getAllByText("Needs attention")).toHaveLength(2);
+    expect(within(invoicePanel).getAllByText("Incorrect")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Process document" })).toBeVisible();
     expect(screen.getByLabelText("Processing model")).toHaveValue("gpt-5.6-luna");
     expect(
@@ -189,7 +190,9 @@ describe("Workbench controls", () => {
     expect(screen.getByText(initialFixture.differenceSummary[0])).toBeVisible();
 
     await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
-    expect(screen.getAllByTestId("fixture-variant")).toHaveLength(5);
+    expect(
+      within(screen.getByRole("tabpanel")).getAllByTestId("fixture-variant"),
+    ).toHaveLength(5);
     const warehouseFixture = syntheticFixtures.find(
       (fixture) => fixture.id === "warehouse-quantity-mismatch",
     )!;
@@ -225,16 +228,29 @@ describe("Workbench controls", () => {
 
     const invoiceTab = screen.getByRole("tab", { name: "Supplier invoices" });
     const receiptTab = screen.getByRole("tab", { name: "Warehouse goods receipts" });
+    const invoicePanelId = invoiceTab.getAttribute("aria-controls");
+    const receiptPanelId = receiptTab.getAttribute("aria-controls");
+    expect(invoicePanelId).not.toBeNull();
+    expect(receiptPanelId).not.toBeNull();
+    expect(document.getElementById(invoicePanelId!)).toBeVisible();
+    expect(document.getElementById(receiptPanelId!)).not.toBeVisible();
+
     invoiceTab.focus();
     await user.keyboard("{ArrowRight}");
     expect(receiptTab).toHaveFocus();
     expect(receiptTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById(invoicePanelId!)).not.toBeVisible();
+    expect(document.getElementById(receiptPanelId!)).toBeVisible();
     await user.keyboard("{Home}");
     expect(invoiceTab).toHaveFocus();
     expect(invoiceTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById(invoicePanelId!)).toBeVisible();
+    expect(document.getElementById(receiptPanelId!)).not.toBeVisible();
     await user.keyboard("{End}");
     expect(receiptTab).toHaveFocus();
     expect(receiptTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById(invoicePanelId!)).not.toBeVisible();
+    expect(document.getElementById(receiptPanelId!)).toBeVisible();
   });
 });
 

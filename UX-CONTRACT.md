@@ -67,7 +67,7 @@
 
 | Operation | Trigger | Pending | Success destination | Success feedback | Failure recovery | Focus outcome | Source ref |
 |---|---|---|---|---|---|---|---|
-| Create run | `Process document` | Streamed stage rail | Same Workbench | Final result and status announcement | Safe error and replay option | Outcome heading | Product specification |
+| Create run | `Process document` | Streamed stage rail | Same Workbench | Final result and status announcement | Safe retry or model reselection | Outcome heading | Product specification |
 | Stage prepared action | `Stage action` | Pessimistic busy button | Same Workbench | Server-returned staged state | Preserve proposal and retry | Action status | Product specification |
 | Compare runs | `Compare runs` | Stable inline loader | Same Workbench | Difference table | Preserve selections and retry | Comparison heading | Product specification |
 | Delete run | `Delete now` | Dialog action busy | Run list | `Run deleted` status | Dialog remains open with safe error | Next run or list heading | Product specification |

@@ -20,7 +20,9 @@ test("browses document families without processing then runs the selected fixtur
   await expect(
     page.getByRole("tab", { name: "Warehouse goods receipts" }),
   ).toBeVisible();
-  await expect(page.getByTestId("fixture-variant")).toHaveCount(5);
+  await expect(
+    page.locator('[role="tabpanel"]:not([hidden])').getByTestId("fixture-variant"),
+  ).toHaveCount(5);
   await expect(page.getByText("Sample results - no AI processing", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Processing model")).toHaveValue("gpt-5.6-luna");
   await expect(page.getByRole("option", { name: "GPT-5.6 Luna - Recommended" })).toBeAttached();
@@ -35,7 +37,9 @@ test("browses document families without processing then runs the selected fixtur
   const receiptTab = page.getByRole("tab", { name: "Warehouse goods receipts" });
   await expect(receiptTab).toBeFocused();
   await expect(receiptTab).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByTestId("fixture-variant")).toHaveCount(5);
+  await expect(
+    page.locator('[role="tabpanel"]:not([hidden])').getByTestId("fixture-variant"),
+  ).toHaveCount(5);
 
   await page.getByRole("button", { name: /Quantity correction/i }).click();
   await expect(page.getByTitle(/Document preview for Harborline Components goods receipt/i)).toHaveAttribute(

@@ -105,6 +105,7 @@ h3 { font-size: 0.875rem; }
 .fixture-family-tabs button:hover:not(:disabled) { background: var(--primary-soft); color: var(--primary); }
 .fixture-family-tabs button[aria-selected="true"] { border-bottom-color: var(--primary); background: white; color: var(--primary); font-weight: 700; }
 .fixture-family-panel { min-width: 0; padding: 0.7rem; }
+.fixture-family-panel[hidden] { display: none; }
 .fixture-variant-list { display: grid; gap: 0.45rem; }
 .fixture-tile { --fixture-accent: var(--primary); width: 100%; min-width: 0; min-height: 72px; display: grid; gap: 0.28rem; padding: 0.65rem 0.7rem; border: 1px solid var(--rule); border-left: 4px solid var(--fixture-accent); border-radius: var(--radius-md); background: var(--surface); text-align: left; }
 .fixture-tile[data-classification="correct"] { --fixture-accent: #1f7a56; }
@@ -119,7 +120,8 @@ h3 { font-size: 0.875rem; }
 .fixture-classification { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 0.25rem; color: var(--fixture-accent); font-size: 0.62rem; font-weight: 700; white-space: nowrap; }
 .fixture-tile[data-classification="attention"] .fixture-classification { color: var(--warning); }
 .fixture-classification svg { width: 13px; height: 13px; stroke-width: 1.75; }
-.fixture-upload-tile { width: 100%; min-height: 58px; display: grid; place-items: center; gap: 0.15rem; margin-top: 0.55rem; padding: 0.6rem; border: 1.5px dashed #8B97A8; border-radius: var(--radius-md); background: #FCFCFD; color: var(--primary); text-align: center; }
+.fixture-upload-row { padding: 0 0.7rem 0.7rem; }
+.fixture-upload-tile { width: 100%; min-height: 58px; display: grid; place-items: center; gap: 0.15rem; padding: 0.6rem; border: 1.5px dashed #8B97A8; border-radius: var(--radius-md); background: #FCFCFD; color: var(--primary); text-align: center; }
 .fixture-upload-tile:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-soft); }
 .fixture-upload-tile.selected-control { border-color: var(--primary); background: var(--primary-soft); }
 .fixture-upload-tile small { color: var(--muted); font-size: 0.65rem; }
