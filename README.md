@@ -1,20 +1,23 @@
 # Document Intelligence Assurance Hub
 
-Interpret synthetic business documents then inspect field evidence, a deterministic assurance decision and one constrained action proposal. The Workbench prepares internal dry-run actions. Operations exposes public-safe traces, action readiness, deterministic benchmark quality and an illustrative resource calculator.
+Interpret ten synthetic supplier invoice and warehouse goods receipt variants then inspect field evidence, a deterministic assurance decision and one constrained action proposal. The Workbench prepares internal dry-run actions. Operations exposes public-safe traces, workflow readiness, the provider-neutral Reference quality suite and an illustrative resource calculator.
 
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
-- [Watch the two-minute walkthrough](artifacts/walkthrough.webm)
 
-The stable production deployment currently runs in keyless demo mode with Neon telemetry and private Blob document storage. `AI_LIVE_ENABLED` remains false and model-provider keys are absent. Demo runs never call a model provider and provider or model execution is shown as `Not called (demo)`.
+The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Built-in OpenAI processing, built-in Anthropic processing, custom OpenAI processing and custom Anthropic processing each remain pending until that exact route passes its own connected production smoke test. No API key was used and no provider call was made for this documentation update.
 
 This is a public-safe portfolio application. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
-## Modes
+## Processing routes
 
-Demo mode is the default and works without model credentials. It returns deterministic synthetic results for each document scenario. The model dropdown remains useful for configuration review but its selection does not cause or imply a provider call.
+`GET /api/models` returns the server-owned catalogue, provider defaults and availability booleans. It never returns a credential. OpenAI and Anthropic keys remain server-side.
 
-Live mode is disabled unless `AI_LIVE_ENABLED=true` and the selected server-side key exists. When enabled the runtime can integrate directly with the OpenAI API or Anthropic API through one provider port. No live provider run is claimed in this repository. Live acceptance remains pending.
+For a built-in sample the selected model controls the route. When its provider is available `Process document` sends the sample through that selected model adapter. When the provider is unavailable the same button uses the checked-in deterministic result and the interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
+
+Custom uploads have no recorded fallback. An unavailable selected provider disables `Process document` and shows `Processing unavailable for this model`. The file, requested fields and consent remain local to the form until the reviewer can choose an available route.
+
+Only `Process document` can create a model-budget reservation. Browsing samples, opening previews, comparing runs and preparing simulated workflow actions cannot reserve model spend. Persisted `providerDispatched=true` is the only execution fact used to report a provider call. Configured provider and model values remain separate from actual attribution.
 
 ## Model catalogue
 
@@ -48,23 +51,25 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 ## Responsible AI safeguards
 
 - Model output must pass a structured schema before evaluation.
-- Live evidence must map to a contiguous span on its claimed page before server-owned normalization can pass it.
+- Provider-routed evidence must map to a contiguous span on its claimed page before server-owned normalization can pass it.
+- Typed fixture evidence is native PDF text. Handwritten reviewer and receiver comments are embedded as raster images so the selected model must interpret the visible handwriting rather than selectable comment text.
 - Text-native PDFs are parsed locally. PNG, JPEG and scanned PDF pages use bounded local OCR with bundled English language data. Document bytes are not sent to another grounding service.
+- Unclear critical handwriting must return null and resolve as Not found. The model is instructed not to guess or reconstruct obscured characters from business context.
 - Clear requires every requested field to pass deterministic checks and any supplied reference comparison.
 - Provider failures use stable public error codes. Hidden provider details are not returned.
-- Live mode has per-browser limits, global limits and a parsed daily model budget.
+- Provider-routed processing has per-browser limits, global limits and a parsed daily model budget.
 - Connected mode enforces deployment-wide minute ceilings in Neon for submissions, documents, metrics, run lists and active traces. Rotating the anonymous cookie does not bypass each resource's global ceiling.
 - Duplicate submissions use a durable idempotency claim when Neon is connected.
 - Documents are private in Blob and are served only through active same-origin routes.
 - Cancellation propagates through the response stream, workflow and provider request.
 - Action policy runs on the server after evaluation. A proposal cannot approve or execute a business action.
-- Stage action uses the browser-held run capability to persist one idempotent internal dry-run event. There is no ERP, ticketing, payment, inventory or access-control connector.
+- Stage action uses the browser-held run capability to persist one idempotent internal dry-run event. Real email and every ERP, ticketing, payment, inventory or access-control connector remain out of scope.
 
 ## Evaluation status
 
-The public deterministic benchmark aggregates three provider-neutral observations with one observation per synthetic fixture. The warehouse receiving sheet resolves Clear with a ready inventory-receipt action. The invoice exception packet resolves Needs review with an accounts-payable review action. The visitor access request resolves Incomplete with a blocked security-review action. The deterministic false-clear count is zero.
+The Reference quality suite contains 10 provider-neutral observations: 5 supplier invoices and 5 warehouse goods receipts. Its classifications are 2 Correct, 4 Needs attention and 4 Incorrect. Expected outcomes are 2 Clear, 6 Needs review and 2 Incomplete. It detects 2 of 2 unreadable critical fixtures and the false-clear count is zero.
 
-A separate six-cell recorded-adapter contract matrix checks the three fixtures under both provider configurations against the shared result schema. Those checks do not call a provider and do not attribute results to a provider. Neither evidence set is a live provider accuracy measurement. See [docs/evaluation-report.md](docs/evaluation-report.md).
+A separate 10 by 2 recorded-adapter matrix contains 20 schema and configuration cases. Each fixture is checked under the OpenAI configuration and the Anthropic configuration without a provider call. These cases are not provider observations and are not a model-accuracy measurement. See [docs/evaluation-report.md](docs/evaluation-report.md).
 
 ## Local setup
 
@@ -76,7 +81,7 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Keep `AI_LIVE_ENABLED=false` for the keyless path. Local keyless mode uses process-memory adapters when database and Blob variables are absent. Restarting the process clears those local runs. Action staging remains an internal dry run and never requires an external connector.
+Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally under test. Local keyless operation uses process-memory adapters when database and Blob variables are absent. Built-in samples then use deterministic results while custom processing is unavailable. Restarting the process clears local runs. Action staging remains an internal dry run and never requires an external connector.
 
 ## Verification commands
 
@@ -95,7 +100,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-`npm run record:walkthrough -- --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm` records the real browser flow with public-safe chapter captions. The included 2:03 artifact was captured from the stable keyless deployment at 1440×900. The 2026-08-28 local dependency audit reported zero vulnerabilities. Rerun it for every rollout.
+The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. A replacement walkthrough must show both document families, current Workbench and Operations labels plus explicit fallback or confirmed-dispatch attribution. Rerun the dependency audit for every rollout.
 
 ## Connected persistence
 
@@ -109,6 +114,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0004_conservative_provider
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0005_provider_dispatch_budget.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0006_bounded_provider_settlement.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0007_provider_dispatch_attribution.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0008_document_workflow.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0009_completed_run_aggregates.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -141,7 +148,7 @@ The application does not provide user accounts or private per-user run visibilit
 | Method   | Route                        | Purpose                                                                                                                   |
 | -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `POST`   | `/api/runs`                  | Validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
-| `GET`    | `/api/models`                | Return the enabled server-owned model catalogue and defaults.                                                             |
+| `GET`    | `/api/models`                | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                       |
 | `GET`    | `/api/runs`                  | List bounded active public run summaries.                                                                                 |
 | `GET`    | `/api/runs/:id`              | Read one public-safe active run.                                                                                          |
 | `POST`   | `/api/runs/:id/stage-action` | Persist one capability-protected internal action dry run without an external connector.                                   |
@@ -154,12 +161,21 @@ The application does not provide user accounts or private per-user run visibilit
 
 The repository contains an hourly Vercel Cron schedule at `0 * * * *`. A Vercel plan that cannot run hourly Cron is a rollout blocker. Routes use the Node.js runtime for streaming, crypto, Neon and Blob compatibility.
 
-Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The public keyless deployment is active at the stable links above. It demonstrates deterministic document-to-action behavior only. Live-provider acceptance remains a separate credential-gated activity and is not claimed.
+Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The stable links are review targets rather than acceptance evidence for this revision. Configuration, catalogue visibility and an enabled provider boolean do not accept a processing route.
 
 ## Limitations and live-acceptance gate
 
-This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its staging capability persists internal dry-run state only and cannot contact an external business system.
+This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its workflow capability persists simulated internal state only and cannot send real email or contact an external business system.
 
-Keep live mode disabled until an authorized reviewer completes one OpenAI run, one Anthropic run, one deliberate live failure and one production retention simulation. Each must preserve safe errors, deterministic decisions, durable quotas and logical denial before cleanup.
+All four processing routes remain pending:
+
+| Route                             | Status  | Production evidence required                                                                                              |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Built-in sample through OpenAI    | Pending | One connected run using the selected OpenAI model with confirmed dispatch, grounded evidence and deterministic outcome    |
+| Built-in sample through Anthropic | Pending | One connected run using the selected Anthropic model with confirmed dispatch, grounded evidence and deterministic outcome |
+| Custom upload through OpenAI      | Pending | One consented public upload using the selected OpenAI model with confirmed dispatch and no fallback                       |
+| Custom upload through Anthropic   | Pending | One consented public upload using the selected Anthropic model with confirmed dispatch and no fallback                    |
+
+Acceptance also requires one deliberate provider failure and one production retention simulation. Each check must preserve safe errors, durable quotas and logical denial before cleanup. Passing one route does not accept any other route.
 
 The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.

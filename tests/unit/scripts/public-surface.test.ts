@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   scanOrigin,
+  scanRequiredUiCopy,
   scanText,
 } from "../../../scripts/verify-public-surface.mjs";
 
@@ -46,6 +47,44 @@ describe("public-surface verifier", () => {
     );
   });
 
+  it("rejects only retired public copy and requires the current UI labels", () => {
+    const retiredFindings = scanText(
+      [
+        "Live custom-run",
+        "Live-call provider",
+        "Synthetic benchmark quality",
+      ].join("\n"),
+      "ui-source.tsx",
+    );
+
+    expect(retiredFindings.map((finding) => finding.category)).toEqual([
+      "retired public copy",
+      "retired public copy",
+      "retired public copy",
+    ]);
+    expect(
+      scanText(
+        'executionMode: "live"; recordedRuns: 10; providerDispatched: false;',
+        "internal-source.ts",
+      ),
+    ).toEqual([]);
+
+    expect(
+      scanRequiredUiCopy(
+        "Processing model\nReference quality suite",
+        "aggregated UI source",
+      ),
+    ).toEqual([]);
+    expect(
+      scanRequiredUiCopy("Processing model", "aggregated UI source"),
+    ).toEqual([
+      expect.objectContaining({
+        category: "required public copy missing",
+        marker: "Reference quality suite",
+      }),
+    ]);
+  });
+
   it("scans JSON APIs and bounded active details without fetching raw documents", async () => {
     const requested: string[] = [];
     const activeRuns = Array.from({ length: 12 }, (_, index) => ({
@@ -81,6 +120,14 @@ describe("public-surface verifier", () => {
           headers: safeHeaders,
         });
       }
+      if (url.pathname === "/api/models") {
+        return new Response(
+          JSON.stringify({
+            availability: { openai: true, anthropic: false },
+          }),
+          { headers: safeHeaders },
+        );
+      }
       if (/^\/api\/runs\/run_\d+$/.test(url.pathname)) {
         const suffix = url.pathname.split("_").at(-1);
         return new Response(
@@ -106,6 +153,7 @@ describe("public-surface verifier", () => {
     );
     expect(requested).toContain("/api/runs?limit=50");
     expect(requested).toContain("/api/metrics");
+    expect(requested).toContain("/api/models");
     expect(
       requested.filter((path) => /^\/api\/runs\/run_\d+$/.test(path)),
     ).toHaveLength(8);

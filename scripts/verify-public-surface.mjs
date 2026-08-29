@@ -29,6 +29,23 @@ const signatures = [
     pattern:
       /\bproduction[- ]proven\b|\b\d+(?:\.\d+)?%\s+(?:cost\s+)?savings\b|\b(?:delivered|achieved|generated|created)\s+(?:cost\s+)?savings\b/gi,
   },
+  {
+    category: "retired public copy",
+    pattern: /live custom-run/gi,
+  },
+  {
+    category: "retired public copy",
+    pattern: /live-call provider/gi,
+  },
+  {
+    category: "retired public copy",
+    pattern: /synthetic benchmark quality/gi,
+  },
+];
+
+const requiredUiCopy = [
+  { label: "Processing model", pattern: /processing model/i },
+  { label: "Reference quality suite", pattern: /reference quality suite/i },
 ];
 
 const scannedExtensions = new Set([
@@ -37,6 +54,8 @@ const scannedExtensions = new Set([
   ".js",
   ".json",
   ".rsc",
+  ".ts",
+  ".tsx",
   ".txt",
 ]);
 
@@ -57,6 +76,20 @@ export function scanText(text, pathLabel) {
     }
   }
   return findings;
+}
+
+export function scanRequiredUiCopy(text, pathLabel) {
+  return requiredUiCopy.flatMap(({ label, pattern }) =>
+    pattern.test(text)
+      ? []
+      : [
+          {
+            category: "required public copy missing",
+            location: pathLabel,
+            marker: label,
+          },
+        ],
+  );
 }
 
 function filesUnder(path, builtServerArtifactsOnly = false) {
@@ -192,6 +225,19 @@ export async function scanOrigin(origin, fetchImpl = fetch) {
   }
   findings.push(...scanText(await metricsResponse.text(), metricsUrl.href));
 
+  const modelsUrl = new URL("/api/models", base);
+  const { response: modelsResponse } = await fetchSameOrigin(
+    fetchImpl,
+    modelsUrl,
+    base,
+  );
+  if (!modelsResponse.ok) {
+    throw new Error(
+      `public_surface_fetch_failed ${modelsResponse.status} ${modelsUrl.href}`,
+    );
+  }
+  findings.push(...scanText(await modelsResponse.text(), modelsUrl.href));
+
   for (const runId of activeRunIds(runsPayload)) {
     const detailUrl = new URL(`/api/runs/${encodeURIComponent(runId)}`, base);
     const { response: detailResponse } = await fetchSameOrigin(
@@ -217,13 +263,23 @@ function originArgument(args) {
 
 async function main() {
   const root = process.cwd();
+  const uiSourcePaths = [
+    resolve(root, "src/app"),
+    resolve(root, "src/components"),
+  ];
   const findings = scanPaths([
-    { path: resolve(root, "src/app") },
-    { path: resolve(root, "src/components") },
+    ...uiSourcePaths.map((path) => ({ path })),
     { path: resolve(root, "public") },
     { path: resolve(root, ".next/static") },
     { path: resolve(root, ".next/server/app"), builtServerArtifactsOnly: true },
   ]);
+  const aggregatedUiSource = uiSourcePaths
+    .flatMap((path) => filesUnder(path))
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+  findings.push(
+    ...scanRequiredUiCopy(aggregatedUiSource, "aggregated UI source"),
+  );
   const origin =
     originArgument(process.argv.slice(2)) ?? process.env.PUBLIC_SURFACE_ORIGIN;
   if (origin) findings.push(...(await scanOrigin(origin)));
