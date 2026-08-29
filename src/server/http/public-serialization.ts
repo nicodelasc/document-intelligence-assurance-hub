@@ -1,4 +1,9 @@
-import type { ActionProposal, FieldResult, Provider } from "@/domain/types";
+import type {
+  ActionProposal,
+  FieldResult,
+  Provider,
+  WorkflowEvent,
+} from "@/domain/types";
 import type {
   PublicRunRecord,
   RunStepRecord,
@@ -110,6 +115,18 @@ function serializeAttribution(run: PublicRunRecord): PublicRunAttribution {
   };
 }
 
+function serializeWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
+  return {
+    id: cleanText(event.id, 160),
+    runId: cleanText(event.runId, 160),
+    action: event.action,
+    recipientRole:
+      event.recipientRole === null ? null : cleanText(event.recipientRole, 80),
+    status: event.status,
+    createdAt: event.createdAt,
+  };
+}
+
 function serializeFixtureIdentity(run: PublicRunRecord) {
   return {
     documentFamily:
@@ -191,6 +208,7 @@ export function serializePublicRunDetail(run: PublicRunRecord) {
           details: {
             steps: run.details.steps.map(serializeStep),
             result: run.details.result === null ? null : serializeResult(run.details.result),
+            workflowEvents: run.details.workflowEvents.map(serializeWorkflowEvent),
           },
         }),
   };

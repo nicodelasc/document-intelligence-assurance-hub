@@ -46,6 +46,7 @@ function poisonedRun(): PublicRunRecord {
           durationMs: 1,
         },
       ],
+      workflowEvents: [],
       result: {
         fields: [
           {
@@ -181,6 +182,43 @@ describe("public serializers", () => {
     expect(serialized).not.toContain("reasoning");
     expect(serialized).not.toContain("apiKey");
     expect(serialized).not.toContain("must-not-leak");
+  });
+
+  it("allow-lists bounded workflow event fields and strips role controls", () => {
+    const run = poisonedRun();
+    run.details!.workflowEvents = [
+      {
+        id: "event-safe\u0000",
+        runId: "run-safe-1\r\n",
+        action: "prepare_email",
+        recipientRole: `Buyer\r\n${"x".repeat(100)}`,
+        status: "prepared",
+        createdAt: "2026-08-27T00:05:00.000Z",
+        emailAddress: "must-not-leak@example.com",
+        subject: "must-not-leak",
+        body: "must-not-leak",
+        systemPrompt: "must-not-leak",
+      } as never,
+    ];
+
+    const serialized = serializePublicRunDetail(run) as unknown as {
+      details: { workflowEvents: Array<Record<string, unknown>> };
+    };
+    const event = serialized.details.workflowEvents[0]!;
+
+    expect(event).toEqual({
+      id: "event-safe",
+      runId: "run-safe-1",
+      action: "prepare_email",
+      recipientRole: `Buyer${"x".repeat(75)}`,
+      status: "prepared",
+      createdAt: "2026-08-27T00:05:00.000Z",
+    });
+    expect(String(event.recipientRole)).toHaveLength(80);
+    expect(JSON.stringify(serialized)).not.toMatch(
+      /emailAddress|must-not-leak|systemPrompt/,
+    );
+    expect(serializePublicRunListRow(run)).not.toHaveProperty("workflowEvents");
   });
 
   it("keeps a legacy result readable when it predates action persistence", () => {

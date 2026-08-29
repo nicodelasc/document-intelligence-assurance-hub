@@ -50,4 +50,16 @@ describe("document workflow migration", () => {
     expect(migration).toMatch(/ON CONFLICT \(version\) DO NOTHING/);
     expect(migration).toMatch(/COMMIT;\s*$/);
   });
+
+  it("stores event metadata without email or message content", () => {
+    const workflowTable = migration.match(
+      /CREATE TABLE IF NOT EXISTS workflow_events \(([\s\S]*?)\);/,
+    )?.[1];
+
+    expect(workflowTable).toBeDefined();
+    expect(workflowTable).not.toMatch(/\bjsonb?\b/i);
+    expect(workflowTable).not.toMatch(
+      /\b(?:subject|body|email_address|recipient_address|preview|content)\s+(?:text|jsonb?)\b/i,
+    );
+  });
 });

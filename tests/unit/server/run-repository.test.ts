@@ -61,6 +61,357 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
+  it("creates one event per non-null or null recipient identity and returns clones", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord(), status: "completed" });
+    const now = new Date("2026-08-27T00:05:00.000Z");
+
+    const first = await repository.createWorkflowEvent({
+      runId: "run-1",
+      action: "prepare_email",
+      recipientRole: "Buyer",
+      status: "prepared",
+      now,
+      eventId: "event_1",
+    });
+    const duplicate = await repository.createWorkflowEvent({
+      runId: "run-1",
+      action: "prepare_email",
+      recipientRole: "Buyer",
+      status: "prepared",
+      now: new Date("2026-08-27T00:06:00.000Z"),
+      eventId: "event_2",
+    });
+    const firstWithoutRole = await repository.createWorkflowEvent({
+      runId: "run-1",
+      action: "download_summary",
+      recipientRole: null,
+      status: "simulated",
+      now,
+      eventId: "event_3",
+    });
+    const duplicateWithoutRole = await repository.createWorkflowEvent({
+      runId: "run-1",
+      action: "download_summary",
+      recipientRole: null,
+      status: "simulated",
+      now: new Date("2026-08-27T00:06:00.000Z"),
+      eventId: "event_4",
+    });
+
+    expect(first).toMatchObject({ status: "created", event: { id: "event_1" } });
+    expect(duplicate).toMatchObject({
+      status: "already_created",
+      event: { id: "event_1" },
+    });
+    expect(firstWithoutRole).toMatchObject({
+      status: "created",
+      event: { id: "event_3", recipientRole: null },
+    });
+    expect(duplicateWithoutRole).toMatchObject({
+      status: "already_created",
+      event: { id: "event_3", recipientRole: null },
+    });
+
+    if (first.status === "created") first.event.recipientRole = "mutated";
+    if (duplicate.status === "already_created") duplicate.event.id = "mutated";
+    const stored = await repository.readPublicRun(
+      "run-1",
+      new Date("2026-08-27T00:07:00.000Z"),
+    );
+    expect(stored?.details?.workflowEvents).toEqual([
+      {
+        id: "event_1",
+        runId: "run-1",
+        action: "prepare_email",
+        recipientRole: "Buyer",
+        status: "prepared",
+        createdAt: now.toISOString(),
+      },
+      {
+        id: "event_3",
+        runId: "run-1",
+        action: "download_summary",
+        recipientRole: null,
+        status: "simulated",
+        createdAt: now.toISOString(),
+      },
+    ]);
+  });
+
+  it("resolves an existing identity before checking a globally colliding event ID", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord("run-a"), status: "completed" });
+    await repository.createRun({ ...runRecord("run-b"), status: "completed" });
+    const now = new Date("2026-08-27T00:05:00.000Z");
+
+    await repository.createWorkflowEvent({
+      runId: "run-a",
+      action: "prepare_email",
+      recipientRole: "Buyer",
+      status: "prepared",
+      now,
+      eventId: "event_shared",
+    });
+    await repository.createWorkflowEvent({
+      runId: "run-b",
+      action: "prepare_email",
+      recipientRole: "Buyer",
+      status: "prepared",
+      now,
+      eventId: "event_b",
+    });
+
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "run-b",
+        action: "prepare_email",
+        recipientRole: "Buyer",
+        status: "prepared",
+        now,
+        eventId: "event_shared",
+      }),
+    ).resolves.toMatchObject({
+      status: "already_created",
+      event: { id: "event_b" },
+    });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "run-b",
+        action: "assign_review",
+        recipientRole: "Buyer",
+        status: "simulated",
+        now,
+        eventId: "event_shared",
+      }),
+    ).resolves.toEqual({ status: "id_collision" });
+  });
+
+  it("applies deleted then expired then failed policy then nonterminal lifecycle decisions", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord("failed-active"), status: "failed" });
+    await repository.createRun({ ...runRecord("failed-expired"), status: "failed" });
+    await repository.createRun({
+      ...runRecord("explicit-expired"),
+      status: "expired",
+      expiresAt: "2026-08-28T23:55:00.000Z",
+    });
+    await repository.createRun({ ...runRecord("extracting"), status: "extracting" });
+    await repository.createRun({ ...runRecord("deleted"), status: "completed" });
+    await repository.deleteDetailedData("deleted", "2026-08-27T00:10:00.000Z");
+    const activeNow = new Date("2026-08-27T00:05:00.000Z");
+    const expiredNow = new Date("2026-08-27T23:55:00.000Z");
+
+    for (const action of ["retry_processing", "download_summary"] as const) {
+      await expect(
+        repository.createWorkflowEvent({
+          runId: "failed-active",
+          action,
+          recipientRole: null,
+          status: "simulated",
+          now: activeNow,
+          eventId: `event_${action}`,
+        }),
+      ).resolves.toMatchObject({ status: "created", event: { action } });
+    }
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "failed-active",
+        action: "approve_and_stage",
+        recipientRole: null,
+        status: "staged",
+        now: activeNow,
+        eventId: "event_blocked",
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "failed-expired",
+        action: "retry_processing",
+        recipientRole: null,
+        status: "simulated",
+        now: expiredNow,
+        eventId: "event_expired_by_time",
+      }),
+    ).resolves.toEqual({ status: "expired" });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "explicit-expired",
+        action: "retry_processing",
+        recipientRole: null,
+        status: "simulated",
+        now: activeNow,
+        eventId: "event_explicit_expired",
+      }),
+    ).resolves.toEqual({ status: "expired" });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "extracting",
+        action: "retry_processing",
+        recipientRole: null,
+        status: "simulated",
+        now: activeNow,
+        eventId: "event_nonterminal",
+      }),
+    ).resolves.toEqual({ status: "unavailable" });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "deleted",
+        action: "retry_processing",
+        recipientRole: null,
+        status: "simulated",
+        now: expiredNow,
+        eventId: "event_deleted",
+      }),
+    ).resolves.toEqual({ status: "deleted" });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "missing",
+        action: "retry_processing",
+        recipientRole: null,
+        status: "simulated",
+        now: activeNow,
+        eventId: "event_missing",
+      }),
+    ).resolves.toEqual({ status: "not_found" });
+  });
+
+  it("hides details when an in-memory run has an explicit inactive status", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord("explicit-expired-detail"), status: "completed" });
+    await repository.createRun({ ...runRecord("explicit-deleted-detail"), status: "completed" });
+    const now = new Date("2026-08-27T00:05:00.000Z");
+    for (const runId of ["explicit-expired-detail", "explicit-deleted-detail"]) {
+      await repository.createWorkflowEvent({
+        runId,
+        action: "approve_and_stage",
+        recipientRole: null,
+        status: "staged",
+        now,
+        eventId: `event_${runId}`,
+      });
+    }
+    await repository.setStatus("explicit-expired-detail", "expired");
+    await repository.setStatus("explicit-deleted-detail", "deleted");
+
+    await expect(
+      repository.readPublicRun("explicit-expired-detail", now),
+    ).resolves.toMatchObject({ status: "expired" });
+    await expect(
+      repository.readPublicRun("explicit-expired-detail", now),
+    ).resolves.not.toHaveProperty("details");
+    await expect(
+      repository.readPublicRun("explicit-deleted-detail", now),
+    ).resolves.toMatchObject({ status: "deleted" });
+    await expect(
+      repository.readPublicRun("explicit-deleted-detail", now),
+    ).resolves.not.toHaveProperty("details");
+  });
+
+  it("orders events by created time then ID", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord(), status: "completed" });
+    const eventInputs = [
+      {
+        action: "mark_for_later_review" as const,
+        eventId: "event_z",
+        now: new Date("2026-08-27T00:06:00.000Z"),
+      },
+      {
+        action: "approve_and_stage" as const,
+        eventId: "event_early",
+        now: new Date("2026-08-27T00:05:00.000Z"),
+      },
+      {
+        action: "download_summary" as const,
+        eventId: "event_a",
+        now: new Date("2026-08-27T00:06:00.000Z"),
+      },
+    ];
+    for (const event of eventInputs) {
+      await repository.createWorkflowEvent({
+        runId: "run-1",
+        action: event.action,
+        recipientRole: null,
+        status: event.action === "approve_and_stage" ? "staged" : "simulated",
+        now: event.now,
+        eventId: event.eventId,
+      });
+    }
+
+    const run = await repository.readPublicRun(
+      "run-1",
+      new Date("2026-08-27T00:07:00.000Z"),
+    );
+    expect(run?.details?.workflowEvents.map((event) => event.id)).toEqual([
+      "event_early",
+      "event_a",
+      "event_z",
+    ]);
+  });
+
+  it("clears event identities during early deletion and expiry purge so IDs can be reused", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({ ...runRecord("delete-source"), status: "completed" });
+    await repository.createRun({ ...runRecord("delete-target"), status: "completed" });
+    await repository.createRun({ ...runRecord("expiry-source"), status: "completed" });
+    await repository.createRun({
+      ...runRecord("expiry-target"),
+      status: "completed",
+      expiresAt: "2026-08-29T23:55:00.000Z",
+    });
+    const now = new Date("2026-08-27T00:05:00.000Z");
+
+    await repository.createWorkflowEvent({
+      runId: "delete-source",
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now,
+      eventId: "event_reuse_delete",
+    });
+    await repository.deleteDetailedData(
+      "delete-source",
+      "2026-08-27T00:06:00.000Z",
+    );
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "delete-target",
+        action: "approve_and_stage",
+        recipientRole: null,
+        status: "staged",
+        now,
+        eventId: "event_reuse_delete",
+      }),
+    ).resolves.toMatchObject({ status: "created" });
+    await expect(
+      repository.readPublicRun("delete-source", now),
+    ).resolves.not.toHaveProperty("details");
+
+    await repository.createWorkflowEvent({
+      runId: "expiry-source",
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now,
+      eventId: "event_reuse_expiry",
+    });
+    await expect(
+      repository.readPublicRun("expiry-source", new Date(expiresAt)),
+    ).resolves.not.toHaveProperty("details");
+    await repository.purgeExpiredData(new Date(expiresAt));
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "expiry-target",
+        action: "approve_and_stage",
+        recipientRole: null,
+        status: "staged",
+        now: new Date("2026-08-28T00:05:00.000Z"),
+        eventId: "event_reuse_expiry",
+      }),
+    ).resolves.toMatchObject({ status: "created" });
+  });
+
   it("persists synthetic fixture identity while custom and legacy rows retain null identity", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun(runRecord("synthetic-run"));
@@ -338,6 +689,7 @@ describe("InMemoryRunRepository", () => {
     expect(active?.details).toEqual({
       steps: [expect.objectContaining({ stage: "extracting" })],
       result: null,
+      workflowEvents: [],
     });
     await expect(repository.listPublicRuns(new Date("2026-08-27T01:00:00.000Z"))).resolves.toEqual([
       expect.objectContaining({ details: expect.objectContaining({ result: null }) }),
@@ -420,6 +772,7 @@ describe("InMemoryRunRepository", () => {
     expect(active?.details).toEqual({
       steps: [expect.objectContaining({ stage: "extracting" })],
       result: null,
+      workflowEvents: [],
     });
     await expect(repository.listPublicRuns(new Date("2026-08-27T01:00:00.000Z"))).resolves.toEqual([
       expect.objectContaining({ details: expect.objectContaining({ result: null }) }),
@@ -445,6 +798,7 @@ describe("InMemoryRunRepository", () => {
     expect(failed?.details).toEqual({
       steps: [expect.objectContaining({ stage: "failed" })],
       result: null,
+      workflowEvents: [],
     });
     await expect(repository.listPublicRuns(new Date("2026-08-27T01:00:00.000Z"))).resolves.toEqual([
       expect.objectContaining({
@@ -452,6 +806,217 @@ describe("InMemoryRunRepository", () => {
         details: expect.objectContaining({ result: null }),
       }),
     ]);
+  });
+
+  it("uses one atomic Neon statement and reports the event origin explicitly", async () => {
+    const queryLog: Array<{ sql: string; parameters: unknown[] }> = [];
+    const responses = [
+      {
+        decision: "available",
+        event_created: true,
+        id: "event_neon_1",
+        run_id: "run-neon",
+        action: "prepare_email",
+        recipient_role: "Buyer",
+        status: "prepared",
+        created_at: "2026-08-27T00:05:00.000Z",
+      },
+      {
+        decision: "available",
+        event_created: false,
+        id: "event_neon_1",
+        run_id: "run-neon",
+        action: "prepare_email",
+        recipient_role: "Buyer",
+        status: "prepared",
+        created_at: "2026-08-27T00:05:00.000Z",
+      },
+    ];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        queryLog.push({ sql, parameters });
+        return [responses.shift()!];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+    const now = new Date("2026-08-27T00:05:00.000Z");
+
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "run-neon",
+        action: "prepare_email",
+        recipientRole: "Buyer",
+        status: "prepared",
+        now,
+        eventId: "event_neon_1",
+      }),
+    ).resolves.toMatchObject({ status: "created", event: { id: "event_neon_1" } });
+    await expect(
+      repository.createWorkflowEvent({
+        runId: "run-neon",
+        action: "prepare_email",
+        recipientRole: "Buyer",
+        status: "prepared",
+        now: new Date("2026-08-27T00:06:00.000Z"),
+        eventId: "event_neon_2",
+      }),
+    ).resolves.toMatchObject({
+      status: "already_created",
+      event: { id: "event_neon_1" },
+    });
+
+    expect(queryLog).toHaveLength(2);
+    for (const entry of queryLog) {
+      expect(entry.sql).toMatch(
+        /SELECT id, status, expires_at, details_deleted\s+FROM runs WHERE id = \$1 FOR UPDATE/,
+      );
+      expect(entry.sql).toMatch(/ON CONFLICT DO NOTHING/);
+      expect(entry.sql).toMatch(/true AS event_created/);
+      expect(entry.sql).toMatch(/false AS event_created/);
+      expect(entry.sql).toMatch(
+        /run_id = classified\.id AND action = \$4[\s\S]+COALESCE\(recipient_role, ''\) = COALESCE\(\$5, ''\)/,
+      );
+      expect(entry.sql).toMatch(
+        /WHEN details_deleted OR status = 'deleted' THEN 'deleted'[\s\S]+WHEN status = 'expired' OR expires_at <= \$2::timestamptz THEN 'expired'[\s\S]+WHEN status = 'failed' AND \$4 IN \('retry_processing', 'download_summary'\) THEN 'available'[\s\S]+WHEN status <> 'completed' THEN 'unavailable'/,
+      );
+    }
+    expect(queryLog[0]?.parameters).toEqual([
+      "run-neon",
+      now.toISOString(),
+      "event_neon_1",
+      "prepare_email",
+      "Buyer",
+      "prepared",
+    ]);
+  });
+
+  it("returns a Neon collision when an available row has no matching identity", async () => {
+    const rows = [
+      {
+        decision: "available",
+        event_created: false,
+        id: "event_other",
+        run_id: "other-run",
+        action: "assign_review",
+        recipient_role: "Buyer",
+        status: "simulated",
+        created_at: "2026-08-27T00:05:00.000Z",
+      },
+      { decision: "available", event_created: null },
+    ];
+    const driver: NeonDriver = {
+      async query() {
+        return [rows.shift()!];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+    const input = {
+      runId: "run-neon",
+      action: "prepare_email" as const,
+      recipientRole: "Buyer",
+      status: "prepared" as const,
+      now: new Date("2026-08-27T00:05:00.000Z"),
+      eventId: "event_neon_1",
+    };
+
+    await expect(repository.createWorkflowEvent(input)).resolves.toEqual({
+      status: "id_collision",
+    });
+    await expect(
+      repository.createWorkflowEvent({ ...input, eventId: "event_neon_2" }),
+    ).resolves.toEqual({ status: "id_collision" });
+  });
+
+  it("queries ordered workflow columns only for active detailed Neon reads", async () => {
+    const queryLog: string[] = [];
+    const row = {
+      id: "run-neon",
+      provider: "openai",
+      model: "gpt-5-mini",
+      prompt_version: "document-extraction-2026-08-27.v1",
+      execution_mode: "recorded",
+      provider_dispatched: false,
+      source_type: "synthetic",
+      document_family: "supplier_invoice",
+      fixture_id: "invoice-clean-match",
+      file_metadata: {
+        filename: "invoice.pdf",
+        mediaType: "application/pdf",
+        sizeBytes: 100,
+        pageCount: 1,
+      },
+      requested_fields: [],
+      status: "completed",
+      outcome: "clear",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimated_cost_usd: 0,
+      consent: false,
+      created_at: createdAt,
+      expires_at: expiresAt,
+      deleted_at: null,
+      retry_count: 0,
+      latency_ms: 10,
+      step_durations: {},
+      details_deleted: false,
+    };
+    const driver: NeonDriver = {
+      async query(sql) {
+        queryLog.push(sql);
+        if (sql.includes("SELECT * FROM runs WHERE id")) return [row];
+        if (sql.includes("FROM runs ORDER BY")) return [row];
+        if (sql.includes("SELECT step_json")) return [];
+        if (sql.includes("SELECT result_json")) return [];
+        if (sql.includes("FROM workflow_events")) {
+          return [
+            {
+              id: "event_z",
+              run_id: "run-neon",
+              action: "download_summary",
+              recipient_role: null,
+              status: "simulated",
+              created_at: "2026-08-27T00:06:00.000Z",
+            },
+            {
+              id: "event_a",
+              run_id: "run-neon",
+              action: "approve_and_stage",
+              recipient_role: null,
+              status: "staged",
+              created_at: "2026-08-27T00:05:00.000Z",
+            },
+          ];
+        }
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    const detailed = await repository.readPublicRun(
+      "run-neon",
+      new Date("2026-08-27T01:00:00.000Z"),
+    );
+    expect(detailed?.details?.workflowEvents.map((event) => event.id)).toEqual([
+      "event_a",
+      "event_z",
+    ]);
+    const eventQuery = queryLog.find((sql) => sql.includes("FROM workflow_events"));
+    expect(eventQuery).toMatch(
+      /SELECT id, run_id, action, recipient_role, status, created_at\s+FROM workflow_events WHERE run_id = \$1 ORDER BY created_at, id/,
+    );
+
+    queryLog.length = 0;
+    await repository.listPublicRuns(new Date("2026-08-27T01:00:00.000Z"), {
+      limit: 10,
+      offset: 0,
+      includeDetails: false,
+    });
+    expect(queryLog.some((sql) => sql.includes("workflow_events"))).toBe(false);
+
+    queryLog.length = 0;
+    const expired = await repository.readPublicRun("run-neon", new Date(expiresAt));
+    expect(expired?.status).toBe("expired");
+    expect(expired?.details).toBeUndefined();
+    expect(queryLog.some((sql) => sql.includes("workflow_events"))).toBe(false);
   });
 
   it("locks the Neon action result before classifying and inserts from the successful update", async () => {
@@ -818,10 +1383,12 @@ describe("Neon migration boundary", () => {
   it("persists a logical tombstone before retrying failed Blob cleanup", async () => {
     const sequence: string[] = [];
     let cleanupPending = false;
+    let tombstoneSql = "";
     const documentKey = "runs/run-neon/document";
     const driver: NeonDriver = {
       async query(sql) {
         if (sql.includes("INSERT INTO document_cleanup_jobs")) {
+          tombstoneSql = sql;
           sequence.push("tombstone");
           cleanupPending = true;
           return [{ id: "run-neon", cleanup_document_key: documentKey }];
@@ -855,6 +1422,9 @@ describe("Neon migration boundary", () => {
       ),
     ).resolves.toBe(true);
     expect(sequence).toEqual(["tombstone", "blob"]);
+    expect(tombstoneSql).toMatch(
+      /removed_workflow_events AS \(\s*DELETE FROM workflow_events WHERE run_id = \$1\s*\)/,
+    );
     expect(
       await repository.countCleanupBacklog(new Date("2026-08-27T01:00:00.000Z")),
     ).toBe(1);

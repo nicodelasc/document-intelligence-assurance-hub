@@ -5,6 +5,9 @@ import type {
   Outcome,
   Provider,
   RunStatus,
+  WorkflowActionType,
+  WorkflowEvent,
+  WorkflowEventStatus,
 } from "@/domain/types";
 import { actionProposalSchema } from "@/domain/run-schema";
 
@@ -80,6 +83,7 @@ export type PublicRunRecord = Omit<StoredRunRecord, "documentKey" | "deletionTok
   details?: {
     steps: RunStepRecord[];
     result: SaveRunResultsInput | null;
+    workflowEvents: WorkflowEvent[];
   };
 };
 
@@ -126,6 +130,26 @@ export type StageActionResult =
         | "deleted";
     };
 
+export type CreateWorkflowEventInput = {
+  runId: string;
+  action: WorkflowActionType;
+  recipientRole: string | null;
+  status: WorkflowEventStatus;
+  now: Date;
+  eventId: string;
+};
+
+export type CreateWorkflowEventResult =
+  | { status: "created" | "already_created"; event: WorkflowEvent }
+  | {
+      status:
+        | "not_found"
+        | "unavailable"
+        | "expired"
+        | "deleted"
+        | "id_collision";
+    };
+
 export interface RunRepository {
   claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean>;
   releaseRunRequest(runId: string): Promise<void>;
@@ -134,6 +158,9 @@ export interface RunRepository {
   setStatus(runId: string, status: RunStatus): Promise<void>;
   appendStep(runId: string, step: RunStepRecord): Promise<void>;
   saveResults(runId: string, result: SaveRunResultsInput): Promise<void>;
+  createWorkflowEvent(
+    input: CreateWorkflowEventInput,
+  ): Promise<CreateWorkflowEventResult>;
   stageAction(runId: string, now: Date): Promise<StageActionResult>;
   markFailed(runId: string, input: MarkRunFailedInput): Promise<void>;
   readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null>;
@@ -156,6 +183,7 @@ type InternalRun = {
   record: StoredRunRecord;
   steps: RunStepRecord[];
   result: SaveRunResultsInput | null;
+  workflowEvents: Map<string, WorkflowEvent>;
   detailsDeleted: boolean;
   completionAggregated: boolean;
   failureAggregated: boolean;
@@ -169,9 +197,23 @@ function isExpired(run: InternalRun, now: Date): boolean {
   return Date.parse(run.record.expiresAt) <= now.getTime();
 }
 
+function workflowIdentity(
+  action: WorkflowActionType,
+  recipientRole: string | null,
+): string {
+  return `${action}\u0000${recipientRole ?? ""}`;
+}
+
+function compareWorkflowEvents(left: WorkflowEvent, right: WorkflowEvent): number {
+  return (
+    left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+  );
+}
+
 export class InMemoryRunRepository implements RunRepository {
   private readonly runs = new Map<string, InternalRun>();
   private readonly runRequestClaims = new Map<string, string>();
+  private readonly workflowEventIds = new Map<string, string>();
   private readonly cleanupJobs = new Map<
     string,
     { runId: string; documentKey: string; attempts: number }
@@ -211,6 +253,7 @@ export class InMemoryRunRepository implements RunRepository {
       record: initialRecord,
       steps: [],
       result: null,
+      workflowEvents: new Map(),
       detailsDeleted: false,
       completionAggregated: false,
       failureAggregated: false,
@@ -260,6 +303,50 @@ export class InMemoryRunRepository implements RunRepository {
       this.aggregate.outcomeCounts[result.outcome] =
         (this.aggregate.outcomeCounts[result.outcome] ?? 0) + 1;
     }
+  }
+
+  async createWorkflowEvent(
+    input: CreateWorkflowEventInput,
+  ): Promise<CreateWorkflowEventResult> {
+    const run = this.runs.get(input.runId);
+    if (!run) return { status: "not_found" };
+    if (run.detailsDeleted || run.record.status === "deleted") {
+      return { status: "deleted" };
+    }
+    if (run.record.status === "expired" || isExpired(run, input.now)) {
+      return { status: "expired" };
+    }
+    if (run.record.status === "failed") {
+      if (
+        input.action !== "retry_processing" &&
+        input.action !== "download_summary"
+      ) {
+        return { status: "unavailable" };
+      }
+    } else if (run.record.status !== "completed") {
+      return { status: "unavailable" };
+    }
+
+    const identity = workflowIdentity(input.action, input.recipientRole);
+    const existing = run.workflowEvents.get(identity);
+    if (existing) {
+      return { status: "already_created", event: clone(existing) };
+    }
+    if (this.workflowEventIds.has(input.eventId)) {
+      return { status: "id_collision" };
+    }
+
+    const event: WorkflowEvent = {
+      id: input.eventId,
+      runId: input.runId,
+      action: input.action,
+      recipientRole: input.recipientRole,
+      status: input.status,
+      createdAt: input.now.toISOString(),
+    };
+    run.workflowEvents.set(identity, clone(event));
+    this.workflowEventIds.set(input.eventId, `${input.runId}\u0000${identity}`);
+    return { status: "created", event: clone(event) };
   }
 
   async stageAction(runId: string, now: Date): Promise<StageActionResult> {
@@ -416,6 +503,10 @@ export class InMemoryRunRepository implements RunRepository {
   }
 
   private clearDetails(run: InternalRun): void {
+    for (const event of run.workflowEvents.values()) {
+      this.workflowEventIds.delete(event.id);
+    }
+    run.workflowEvents.clear();
     run.detailsDeleted = true;
     run.steps = [];
     run.result = null;
@@ -441,10 +532,18 @@ export class InMemoryRunRepository implements RunRepository {
       publicRun.requestedFields = [];
     }
 
-    if (includeDetails && !run.detailsDeleted && !isExpired(run, now)) {
+    if (
+      includeDetails &&
+      !run.detailsDeleted &&
+      status !== "expired" &&
+      status !== "deleted"
+    ) {
       publicRun.details = {
         steps: clone(run.steps),
         result: run.result ? clone(run.result) : null,
+        workflowEvents: [...run.workflowEvents.values()]
+          .sort(compareWorkflowEvents)
+          .map(clone),
       };
     }
     return publicRun;
@@ -473,6 +572,52 @@ function asIso(value: unknown): string {
 
 function asJson<T>(value: unknown): T {
   return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
+const workflowActionValues = new Set<WorkflowActionType>([
+  "approve_and_stage",
+  "mark_for_later_review",
+  "assign_review",
+  "request_clarification",
+  "request_clearer_document",
+  "prepare_email",
+  "replace_document",
+  "retry_processing",
+  "download_summary",
+]);
+
+const workflowEventStatusValues = new Set<WorkflowEventStatus>([
+  "prepared",
+  "staged",
+  "simulated",
+]);
+
+function workflowEventFromRow(row: DatabaseRow): WorkflowEvent | null {
+  if (
+    typeof row.id !== "string" ||
+    typeof row.run_id !== "string" ||
+    typeof row.action !== "string" ||
+    !workflowActionValues.has(row.action as WorkflowActionType) ||
+    (row.recipient_role !== null && typeof row.recipient_role !== "string") ||
+    typeof row.status !== "string" ||
+    !workflowEventStatusValues.has(row.status as WorkflowEventStatus) ||
+    row.created_at === null ||
+    row.created_at === undefined
+  ) {
+    return null;
+  }
+  try {
+    return {
+      id: row.id,
+      runId: row.run_id,
+      action: row.action as WorkflowActionType,
+      recipientRole: row.recipient_role,
+      status: row.status as WorkflowEventStatus,
+      createdAt: asIso(row.created_at),
+    };
+  } catch {
+    return null;
+  }
 }
 
 class NeonRunRepository implements RunRepository {
@@ -599,6 +744,88 @@ class NeonRunRepository implements RunRepository {
         JSON.stringify(result.stepDurations),
       ],
     );
+  }
+
+  async createWorkflowEvent(
+    input: CreateWorkflowEventInput,
+  ): Promise<CreateWorkflowEventResult> {
+    const driver = await this.readyDriver();
+    const timestamp = input.now.toISOString();
+    const rows = await driver.query(
+      `WITH locked_run AS (
+        SELECT id, status, expires_at, details_deleted
+        FROM runs WHERE id = $1 FOR UPDATE
+      ), classified AS (
+        SELECT *, CASE
+          WHEN details_deleted OR status = 'deleted' THEN 'deleted'
+          WHEN status = 'expired' OR expires_at <= $2::timestamptz THEN 'expired'
+          WHEN status = 'failed' AND $4 IN ('retry_processing', 'download_summary') THEN 'available'
+          WHEN status <> 'completed' THEN 'unavailable'
+          ELSE 'available'
+        END AS decision
+        FROM locked_run
+      ), inserted AS (
+        INSERT INTO workflow_events (
+          id, run_id, action, recipient_role, status, created_at
+        )
+        SELECT $3, id, $4, $5, $6, $2::timestamptz
+        FROM classified WHERE decision = 'available'
+        ON CONFLICT DO NOTHING
+        RETURNING true AS event_created,
+          id, run_id, action, recipient_role, status, created_at
+      ), selected_event AS (
+        SELECT event_created,
+          id, run_id, action, recipient_role, status, created_at
+        FROM inserted
+        UNION ALL
+        SELECT false AS event_created,
+          existing.id, existing.run_id, existing.action,
+          existing.recipient_role, existing.status, existing.created_at
+        FROM classified
+        JOIN workflow_events AS existing
+          ON existing.run_id = classified.id AND action = $4
+          AND COALESCE(recipient_role, '') = COALESCE($5, '')
+        WHERE classified.decision = 'available'
+        LIMIT 1
+      )
+      SELECT classified.decision, selected_event.*
+      FROM classified
+      LEFT JOIN selected_event ON true`,
+      [
+        input.runId,
+        timestamp,
+        input.eventId,
+        input.action,
+        input.recipientRole,
+        input.status,
+      ],
+    );
+    const row = rows[0];
+    if (!row) return { status: "not_found" };
+    const decision = String(row.decision);
+    if (decision === "deleted" || decision === "expired" || decision === "unavailable") {
+      return { status: decision };
+    }
+    if (decision !== "available") {
+      throw new Error("workflow_event_decision_failed");
+    }
+
+    const event = workflowEventFromRow(row);
+    const created = row.event_created;
+    if (
+      !event ||
+      (created !== true && created !== false) ||
+      event.runId !== input.runId ||
+      event.action !== input.action ||
+      event.recipientRole !== input.recipientRole ||
+      (created && (event.id !== input.eventId || event.status !== input.status))
+    ) {
+      return { status: "id_collision" };
+    }
+    return {
+      status: created ? "created" : "already_created",
+      event: clone(event),
+    };
   }
 
   async stageAction(runId: string, now: Date): Promise<StageActionResult> {
@@ -909,6 +1136,8 @@ class NeonRunRepository implements RunRepository {
         DELETE FROM run_steps WHERE run_id = $1
       ), removed_result AS (
         DELETE FROM run_results WHERE run_id = $1
+      ), removed_workflow_events AS (
+        DELETE FROM workflow_events WHERE run_id = $1
       ), tombstoned AS (
         UPDATE runs SET status = $2,
           deleted_at = CASE WHEN $2 = 'deleted' THEN $3::timestamptz ELSE deleted_at END,
@@ -1014,15 +1243,34 @@ class NeonRunRepository implements RunRepository {
       publicRun.file = { ...publicRun.file, filename: "expired-document" };
       publicRun.requestedFields = [];
     }
-    if (!includeDetails || expired || detailsDeleted) return publicRun;
+    if (
+      !includeDetails ||
+      expired ||
+      detailsDeleted ||
+      publicRun.status === "expired" ||
+      publicRun.status === "deleted"
+    ) {
+      return publicRun;
+    }
 
-    const [stepRows, resultRows] = await Promise.all([
+    const [stepRows, resultRows, workflowEventRows] = await Promise.all([
       driver.query("SELECT step_json FROM run_steps WHERE run_id = $1 ORDER BY sequence", [row.id]),
       driver.query("SELECT result_json FROM run_results WHERE run_id = $1", [row.id]),
+      driver.query(
+        `SELECT id, run_id, action, recipient_role, status, created_at
+        FROM workflow_events WHERE run_id = $1 ORDER BY created_at, id`,
+        [row.id],
+      ),
     ]);
+    const workflowEvents = workflowEventRows.map((eventRow) => {
+      const event = workflowEventFromRow(eventRow);
+      if (!event) throw new Error("workflow_event_hydration_failed");
+      return event;
+    });
     publicRun.details = {
       steps: stepRows.map((stepRow) => asJson<RunStepRecord>(stepRow.step_json)),
       result: resultRows[0] ? asJson<SaveRunResultsInput>(resultRows[0].result_json) : null,
+      workflowEvents: workflowEvents.sort(compareWorkflowEvents),
     };
     return publicRun;
   }
