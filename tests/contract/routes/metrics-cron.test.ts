@@ -6,7 +6,11 @@ import {
 } from "@/server/http/metrics-handler";
 import { handlePurgeExpiredGet } from "@/server/http/cron-handler";
 import { handleRunsPost } from "@/server/http/runs-handler";
-import { createTestContainer, readLines, syntheticRequest } from "./test-support";
+import {
+  createTestContainer,
+  readLines,
+  syntheticRequest,
+} from "./test-support";
 import type { Outcome } from "@/domain/types";
 import { InMemoryRunRepository } from "@/server/repositories/run-repository";
 
@@ -161,7 +165,14 @@ describe("GET /api/metrics", () => {
 
   it("coalesces concurrent aggregate snapshots", async () => {
     const container = createTestContainer();
-    let aggregateReads = 0;
+    const reads = {
+      anonymousUsage: 0,
+      confirmedCosts: 0,
+      quota: 0,
+      publicRuns: 0,
+      lifecycle: 0,
+      cleanupBacklog: 0,
+    };
     let announceStarted: () => void = () => undefined;
     let releaseAggregate: () => void = () => undefined;
     const started = new Promise<void>((resolve) => {
@@ -173,10 +184,47 @@ describe("GET /api/metrics", () => {
     const aggregateAnonymousUsage =
       container.repository.aggregateAnonymousUsage.bind(container.repository);
     container.repository.aggregateAnonymousUsage = async () => {
-      aggregateReads += 1;
+      reads.anonymousUsage += 1;
       announceStarted();
       await released;
       return aggregateAnonymousUsage();
+    };
+    const aggregateConfirmedModelCosts =
+      container.repository.aggregateConfirmedModelCosts.bind(
+        container.repository,
+      );
+    container.repository.aggregateConfirmedModelCosts = async (now) => {
+      reads.confirmedCosts += 1;
+      return aggregateConfirmedModelCosts(now);
+    };
+    const snapshot = container.quotaRepository.snapshot.bind(
+      container.quotaRepository,
+    );
+    container.quotaRepository.snapshot = async (now) => {
+      reads.quota += 1;
+      return snapshot(now);
+    };
+    const listPublicRuns = container.repository.listPublicRuns.bind(
+      container.repository,
+    );
+    container.repository.listPublicRuns = async (now, options) => {
+      reads.publicRuns += 1;
+      return listPublicRuns(now, options);
+    };
+    const aggregateActiveDetailLifecycle =
+      container.repository.aggregateActiveDetailLifecycle.bind(
+        container.repository,
+      );
+    container.repository.aggregateActiveDetailLifecycle = async (now) => {
+      reads.lifecycle += 1;
+      return aggregateActiveDetailLifecycle(now);
+    };
+    const countCleanupBacklog = container.repository.countCleanupBacklog.bind(
+      container.repository,
+    );
+    container.repository.countCleanupBacklog = async (now) => {
+      reads.cleanupBacklog += 1;
+      return countCleanupBacklog(now);
     };
 
     const first = handleMetricsGet(
@@ -197,7 +245,14 @@ describe("GET /api/metrics", () => {
     const responses = await Promise.all([first, second]);
 
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
-    expect(aggregateReads).toBe(1);
+    expect(reads).toEqual({
+      anonymousUsage: 1,
+      confirmedCosts: 1,
+      quota: 1,
+      publicRuns: 1,
+      lifecycle: 1,
+      cleanupBacklog: 1,
+    });
   });
 
   it("does not restore a cache entry invalidated during aggregation", async () => {
@@ -267,7 +322,7 @@ describe("GET /api/metrics", () => {
       },
       benchmark: {
         source: "deterministic_synthetic_observations",
-        observationCount: 3,
+        observationCount: 10,
         exactMatchRate: 1,
         evaluatorAgreement: 1,
         falseClearCount: 0,
@@ -286,7 +341,7 @@ describe("GET /api/metrics", () => {
     expectFiniteNumbers(body);
   });
 
-  it("counts every review outcome and converts estimated model cost into illustrative SGD", async () => {
+  it("counts every review outcome without treating recorded costs as model costs", async () => {
     const container = createTestContainer();
     await seedOutcome(container, "clear", "clear", 1);
     await seedOutcome(container, "needs-review", "needs_review", 1);
@@ -310,7 +365,7 @@ describe("GET /api/metrics", () => {
     expect(body.summary.reviewRate).toBe(0.8);
     expect(body.performance.sampleCount).toBe(5);
     expect(body.resourceScenario.modelCostAssumption.usdToSgd).toBe(1.35);
-    expect(body.resourceScenario.inputs.averageModelCostPerRun).toBe(1.35);
+    expect(body.resourceScenario.inputs.averageModelCostPerRun).toBe(0);
   });
 
   it("never includes uploader tokens or secret-bearing persistence fields", async () => {
@@ -342,9 +397,9 @@ describe("GET /api/cron/purge-expired", () => {
     );
 
     expect(response.status).toBe(503);
-    expect((await response.json() as { error: { code: string } }).error.code).toBe(
-      "cron_not_configured",
-    );
+    expect(
+      ((await response.json()) as { error: { code: string } }).error.code,
+    ).toBe("cron_not_configured");
   });
 
   it.each([undefined, "Bearer wrong-secret"])(
@@ -358,9 +413,9 @@ describe("GET /api/cron/purge-expired", () => {
       );
 
       expect(response.status).toBe(401);
-      expect((await response.json() as { error: { code: string } }).error.code).toBe(
-        "cron_not_authorized",
-      );
+      expect(
+        ((await response.json()) as { error: { code: string } }).error.code,
+      ).toBe("cron_not_authorized");
     },
   );
 
@@ -376,12 +431,18 @@ describe("GET /api/cron/purge-expired", () => {
       });
 
     const beforeMetrics = (await (
-      await handleMetricsGet(new Request("http://local.test/api/metrics"), container)
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
     ).json()) as { retention: { cleanupBacklog: number } };
     const first = await handlePurgeExpiredGet(request(), container);
     const second = await handlePurgeExpiredGet(request(), container);
     const afterMetrics = (await (
-      await handleMetricsGet(new Request("http://local.test/api/metrics"), container)
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
     ).json()) as { retention: { cleanupBacklog: number } };
 
     expect(beforeMetrics.retention.cleanupBacklog).toBe(1);
@@ -400,7 +461,9 @@ describe("GET /api/cron/purge-expired", () => {
     const container = createTestContainer({ clock: () => now });
     await (await handleRunsPost(syntheticRequest(), container)).text();
     let blobAvailable = false;
-    const deleteDocument = container.documentStore.deleteDocument.bind(container.documentStore);
+    const deleteDocument = container.documentStore.deleteDocument.bind(
+      container.documentStore,
+    );
     container.documentStore.deleteDocument = async (key) => {
       if (!blobAvailable) throw new Error("simulated_blob_failure");
       return deleteDocument(key);
@@ -414,7 +477,10 @@ describe("GET /api/cron/purge-expired", () => {
       container,
     );
     const metrics = (await (
-      await handleMetricsGet(new Request("http://local.test/api/metrics"), container)
+      await handleMetricsGet(
+        new Request("http://local.test/api/metrics"),
+        container,
+      )
     ).json()) as { retention: { cleanupBacklog: number } };
     const listed = await container.repository.listPublicRuns(now, {
       limit: 10,
