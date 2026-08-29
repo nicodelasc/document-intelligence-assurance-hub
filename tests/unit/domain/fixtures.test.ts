@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { extractText, getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";
 import {
   recordedDocumentRunResults,
@@ -5,6 +8,31 @@ import {
 } from "@/domain/fixtures";
 
 describe("synthetic document fixtures", () => {
+  it("ships a compact one-page PDF for every fixture with raster-only handwriting", async () => {
+    const filenames = syntheticFixtures.map((fixture) => fixture.filename);
+    expect(new Set(filenames).size).toBe(syntheticFixtures.length);
+
+    for (const fixture of syntheticFixtures) {
+      const document = await readFile(
+        resolve("public/samples", fixture.filename),
+      );
+      const pdf = await getDocumentProxy(new Uint8Array(document));
+      const extracted = await extractText(pdf, { mergePages: true });
+
+      expect(document.byteLength).toBeLessThan(3 * 1024 * 1024);
+      expect(extracted.totalPages).toBe(1);
+      expect(extracted.text).toContain(fixture.title);
+      for (const field of fixture.requestedFields) {
+        const value = fixture.documentData[field.key];
+        const handwritten = fixture.handwrittenEvidence?.fieldKey === field.key;
+        if (value && !handwritten) expect(extracted.text).toContain(value);
+      }
+      if (fixture.handwrittenEvidence?.text) {
+        expect(extracted.text).not.toContain(fixture.handwrittenEvidence.text);
+      }
+    }
+  });
+
   it("contains the ordered ten-fixture invoice and warehouse matrix", () => {
     expect(syntheticFixtures.map((fixture) => fixture.id)).toEqual([
       "invoice-clean-match",

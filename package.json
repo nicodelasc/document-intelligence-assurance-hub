@@ -23,7 +23,8 @@
     "verify:premium": "node scripts/premium-audit.mjs",
     "verify:public": "node scripts/verify-public-surface.mjs",
     "audit:dependencies": "npm audit --audit-level=high",
-    "record:walkthrough": "node scripts/record-walkthrough.mjs"
+    "record:walkthrough": "node scripts/record-walkthrough.mjs",
+    "generate:samples": "node scripts/generate-sample-documents.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.44",
