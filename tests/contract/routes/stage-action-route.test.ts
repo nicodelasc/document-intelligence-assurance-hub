@@ -82,7 +82,10 @@ describe("POST /api/runs/[id]/stage-action", () => {
   it("preserves rate limiting before capability lookup or mutation", async () => {
     const container = createTestContainer({ clock: () => now });
     await seedRun({ container, action: syntheticFixtures[1].action });
-    const getCapabilityHash = vi.spyOn(container.repository, "getDeletionTokenHash");
+    const getCapabilityHash = vi.spyOn(
+      container.repository,
+      "getDeletionTokenHash",
+    );
     const stageAction = vi.spyOn(container.repository, "stageAction");
     container.abuseControl = {
       allowRunSubmission: async () => true,
@@ -138,7 +141,16 @@ describe("POST /api/runs/[id]/stage-action", () => {
   });
 
   it("stages a permitted internal action idempotently", async () => {
-    const container = createTestContainer({ clock: () => now });
+    const ids = [
+      "request-stage-1",
+      "event-stage-1",
+      "request-stage-2",
+      "event-stage-2-unused",
+    ];
+    const container = createTestContainer({
+      clock: () => now,
+      requestIdSource: () => ids.shift() ?? "request-stage-fallback",
+    });
     await seedRun({ container, action: syntheticFixtures[1].action });
 
     const first = await handleStageActionPost(
@@ -168,6 +180,63 @@ describe("POST /api/runs/[id]/stage-action", () => {
         action: firstBody.staging.action,
       },
     });
+    const stored = await container.repository.readPublicRun(
+      "run-action-1",
+      now,
+    );
+    expect(stored?.details?.workflowEvents).toEqual([
+      {
+        id: "event-stage-1",
+        runId: "run-action-1",
+        action: "approve_and_stage",
+        recipientRole: null,
+        status: "staged",
+        createdAt: now.toISOString(),
+      },
+    ]);
+    expect(stored?.details?.result?.action.stagedAt).toBeNull();
+    expect(stored?.details?.steps).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "action",
+          stage: "action_staged",
+        }),
+      ]),
+    );
+  });
+
+  it("maps an event ID collision to the safe staging unavailable response", async () => {
+    const ids = ["request-stage-collision", "collision-event"];
+    const container = createTestContainer({
+      clock: () => now,
+      requestIdSource: () => ids.shift() ?? "request-stage-fallback",
+    });
+    await seedRun({ container, action: syntheticFixtures[1].action });
+    await container.repository.createWorkflowEvent({
+      runId: "run-action-1",
+      action: "prepare_email",
+      recipientRole: "Buyer",
+      status: "prepared",
+      now,
+      eventId: "collision-event",
+    });
+
+    const response = await handleStageActionPost(
+      request(),
+      { id: "run-action-1" },
+      container,
+    );
+
+    expect(response.status).toBe(503);
+    expect(
+      (await readJson<{ error: { code: string } }>(response)).error.code,
+    ).toBe("stage_action_unavailable");
+    const stored = await container.repository.readPublicRun(
+      "run-action-1",
+      now,
+    );
+    expect(stored?.details?.workflowEvents).toHaveLength(1);
+    expect(stored?.details?.result?.action.stagedAt).toBeNull();
   });
 
   it("rejects a blocked action", async () => {

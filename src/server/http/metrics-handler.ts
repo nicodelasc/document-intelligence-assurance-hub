@@ -628,14 +628,12 @@ export async function handleMetricsGet(
           ).length,
           blocked: actions.filter(({ action }) => action.status === "blocked")
             .length,
-          stagedDryRuns: actions.filter(
-            ({ action, steps }) =>
-              action.stagedAt !== null ||
-              steps.some(
-                (step) =>
-                  step.kind === "action" && step.stage === "action_staged",
-              ),
-          ).length,
+          stagedDryRuns: terminalActiveRuns.filter((run) => {
+            const event = latestEvents.get(run.id);
+            return (
+              event?.action === "approve_and_stage" && event.status === "staged"
+            );
+          }).length,
           population: {
             activeRuns: activeRuns.length,
             actionProposals: actions.length,

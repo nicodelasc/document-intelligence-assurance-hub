@@ -5,6 +5,7 @@ import {
   resolveAnonymousBucket,
 } from "@/server/http/anonymous-bucket";
 import { serializeActionProposal } from "@/server/http/public-serialization";
+import { allowedWorkflowActionsForRun } from "@/domain/workflow-actions";
 import {
   noIndexHeaders,
   safeErrorResponse,
@@ -49,7 +50,8 @@ export async function handleStageActionPost(
       return respond(
         safeErrorResponse({
           code: "stage_action_rate_limited",
-          message: "Action staging was requested too frequently. Retry shortly.",
+          message:
+            "Action staging was requested too frequently. Retry shortly.",
           requestId,
           status: 429,
           headers: noIndexHeaders,
@@ -58,9 +60,10 @@ export async function handleStageActionPost(
     }
 
     const capability = request.headers.get("x-run-capability")?.trim();
-    const storedCapabilityHash = capability && capability.length <= 512
-      ? await container.repository.getDeletionTokenHash(parameters.id)
-      : null;
+    const storedCapabilityHash =
+      capability && capability.length <= 512
+        ? await container.repository.getDeletionTokenHash(parameters.id)
+        : null;
     if (
       !capability ||
       !storedCapabilityHash ||
@@ -69,7 +72,8 @@ export async function handleStageActionPost(
       return respond(
         safeErrorResponse({
           code: "stage_action_not_authorized",
-          message: "This browser does not hold the capability required to stage the action.",
+          message:
+            "This browser does not hold the capability required to stage the action.",
           requestId,
           status: 401,
           headers: noIndexHeaders,
@@ -77,20 +81,103 @@ export async function handleStageActionPost(
       );
     }
 
-    const result = await container.repository.stageAction(
-      parameters.id,
-      container.clock(),
-    );
-    if (result.status === "staged" || result.status === "already_staged") {
-      if (result.status === "staged") {
+    const now = container.clock();
+    const run = await container.repository.readPublicRun(parameters.id, now);
+    if (!run) {
+      return respond(
+        safeErrorResponse({
+          code: "run_not_found",
+          message: "The requested run is unavailable.",
+          requestId,
+          status: 404,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    if (run.status === "expired" || run.status === "deleted") {
+      return respond(
+        safeErrorResponse({
+          code: run.status === "expired" ? "run_expired" : "run_deleted",
+          message:
+            run.status === "expired"
+              ? "This run has expired and can no longer stage an action."
+              : "This run was deleted and can no longer stage an action.",
+          requestId,
+          status: 410,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    const action = run.details?.result?.action;
+    if (run.status !== "completed" || !action) {
+      return respond(
+        safeErrorResponse({
+          code: "action_unavailable",
+          message: "This run does not have an action that can be staged.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    if (action.status === "blocked") {
+      return respond(
+        safeErrorResponse({
+          code: "action_blocked",
+          message:
+            "Required evidence is incomplete so this action remains blocked.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+    if (
+      !allowedWorkflowActionsForRun({
+        status: run.status,
+        outcome: run.outcome,
+      }).includes("approve_and_stage")
+    ) {
+      return respond(
+        safeErrorResponse({
+          code: "action_unavailable",
+          message: "This run does not have an action that can be staged.",
+          requestId,
+          status: 409,
+          headers: noIndexHeaders,
+        }),
+      );
+    }
+
+    const result = await container.repository.createWorkflowEvent({
+      runId: parameters.id,
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now,
+      eventId: container.requestIdSource(),
+    });
+    if (result.status === "created" || result.status === "already_created") {
+      if (
+        result.event.runId !== parameters.id ||
+        result.event.action !== "approve_and_stage" ||
+        result.event.recipientRole !== null ||
+        result.event.status !== "staged"
+      ) {
+        throw new Error("stage_action_event_conflict");
+      }
+      if (result.status === "created") {
         invalidateMetricsCache(container.repository);
       }
       return respond(
         safeJsonResponse(
           {
             staging: {
-              status: result.status,
-              action: serializeActionProposal(result.action),
+              status: result.status === "created" ? "staged" : "already_staged",
+              action: serializeActionProposal({
+                ...action,
+                stagedAt: result.event.createdAt,
+              }),
             },
           },
           { status: 200, headers: noIndexHeaders },
@@ -109,11 +196,6 @@ export async function handleStageActionPost(
         message: "This run does not have an action that can be staged.",
         status: 409,
       },
-      blocked: {
-        code: "action_blocked",
-        message: "Required evidence is incomplete so this action remains blocked.",
-        status: 409,
-      },
       expired: {
         code: "run_expired",
         message: "This run has expired and can no longer stage an action.",
@@ -125,6 +207,9 @@ export async function handleStageActionPost(
         status: 410,
       },
     } as const;
+    if (result.status === "id_collision") {
+      throw new Error("stage_action_event_conflict");
+    }
     const error = errors[result.status];
     return respond(
       safeErrorResponse({

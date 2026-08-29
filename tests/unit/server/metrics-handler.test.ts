@@ -417,8 +417,30 @@ describe("recorded benchmark metrics", () => {
       runIds.push(completed.runId);
     }
 
-    await container.repository.stageAction(runIds[0], container.clock());
-    await container.repository.stageAction(runIds[1], container.clock());
+    await container.repository.createWorkflowEvent({
+      runId: runIds[0],
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now: container.clock(),
+      eventId: "staged-latest",
+    });
+    await container.repository.createWorkflowEvent({
+      runId: runIds[1],
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now: container.clock(),
+      eventId: "staged-older",
+    });
+    await container.repository.createWorkflowEvent({
+      runId: runIds[1],
+      action: "download_summary",
+      recipientRole: null,
+      status: "simulated",
+      now: new Date(container.clock().getTime() + 1),
+      eventId: "simulated-newer",
+    });
 
     const response = await handleMetricsGet(
       new Request("http://local.test/api/metrics"),
@@ -443,7 +465,7 @@ describe("recorded benchmark metrics", () => {
       ready: 1,
       needsReview: 1,
       blocked: 1,
-      stagedDryRuns: 2,
+      stagedDryRuns: 1,
       population: {
         activeRuns: 3,
         actionProposals: 3,
