@@ -231,6 +231,7 @@ describe("executeRun", () => {
         "Evidence is consistent. The action is ready for internal dry-run staging.",
       stagedAt: null,
     });
+    expect(run).toMatchObject({ documentFamily: null, fixtureId: null });
   });
 
   it("uses trusted synthetic fixture metadata for the final action", async () => {
@@ -247,6 +248,10 @@ describe("executeRun", () => {
       new Date("2026-08-27T01:00:00.000Z"),
     );
     expect(run?.details?.result?.action).toEqual(fixture.action);
+    expect(run).toMatchObject({
+      documentFamily: fixture.family,
+      fixtureId: fixture.id,
+    });
   });
 
   it.each([429, 500, 503])(

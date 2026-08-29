@@ -1,5 +1,6 @@
 import type {
   ActionProposal,
+  DocumentFamily,
   FieldResult,
   Outcome,
   Provider,
@@ -43,6 +44,8 @@ export type StoredRunRecord = {
   executionMode: ExecutionMode;
   providerDispatched: boolean;
   sourceType: SourceType;
+  documentFamily: DocumentFamily | null;
+  fixtureId: string | null;
   file: SafeFileMetadata;
   documentKey: string | null;
   requestedFields: RequestedField[];
@@ -504,10 +507,10 @@ class NeonRunRepository implements RunRepository {
         id, provider, model, execution_mode, source_type, file_metadata, document_key,
         requested_fields, status, outcome, usage, estimated_cost_usd, consent, created_at,
         expires_at, deleted_at, deletion_token_hash, retry_count, latency_ms, step_durations,
-        prompt_version, provider_dispatched
+        prompt_version, provider_dispatched, document_family, fixture_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12,
-        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false
+        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false, $22, $23
       )`,
       [
         record.id,
@@ -531,6 +534,8 @@ class NeonRunRepository implements RunRepository {
         record.latencyMs,
         JSON.stringify(record.stepDurations),
         record.promptVersion,
+        record.documentFamily,
+        record.fixtureId,
       ],
     );
   }
@@ -723,7 +728,7 @@ class NeonRunRepository implements RunRepository {
     const driver = await this.readyDriver();
     const publicColumns = `id, provider, model, prompt_version, execution_mode,
       provider_dispatched,
-      source_type, file_metadata, requested_fields, status, outcome, usage,
+      source_type, document_family, fixture_id, file_metadata, requested_fields, status, outcome, usage,
       estimated_cost_usd, consent, created_at, expires_at, deleted_at,
       retry_count, latency_ms, step_durations, details_deleted`;
     const rows = options
@@ -989,6 +994,8 @@ class NeonRunRepository implements RunRepository {
       executionMode: row.execution_mode as ExecutionMode,
       providerDispatched: Boolean(row.provider_dispatched),
       sourceType: row.source_type as SourceType,
+      documentFamily: (row.document_family as DocumentFamily | null | undefined) ?? null,
+      fixtureId: (row.fixture_id as string | null | undefined) ?? null,
       file: asJson<SafeFileMetadata>(row.file_metadata),
       requestedFields: asJson<RequestedField[]>(row.requested_fields),
       status: expired && row.status !== "deleted" ? "expired" : (row.status as RunStatus),

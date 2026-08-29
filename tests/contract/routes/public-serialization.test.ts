@@ -16,7 +16,9 @@ function poisonedRun(): PublicRunRecord {
     promptVersion: "prompt-public-v1",
     executionMode: "recorded",
     providerDispatched: false,
-    sourceType: "custom",
+    sourceType: "synthetic",
+    documentFamily: "supplier_invoice",
+    fixtureId: "invoice-clean-match",
     file: {
       filename: "invoice.pdf",
       mediaType: "application/pdf",
@@ -128,6 +130,19 @@ describe("public serializers", () => {
       configuredProvider: "anthropic",
       configuredModel: "claude-sonnet-5",
     });
+  });
+
+  it("serializes active fixture identity without exposing it on expired or deleted detail", () => {
+    const active = serializePublicRunDetail(poisonedRun());
+    expect(active).toMatchObject({
+      documentFamily: "supplier_invoice",
+      fixtureId: "invoice-clean-match",
+    });
+
+    const expired = poisonedRun();
+    expired.status = "expired";
+    expect(serializePublicRunDetail(expired)).not.toHaveProperty("documentFamily");
+    expect(serializePublicRunDetail(expired)).not.toHaveProperty("fixtureId");
   });
 
   it("allow-lists active detail fields even when the source object is poisoned", () => {

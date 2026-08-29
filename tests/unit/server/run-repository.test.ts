@@ -18,6 +18,8 @@ function runRecord(id = "run-1") {
     executionMode: "recorded" as const,
     providerDispatched: false,
     sourceType: "synthetic" as const,
+    documentFamily: "supplier_invoice" as const,
+    fixtureId: "invoice-clean-match",
     file: {
       filename: "clean-match-invoice.pdf",
       mediaType: "application/pdf",
@@ -59,6 +61,80 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
+  it("persists synthetic fixture identity while custom and legacy rows retain null identity", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun(runRecord("synthetic-run"));
+    await repository.createRun({
+      ...runRecord("custom-run"),
+      sourceType: "custom",
+      documentFamily: null,
+      fixtureId: null,
+    });
+
+    await expect(
+      repository.readPublicRun("synthetic-run", new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({
+      documentFamily: "supplier_invoice",
+      fixtureId: "invoice-clean-match",
+    });
+    await expect(
+      repository.readPublicRun("custom-run", new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({ documentFamily: null, fixtureId: null });
+
+    const legacyDriver: NeonDriver = {
+      async query(sql) {
+        if (sql.includes("SELECT * FROM runs WHERE id")) {
+          return [{
+            id: "legacy-run",
+            provider: "openai",
+            model: "gpt-5-mini",
+            prompt_version: "legacy.v1",
+            execution_mode: "recorded",
+            provider_dispatched: false,
+            source_type: "custom",
+            file_metadata: { filename: "invoice.pdf", mediaType: "application/pdf", sizeBytes: 100, pageCount: 1 },
+            requested_fields: [],
+            status: "completed",
+            outcome: null,
+            usage: { inputTokens: 0, outputTokens: 0 },
+            estimated_cost_usd: 0,
+            consent: true,
+            created_at: createdAt,
+            expires_at: expiresAt,
+            deleted_at: null,
+            retry_count: 0,
+            latency_ms: null,
+            step_durations: {},
+            details_deleted: false,
+          }];
+        }
+        if (sql.includes("SELECT step_json") || sql.includes("SELECT result_json")) return [];
+        return [];
+      },
+    };
+    const legacyRepository = createNeonRunRepository({ databaseUrl: undefined, driver: legacyDriver });
+    await expect(
+      legacyRepository.readPublicRun("legacy-run", new Date("2026-08-27T01:00:00.000Z")),
+    ).resolves.toMatchObject({ documentFamily: null, fixtureId: null });
+  });
+
+  it("inserts fixture identity into Neon storage", async () => {
+    const statements: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        statements.push({ sql, parameters });
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await repository.createRun(runRecord("neon-fixture-run"));
+
+    expect(statements[0]?.sql).toContain("document_family, fixture_id");
+    expect(statements[0]?.parameters).toContain("supplier_invoice");
+    expect(statements[0]?.parameters).toContain("invoice-clean-match");
+  });
+
   it("counts provider usage only after one idempotent confirmed dispatch", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun(runRecord("recorded-run"));

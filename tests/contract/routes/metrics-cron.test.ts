@@ -24,6 +24,8 @@ async function seedOutcome(
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
+    documentFamily: null,
+    fixtureId: null,
     file: {
       filename: `${id}.pdf`,
       mediaType: "application/pdf",

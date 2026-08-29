@@ -23,6 +23,8 @@ async function seedRun(input: {
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
+    documentFamily: null,
+    fixtureId: null,
     file: {
       filename: "sample.pdf",
       mediaType: "application/pdf",

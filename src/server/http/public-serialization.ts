@@ -110,6 +110,14 @@ function serializeAttribution(run: PublicRunRecord): PublicRunAttribution {
   };
 }
 
+function serializeFixtureIdentity(run: PublicRunRecord) {
+  return {
+    documentFamily:
+      run.documentFamily === null ? null : cleanText(run.documentFamily, 80),
+    fixtureId: run.fixtureId === null ? null : cleanText(run.fixtureId, 160),
+  };
+}
+
 export function serializePublicRunListRow(run: PublicRunRecord) {
   return {
     id: run.id,
@@ -126,7 +134,10 @@ export function serializePublicRunListRow(run: PublicRunRecord) {
     estimatedCostUsd: run.estimatedCostUsd,
     ...(run.status === "expired" || run.status === "deleted"
       ? {}
-      : { filename: cleanText(run.file.filename, 120) }),
+      : {
+          ...serializeFixtureIdentity(run),
+          filename: cleanText(run.file.filename, 120),
+        }),
   };
 }
 
@@ -143,6 +154,7 @@ export function serializePublicRunDetail(run: PublicRunRecord) {
   return {
     id: run.id,
     ...serializeAttribution(run),
+    ...serializeFixtureIdentity(run),
     promptVersion: cleanText(run.promptVersion, 120),
     executionMode: run.executionMode,
     sourceType: run.sourceType,

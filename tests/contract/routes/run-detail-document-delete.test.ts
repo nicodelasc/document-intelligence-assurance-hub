@@ -130,6 +130,8 @@ describe("document streaming", () => {
       executionMode: "recorded",
       providerDispatched: false,
       sourceType: "custom",
+      documentFamily: null,
+      fixtureId: null,
       file: {
         filename: "invoice\"\r\nX-Injected: true.pdf",
         mediaType: "application/pdf",

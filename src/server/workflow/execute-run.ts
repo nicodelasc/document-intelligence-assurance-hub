@@ -580,6 +580,8 @@ export async function* executeRun(
       executionMode: dependencies.provider.executionMode,
       providerDispatched: false,
       sourceType: input.sourceType,
+      documentFamily: input.fixture?.family ?? null,
+      fixtureId: input.fixture?.id ?? null,
       file: {
         filename: safeFilename(input.file.filename),
         mediaType: input.file.mediaType,
