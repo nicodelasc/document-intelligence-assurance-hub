@@ -423,6 +423,53 @@ describe("InMemoryRunRepository", () => {
     );
   });
 
+  it("keeps the Neon action timestamp in a separate RFC 3339 text parameter", async () => {
+    const stagedAt = "2026-08-27T00:05:00.000Z";
+    let stagingSql = "";
+    let stagingParameters: unknown[] = [];
+    const action = {
+      ...structuredClone(syntheticFixtures[1].action),
+      stagedAt,
+    };
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        stagingSql = sql;
+        stagingParameters = parameters;
+        return [
+          {
+            decision: "staged",
+            result_json: {
+              fields: [],
+              outcome: "clear",
+              documentInstruction: action.instructionEvidence,
+              action,
+              usage: { inputTokens: 0, outputTokens: 0 },
+              estimatedCostUsd: 0,
+              retryCount: 0,
+              latencyMs: 10,
+              stepDurations: {},
+              completedAt: "2026-08-27T00:00:01.000Z",
+            },
+          },
+        ];
+      },
+    };
+    const repository = createNeonRunRepository({
+      databaseUrl: undefined,
+      driver,
+    });
+
+    await repository.stageAction("run-neon", new Date(stagedAt));
+
+    expect(stagingSql).toContain("to_jsonb($4::text)");
+    expect(stagingParameters).toEqual([
+      "run-neon",
+      stagedAt,
+      expect.stringContaining('"stage":"action_staged"'),
+      stagedAt,
+    ]);
+  });
+
   it("keeps a Neon tombstone immutable when a late status update arrives", async () => {
     const queries: Array<{ sql: string; parameters: unknown[] }> = [];
     const driver: NeonDriver = {

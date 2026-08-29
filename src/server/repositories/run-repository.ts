@@ -640,7 +640,7 @@ class NeonRunRepository implements RunRepository {
         SET result_json = jsonb_set(
           result.result_json,
           '{action,stagedAt}',
-          to_jsonb($2::text),
+          to_jsonb($4::text),
           false
         )
         FROM classified
@@ -655,7 +655,7 @@ class NeonRunRepository implements RunRepository {
         COALESCE(updated.result_json, classified.result_json) AS result_json
       FROM classified
       LEFT JOIN updated ON updated.run_id = classified.id`,
-      [runId, timestamp, JSON.stringify(step)],
+      [runId, timestamp, JSON.stringify(step), timestamp],
     );
     const row = rows[0];
     if (!row) return { status: "not_found" };
