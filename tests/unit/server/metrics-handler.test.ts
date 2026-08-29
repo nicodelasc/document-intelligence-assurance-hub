@@ -19,9 +19,9 @@ describe("recorded benchmark metrics", () => {
     const runIds: string[] = [];
 
     for (const fixtureId of [
-      "warehouse-receiving-sheet",
-      "invoice-exception-packet",
-      "visitor-access-request",
+      "warehouse-clean-receipt",
+      "invoice-buyer-hold",
+      "invoice-unreadable-approval",
     ]) {
       const events = await readLines(
         await handleRunsPost(syntheticRequest(fixtureId), container),
@@ -77,7 +77,7 @@ describe("recorded benchmark metrics", () => {
     const container = createTestContainer();
     const events = await readLines(
       await handleRunsPost(
-        syntheticRequest("warehouse-receiving-sheet"),
+        syntheticRequest("warehouse-clean-receipt"),
         container,
       ),
     );
@@ -127,7 +127,7 @@ describe("recorded benchmark metrics", () => {
     const container = createTestContainer();
     const events = await readLines(
       await handleRunsPost(
-        syntheticRequest("warehouse-receiving-sheet"),
+        syntheticRequest("warehouse-clean-receipt"),
         container,
       ),
     );
@@ -248,7 +248,7 @@ describe("recorded benchmark metrics", () => {
   it("lowers extraction and evaluator scores for a corrupted document observation", () => {
     const observations = structuredClone(recordedDocumentRunResults);
     const invoice = observations.find(
-      (observation) => observation.fixtureId === "invoice-exception-packet",
+      (observation) => observation.fixtureId === "invoice-total-mismatch",
     );
     if (!invoice) throw new Error("Invoice exception fixture observation is required");
 

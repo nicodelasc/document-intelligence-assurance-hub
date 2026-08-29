@@ -46,13 +46,17 @@ const emptyHistory = () => new Response(JSON.stringify({ runs: [], pagination: {
   headers: { "content-type": "application/json" },
 });
 
-function modelCatalogue(providerAvailability: { openai: boolean; anthropic: boolean }) {
+function modelCatalogue(
+  providerAvailability: { openai: boolean; anthropic: boolean },
+  openaiDefault = "gpt-5.6-luna",
+) {
   return new Response(JSON.stringify({
     models: [
       { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+      { id: "gpt-5.6-terra", provider: "openai", displayName: "GPT-5.6 Terra", recommended: false },
       { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
     ],
-    defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+    defaults: { openai: openaiDefault, anthropic: "claude-haiku-4-5" },
     providerAvailability,
   }), {
     status: 200,
@@ -425,6 +429,97 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
+  it("applies delayed availability after the active run unlocks", async () => {
+    const user = userEvent.setup();
+    let resolveModels!: (response: Response) => void;
+    let resolveFirstRun!: (response: Response) => void;
+    let postCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return new Promise<Response>((resolve) => {
+          resolveModels = resolve;
+        });
+      }
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_delayed_models") {
+        return new Response(JSON.stringify({
+          run: {
+            id: "run_delayed_models",
+            providerCalled: false,
+            provider: null,
+            model: null,
+            details: { result: { action: readyAction } },
+          },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") {
+        postCount += 1;
+        if (postCount === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveFirstRun = resolve;
+          });
+        }
+        return ndjson([{
+          type: "failed",
+          code: "test_terminal",
+          message: "The test run stopped after admission.",
+          timestamp: "2026-08-29T00:00:00.000Z",
+        }]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await waitFor(() => expect(postCount).toBe(1));
+    const firstPost = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+    expect((firstPost?.[1]?.body as FormData).get("executionMode")).toBe("recorded");
+
+    await act(async () => {
+      resolveModels(
+        modelCatalogue({ openai: true, anthropic: false }, "gpt-5.6-terra"),
+      );
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Recorded sample fallback")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-luna");
+
+    await act(async () => {
+      resolveFirstRun(ndjson([{
+        type: "completed",
+        outcome: "clear",
+        runId: "run_delayed_models",
+        executionMode: "recorded",
+        deletionToken: "delayed_models_token",
+        timestamp: "2026-08-29T00:00:01.000Z",
+      }]));
+    });
+    expect(await screen.findByText("Live processing available")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-terra");
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await waitFor(() => expect(postCount).toBe(2));
+    const secondPost = fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")[1];
+    expect((secondPost?.[1]?.body as FormData).get("executionMode")).toBe("live");
+    expect((secondPost?.[1]?.body as FormData).get("model")).toBe("gpt-5.6-terra");
+    expect(new Headers(secondPost?.[1]?.headers).get("x-run-execution-mode")).toBe("live");
+
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
+    await user.upload(
+      screen.getByLabelText("Document file"),
+      new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
+    );
+    await user.type(screen.getByLabelText("Review field 1"), "Vendor");
+    await user.type(screen.getByLabelText("Review field 2"), "Total");
+    await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    await waitFor(() => expect(postCount).toBe(3));
+    expect(screen.queryByText("Document processing is unavailable for the selected model.")).not.toBeInTheDocument();
+  });
+
   it.each([
     [true, "live"],
     [false, "recorded"],

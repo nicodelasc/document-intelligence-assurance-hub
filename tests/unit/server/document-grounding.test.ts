@@ -8,12 +8,17 @@ import {
   evidenceMapsToPage,
   groundDocument,
 } from "@/server/workflow/document-grounding";
+import { syntheticFixtures } from "@/domain/fixtures";
 
 describe("document grounding", () => {
   it("extracts page-scoped text from a real text-native PDF", async () => {
+    const fixture = syntheticFixtures.find(
+      (candidate) => candidate.id === "invoice-clean-match",
+    );
+    if (!fixture) throw new Error("Clean invoice fixture is required");
     const bytes = new Uint8Array(
       await readFile(
-        join(process.cwd(), "public", "samples", "clean-match-invoice.pdf"),
+        join(process.cwd(), "public", "samples", fixture.filename),
       ),
     );
 
@@ -24,7 +29,7 @@ describe("document grounding", () => {
     });
 
     expect(pages).toHaveLength(1);
-    expect(pages[0]).toContain("PO-NP-1001");
+    expect(pages[0]).toContain("PO-NOS-1001");
     expect(pages[0]).toContain("1250.00 SGD");
   });
 

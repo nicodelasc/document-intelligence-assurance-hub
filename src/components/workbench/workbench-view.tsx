@@ -54,6 +54,11 @@ type TraceState = Partial<Record<RunStatus, RawTraceState>>;
 type DeletionReceipt = { runId: string; token: string; expiresAt: string };
 type ActionDetailStatus = "idle" | "loading" | "ready" | "error";
 type ProviderAttribution = Pick<ComparableRun, "providerCalled" | "provider" | "model">;
+type ModelConfiguration = {
+  models: readonly ModelOption[];
+  selectedModel: string;
+  providerAvailability: ProviderAvailability;
+};
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
@@ -179,6 +184,44 @@ function actionFromPublicPayload(payload: unknown): ActionProposal | null {
   return parsed.success ? parsed.data : null;
 }
 
+function modelConfigurationFromPayload(payload: unknown): ModelConfiguration | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as {
+    models?: unknown;
+    defaults?: Partial<Record<Provider, string>>;
+    providerAvailability?: Partial<ProviderAvailability>;
+  };
+  if (!Array.isArray(record.models)) return null;
+  const approvedModels = record.models.filter(
+    (candidate): candidate is ModelOption => {
+      if (!candidate || typeof candidate !== "object") return false;
+      const model = candidate as Record<string, unknown>;
+      return (
+        typeof model.id === "string" &&
+        (model.provider === "openai" || model.provider === "anthropic") &&
+        typeof model.displayName === "string" &&
+        typeof model.recommended === "boolean"
+      );
+    },
+  );
+  if (!approvedModels.length) return null;
+  const serverDefault = record.defaults?.openai;
+  return {
+    models: approvedModels,
+    selectedModel: approvedModels.some((model) => model.id === serverDefault)
+      ? serverDefault!
+      : approvedModels[0].id,
+    providerAvailability:
+      typeof record.providerAvailability?.openai === "boolean" &&
+      typeof record.providerAvailability.anthropic === "boolean"
+        ? {
+            openai: record.providerAvailability.openai,
+            anthropic: record.providerAvailability.anthropic,
+          }
+        : { openai: false, anthropic: false },
+  };
+}
+
 export function WorkbenchView() {
   const [source, setSource] = useState<"synthetic" | "custom">("synthetic");
   const [sampleId, setSampleId] = useState<(typeof syntheticFixtures)[number]["id"]>(syntheticFixtures[0].id);
@@ -215,6 +258,7 @@ export function WorkbenchView() {
   const abortRef = useRef<AbortController | null>(null);
   const cancellableRef = useRef(false);
   const configurationLockedRef = useRef(false);
+  const pendingModelConfigurationRef = useRef<ModelConfiguration | null>(null);
   const requestRef = useRef(0);
   const runButtonRef = useRef<HTMLButtonElement>(null);
   const outcomeHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -224,6 +268,20 @@ export function WorkbenchView() {
   const lastAnnouncedDisplayStageRef = useRef<DisplayTraceKey | null>(null);
   const fieldAccumulatorRef = useRef<{ requestId: number; fields: Map<string, FieldResult> }>({ requestId: 0, fields: new Map() });
   const selectedDeletionReceipt = deletionReceipts.find((receipt) => receipt.runId === selectedDeletionId) ?? null;
+
+  const applyModelConfiguration = useCallback((configuration: ModelConfiguration) => {
+    setModels(configuration.models);
+    setSelectedModel(configuration.selectedModel);
+    setProviderAvailability(configuration.providerAvailability);
+  }, []);
+
+  const unlockConfiguration = useCallback(() => {
+    configurationLockedRef.current = false;
+    const pending = pendingModelConfigurationRef.current;
+    if (!pending) return;
+    pendingModelConfigurationRef.current = null;
+    applyModelConfiguration(pending);
+  }, [applyModelConfiguration]);
 
   useEffect(() => {
     let active = true;
@@ -239,41 +297,13 @@ export function WorkbenchView() {
       try {
         const response = await fetch("/api/models", { signal: controller.signal });
         if (!response.ok) return;
-        const payload = (await response.json()) as {
-          models?: unknown;
-          defaults?: Partial<Record<Provider, string>>;
-          providerAvailability?: Partial<ProviderAvailability>;
-        };
-        if (!Array.isArray(payload.models)) return;
-        const approvedModels = payload.models.filter(
-          (candidate): candidate is ModelOption => {
-            if (!candidate || typeof candidate !== "object") return false;
-            const model = candidate as Record<string, unknown>;
-            return (
-              typeof model.id === "string" &&
-              (model.provider === "openai" || model.provider === "anthropic") &&
-              typeof model.displayName === "string" &&
-              typeof model.recommended === "boolean"
-            );
-          },
-        );
-        if (!approvedModels.length || controller.signal.aborted || configurationLockedRef.current) return;
-        setModels(approvedModels);
-        if (
-          typeof payload.providerAvailability?.openai === "boolean" &&
-          typeof payload.providerAvailability.anthropic === "boolean"
-        ) {
-          setProviderAvailability({
-            openai: payload.providerAvailability.openai,
-            anthropic: payload.providerAvailability.anthropic,
-          });
+        const configuration = modelConfigurationFromPayload(await response.json());
+        if (!configuration || controller.signal.aborted) return;
+        if (configurationLockedRef.current) {
+          pendingModelConfigurationRef.current = configuration;
+          return;
         }
-        const serverDefault = payload.defaults?.openai;
-        setSelectedModel(
-          approvedModels.some((model) => model.id === serverDefault)
-            ? serverDefault!
-            : approvedModels[0].id,
-        );
+        applyModelConfiguration(configuration);
       } catch {
         // The bundled approved catalogue keeps the selector usable if metadata refresh fails.
       }
@@ -310,7 +340,7 @@ export function WorkbenchView() {
     queueMicrotask(() => void hydrateModels());
     queueMicrotask(() => void hydrateHistory());
     return () => controller.abort();
-  }, []);
+  }, [applyModelConfiguration]);
 
   useEffect(() => () => {
     requestRef.current += 1;
@@ -449,7 +479,7 @@ export function WorkbenchView() {
       if (!customValid) {
         setError("Complete the document, field labels and consent before running a custom check.");
         cancellableRef.current = false;
-        configurationLockedRef.current = false;
+        unlockConfiguration();
         setRunning(false);
         return;
       }
@@ -516,7 +546,7 @@ export function WorkbenchView() {
       setActionCapability(terminal.deletionToken);
       setActionDetailStatus("loading");
       cancellableRef.current = false;
-      configurationLockedRef.current = false;
+      unlockConfiguration();
       setRunning(false);
       setLiveMessage(`Run complete. Outcome: ${outcomeLabel[terminal.outcome]}.`);
       const streamedFields = fieldAccumulatorRef.current.requestId === requestId ? [...fieldAccumulatorRef.current.fields.values()] : [];
@@ -554,7 +584,7 @@ export function WorkbenchView() {
     } finally {
       if (requestId === requestRef.current) {
         cancellableRef.current = false;
-        configurationLockedRef.current = false;
+        unlockConfiguration();
         setRunning(false);
         abortRef.current = null;
       }
@@ -567,7 +597,7 @@ export function WorkbenchView() {
     requestRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
-    configurationLockedRef.current = false;
+    unlockConfiguration();
     setRunning(false);
     setTrace((current) => Object.fromEntries(
       Object.entries(current).map(([stage, state]) => [
