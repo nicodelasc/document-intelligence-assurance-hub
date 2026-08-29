@@ -76,7 +76,7 @@ export function ModelSelector({
 }) {
   return (
     <div className="model-selector">
-      <label htmlFor="workbench-model">Live custom-run model</label>
+      <label htmlFor="workbench-model">Processing model</label>
       <select
         id="workbench-model"
         name="model"
@@ -96,7 +96,7 @@ export function ModelSelector({
           </optgroup>
         ))}
       </select>
-      <small>The selected model applies only when a live custom run is enabled.</small>
+      <small>The selected model applies to built-in samples and custom uploads.</small>
     </div>
   );
 }

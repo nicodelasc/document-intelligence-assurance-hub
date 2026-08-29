@@ -139,4 +139,20 @@ describe("HTTP persistence container", () => {
       executionMode: "live",
     });
   });
+
+  it("reports only boolean availability for each live provider", () => {
+    const container = createDefaultHttpContainer({
+      NODE_ENV: "test",
+      AI_LIVE_ENABLED: "true",
+      OPENAI_API_KEY: "fake-openai-test-key",
+    });
+
+    expect(container.providerAvailability).toEqual({
+      openai: true,
+      anthropic: false,
+    });
+    expect(JSON.stringify(container.providerAvailability)).not.toContain(
+      "fake-openai-test-key",
+    );
+  });
 });

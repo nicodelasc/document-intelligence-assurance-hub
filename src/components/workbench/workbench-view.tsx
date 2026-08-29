@@ -29,6 +29,7 @@ import {
   type RawTraceState,
 } from "./trace-model";
 import { ActionCard } from "./action-card";
+import type { ProviderAvailability } from "@/server/http/container";
 
 const rawTraceStages: RunStatus[] = [
   "validating",
@@ -52,6 +53,7 @@ const outcomeLabel: Record<Outcome, string> = {
 type TraceState = Partial<Record<RunStatus, RawTraceState>>;
 type DeletionReceipt = { runId: string; token: string; expiresAt: string };
 type ActionDetailStatus = "idle" | "loading" | "ready" | "error";
+type ProviderAttribution = Pick<ComparableRun, "providerCalled" | "provider" | "model">;
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
@@ -145,6 +147,24 @@ function comparableFromPublicPayload(payload: unknown): ComparableRun | null {
   };
 }
 
+function providerAttributionFromPublicPayload(payload: unknown): ProviderAttribution | null {
+  if (!payload || typeof payload !== "object") return null;
+  const run = (payload as { run?: unknown }).run;
+  if (!run || typeof run !== "object") return null;
+  const record = run as Record<string, unknown>;
+  if (typeof record.providerCalled !== "boolean") return null;
+  if (record.providerCalled) {
+    if (!isProvider(record.provider) || typeof record.model !== "string") return null;
+    return {
+      providerCalled: true,
+      provider: record.provider,
+      model: record.model,
+    };
+  }
+  if (record.provider !== null || record.model !== null) return null;
+  return { providerCalled: false, provider: null, model: null };
+}
+
 function actionFromPublicPayload(payload: unknown): ActionProposal | null {
   if (!payload || typeof payload !== "object") return null;
   const run = (payload as { run?: unknown }).run;
@@ -164,6 +184,10 @@ export function WorkbenchView() {
   const [sampleId, setSampleId] = useState<(typeof syntheticFixtures)[number]["id"]>(syntheticFixtures[0].id);
   const [models, setModels] = useState<readonly ModelOption[]>(liveModelCatalog);
   const [selectedModel, setSelectedModel] = useState<string>(liveModelCatalog[0].id);
+  const [providerAvailability, setProviderAvailability] = useState<ProviderAvailability>({
+    openai: false,
+    anthropic: false,
+  });
   const [custom, setCustom] = useState<CustomUploadState>({ file: null, fields: ["", ""], consent: false, valid: false });
   const [previewUrl, setPreviewUrl] = useState("");
   const [running, setRunning] = useState(false);
@@ -218,6 +242,7 @@ export function WorkbenchView() {
         const payload = (await response.json()) as {
           models?: unknown;
           defaults?: Partial<Record<Provider, string>>;
+          providerAvailability?: Partial<ProviderAvailability>;
         };
         if (!Array.isArray(payload.models)) return;
         const approvedModels = payload.models.filter(
@@ -234,6 +259,15 @@ export function WorkbenchView() {
         );
         if (!approvedModels.length || controller.signal.aborted || configurationLockedRef.current) return;
         setModels(approvedModels);
+        if (
+          typeof payload.providerAvailability?.openai === "boolean" &&
+          typeof payload.providerAvailability.anthropic === "boolean"
+        ) {
+          setProviderAvailability({
+            openai: payload.providerAvailability.openai,
+            anthropic: payload.providerAvailability.anthropic,
+          });
+        }
         const serverDefault = payload.defaults?.openai;
         setSelectedModel(
           approvedModels.some((model) => model.id === serverDefault)
@@ -349,7 +383,7 @@ export function WorkbenchView() {
     runId: string,
     requestId: number,
     signal: AbortSignal,
-  ) {
+  ): Promise<ProviderAttribution | null> {
     setActionDetailStatus("loading");
     setActionDetailError("");
     try {
@@ -358,17 +392,22 @@ export function WorkbenchView() {
         { signal },
       );
       if (!detailResponse.ok) throw new Error("action_detail_unavailable");
-      const resolvedAction = actionFromPublicPayload(await detailResponse.json());
+      const payload = await detailResponse.json();
+      const attribution = providerAttributionFromPublicPayload(payload);
+      if (!attribution) throw new Error("run_attribution_unavailable");
+      const resolvedAction = actionFromPublicPayload(payload);
       if (!resolvedAction) throw new Error("action_detail_unavailable");
-      if (requestId !== requestRef.current) return;
+      if (requestId !== requestRef.current) return null;
       setPreparedAction(resolvedAction);
       setActionDetailStatus("ready");
+      return attribution;
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
-      if (requestId !== requestRef.current) return;
+      if (requestId !== requestRef.current) return null;
       setPreparedAction(null);
       setActionDetailStatus("error");
       setActionDetailError("The prepared action is temporarily unavailable.");
+      return null;
     }
   }
 
@@ -392,6 +431,12 @@ export function WorkbenchView() {
 
   async function runAssurance() {
     if (running || cancellableRef.current) return;
+    const providerAvailable = providerAvailability[provider];
+    const executionMode = providerAvailable ? "live" : "recorded";
+    if (source === "custom" && !providerAvailable) {
+      setError("Document processing is unavailable for the selected model.");
+      return;
+    }
     cancellableRef.current = true;
     configurationLockedRef.current = true;
     setRunning(true);
@@ -429,7 +474,7 @@ export function WorkbenchView() {
     form.set("sourceType", source);
     form.set("provider", provider);
     form.set("model", selectedModel);
-    form.set("executionMode", source === "synthetic" ? "recorded" : "live");
+    form.set("executionMode", executionMode);
     if (source === "synthetic") form.set("sampleId", sampleId);
     else if (custom.file) {
       form.set("document", custom.file);
@@ -443,7 +488,7 @@ export function WorkbenchView() {
         headers: {
           "Idempotency-Key": crypto.randomUUID(),
           "X-Run-Source-Type": source,
-          "X-Run-Execution-Mode": source === "synthetic" ? "recorded" : "live",
+          "X-Run-Execution-Mode": executionMode,
         },
         signal: controller.signal,
       });
@@ -477,24 +522,24 @@ export function WorkbenchView() {
       const streamedFields = fieldAccumulatorRef.current.requestId === requestId ? [...fieldAccumulatorRef.current.fields.values()] : [];
       const completedFields = streamedFields.length ? streamedFields : source === "synthetic" ? fixture.fields : [];
       setFields(completedFields);
-      const comparable: ComparableRun = {
-        id: terminal.runId,
-        providerCalled: terminal.executionMode === "live",
-        provider: terminal.executionMode === "live" ? provider : null,
-        model: terminal.executionMode === "live" ? (selectedModelDefinition?.displayName ?? selectedModel) : null,
-        configuredProvider: provider,
-        configuredModel: selectedModel,
-        executionMode: terminal.executionMode,
-        requestedFields: completedFields.map((field) => field.label),
-        values: completedFields.map(comparisonValue),
-        evidence: completedFields.map((field) => field.evidence ?? "No evidence found"),
-        evaluator: completedFields.map((field) => field.evaluatorStatus),
-        latencyMs: Math.round(elapsed),
-        outcome: terminal.outcome,
-      };
-      setHistory((current) => [comparable, ...current.filter((run) => run.id !== comparable.id)]);
       setOutcomeFocusVersion((current) => current + 1);
-      await loadPreparedAction(terminal.runId, requestId, controller.signal);
+      const attribution = await loadPreparedAction(terminal.runId, requestId, controller.signal);
+      if (attribution) {
+        const comparable: ComparableRun = {
+          id: terminal.runId,
+          ...attribution,
+          configuredProvider: provider,
+          configuredModel: selectedModel,
+          executionMode: terminal.executionMode,
+          requestedFields: completedFields.map((field) => field.label),
+          values: completedFields.map(comparisonValue),
+          evidence: completedFields.map((field) => field.evidence ?? "No evidence found"),
+          evaluator: completedFields.map((field) => field.evaluatorStatus),
+          latencyMs: Math.round(elapsed),
+          outcome: terminal.outcome,
+        };
+        setHistory((current) => [comparable, ...current.filter((run) => run.id !== comparable.id)]);
+      }
     } catch (reason) {
       if (requestId !== requestRef.current) return;
       if (reason instanceof DOMException && reason.name === "AbortError") {
@@ -606,7 +651,7 @@ export function WorkbenchView() {
             <div className="run-controls">
               <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
               <div className="run-actions">
-                {source === "synthetic" ? <span className="demo-mode-label">Demo data — no provider call</span> : null}
+                {source === "synthetic" ? <span className="demo-mode-label">{providerAvailability[provider] ? "Live processing available" : "Recorded sample fallback"}</span> : null}
                 <Button ref={runButtonRef} type="submit" busy={running}>Run assurance check</Button>
                 {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
               </div>

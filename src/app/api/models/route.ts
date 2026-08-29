@@ -2,12 +2,14 @@ import {
   defaultModelForProvider,
   liveModelCatalog,
 } from "@/domain/live-model-catalog";
+import { getHttpContainer } from "@/server/http/container";
 import { noIndexHeaders, safeJsonResponse } from "@/server/http/responses";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
+  const container = getHttpContainer();
   return safeJsonResponse(
     {
       models: liveModelCatalog.map((model) => ({
@@ -24,6 +26,7 @@ export async function GET(): Promise<Response> {
         openai: defaultModelForProvider("openai"),
         anthropic: defaultModelForProvider("anthropic"),
       },
+      providerAvailability: container.providerAvailability,
     },
     { status: 200, headers: noIndexHeaders },
   );

@@ -221,6 +221,12 @@ describe("extraction provider contract", () => {
       expect(request?.systemInstruction).toMatch(/propose.*action/i);
       expect(request?.systemInstruction).toMatch(/internal dry run/i);
       expect(request?.systemInstruction).toMatch(/never.*external/i);
+      expect(request?.systemInstruction).toContain(
+        "When handwriting is unclear, return null rather than guessing a critical value.",
+      );
+      expect(request?.systemInstruction).toContain(
+        "Do not reconstruct obscured characters from business context.",
+      );
       expect(request?.tools).toBeUndefined();
       expect(JSON.stringify(result)).not.toMatch(
         /prompt|reasoning|apiKey|unit-test-placeholder/i,

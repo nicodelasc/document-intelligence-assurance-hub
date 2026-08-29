@@ -13,6 +13,7 @@ import { consumeNdjson } from "@/components/workbench/run-stream";
 import { WorkbenchView } from "@/components/workbench/workbench-view";
 import { ActionCard } from "@/components/workbench/action-card";
 import type { ActionProposal, FieldResult, RunEvent } from "@/domain/types";
+import { syntheticFixtures } from "@/domain/fixtures";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -44,6 +45,20 @@ const emptyHistory = () => new Response(JSON.stringify({ runs: [], pagination: {
   status: 200,
   headers: { "content-type": "application/json" },
 });
+
+function modelCatalogue(providerAvailability: { openai: boolean; anthropic: boolean }) {
+  return new Response(JSON.stringify({
+    models: [
+      { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+      { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+    ],
+    defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+    providerAvailability,
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 const readyAction: ActionProposal = {
   type: "stage_inventory_receipt",
@@ -115,7 +130,7 @@ describe("Workbench controls", () => {
 
     expect(screen.getByRole("group", { name: "OpenAI" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Anthropic" })).toBeInTheDocument();
-    const select = screen.getByRole("combobox", { name: "Live custom-run model" });
+    const select = screen.getByRole("combobox", { name: "Processing model" });
     await user.selectOptions(select, "claude-sonnet-5");
     expect(onChange).toHaveBeenCalledWith("claude-sonnet-5");
     expect(new FormData(container.querySelector("form")!).get("model")).toBe(
@@ -123,19 +138,18 @@ describe("Workbench controls", () => {
     );
   });
 
-  it("shows three fixture cards followed by an upload button that opens the native picker", async () => {
+  it("shows the built-in library before an upload button that opens the native picker", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
     render(<WorkbenchView />);
 
-    const invoice = screen.getByRole("button", { name: /Invoice exception packet/i });
-    const warehouse = screen.getByRole("button", { name: /Warehouse receiving sheet/i });
-    const visitor = screen.getByRole("button", { name: /Visitor access request/i });
+    const fixtureButtons = syntheticFixtures.map((fixture) =>
+      screen.getByRole("button", { name: new RegExp(fixture.title, "i") }),
+    );
     const upload = screen.getByRole("button", { name: "+ Add your document" });
-    expect(invoice.compareDocumentPosition(warehouse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(warehouse.compareDocumentPosition(visitor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(visitor.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fixtureButtons).toHaveLength(10);
+    expect(fixtureButtons.at(-1)!.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     upload.focus();
     await user.keyboard(" ");
@@ -388,7 +402,11 @@ describe("Custom document validation", () => {
 
   it("submit validates then focuses the first actually invalid field", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/models"
+        ? modelCatalogue({ openai: true, anthropic: false })
+        : emptyHistory(),
+    ));
     render(<WorkbenchView />);
     await user.click(screen.getByRole("button", { name: "+ Add your document" }));
     await user.upload(
@@ -407,6 +425,151 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
+  it.each([
+    [true, "live"],
+    [false, "recorded"],
+  ] as const)(
+    "submits a built-in sample with %s OpenAI availability as %s",
+    async (openaiAvailable, expectedMode) => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/models") {
+          return modelCatalogue({ openai: openaiAvailable, anthropic: false });
+        }
+        if (url === "/api/runs?limit=12") return emptyHistory();
+        if (init?.method === "POST") {
+          return ndjson([{
+            type: "failed",
+            code: "test_terminal",
+            message: "The test run stopped after admission.",
+            timestamp: "2026-08-29T00:00:00.000Z",
+          }]);
+        }
+        return new Response(null, { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<WorkbenchView />);
+
+      const sample = syntheticFixtures.find((candidate) => candidate.id === "invoice-buyer-hold")!;
+      await user.click(screen.getByRole("button", { name: new RegExp(sample.title, "i") }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+        "/api/models",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ));
+      await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+      await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(true));
+      const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+      expect((postCall?.[1]?.body as FormData).get("sampleId")).toBe("invoice-buyer-hold");
+      expect((postCall?.[1]?.body as FormData).get("executionMode")).toBe(expectedMode);
+      expect(new Headers(postCall?.[1]?.headers).get("x-run-source-type")).toBe("synthetic");
+      expect(new Headers(postCall?.[1]?.headers).get("x-run-execution-mode")).toBe(expectedMode);
+    },
+  );
+
+  it("does not submit a custom file when the selected provider is unavailable", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/models") {
+        return modelCatalogue({ openai: false, anthropic: false });
+      }
+      return emptyHistory();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/models",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
+    await user.upload(
+      screen.getByLabelText("Document file"),
+      new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
+    );
+    await user.type(screen.getByLabelText("Review field 1"), "Vendor");
+    await user.type(screen.getByLabelText("Review field 2"), "Total");
+    await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Document processing is unavailable for the selected model.",
+    );
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
+  });
+
+  it("uses durable provider attribution after a completed live admission", async () => {
+    const existingRun = {
+      id: "existing_recorded",
+      providerCalled: false,
+      provider: null,
+      model: null,
+      configuredProvider: "anthropic",
+      configuredModel: "claude-haiku-4-5",
+      executionMode: "recorded",
+      status: "completed",
+      outcome: "clear",
+      latencyMs: 12,
+      details: { result: { fields: [field("total", "12", "12")] } },
+    };
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return modelCatalogue({ openai: true, anthropic: false });
+      }
+      if (url === "/api/runs?limit=12") {
+        return new Response(JSON.stringify({
+          runs: [{ id: existingRun.id, status: existingRun.status }],
+          pagination: { limit: 12, offset: 0, returned: 1 },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/runs/existing_recorded") {
+        return new Response(JSON.stringify({ run: existingRun }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/runs/run_durable_attribution") {
+        return new Response(JSON.stringify({
+          run: {
+            id: "run_durable_attribution",
+            providerCalled: false,
+            provider: null,
+            model: null,
+            details: { result: { action: readyAction } },
+          },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") {
+        return ndjson([
+          { type: "field", field: field("vendor", "Live admission", "Live admission"), timestamp: "2026-08-29T00:00:00.000Z" },
+          { type: "completed", outcome: "clear", runId: "run_durable_attribution", executionMode: "live", deletionToken: "durable_token", timestamp: "2026-08-29T00:00:01.000Z" },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
+    await user.selectOptions(screen.getByLabelText("Run A"), "existing_recorded");
+    await user.selectOptions(screen.getByLabelText("Run B"), "run_durable_attribution");
+
+    const table = screen.getByRole("table", { name: /comparison of two assurance runs/i });
+    const providerRow = within(table).getByRole("row", { name: /Provider and model/i });
+    expect(within(providerRow).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "Not called (demo)",
+      "Not called (demo)",
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/runs/run_durable_attribution",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it("locks run configuration from validation through execution", async () => {
     const user = userEvent.setup();
     let resolveRun!: (response: Response) => void;
@@ -425,7 +588,7 @@ describe("Workbench request lifecycle", () => {
       }
       if (url === "/api/runs/run_locked_configuration") {
         return new Response(
-          JSON.stringify({ run: { id: "run_locked_configuration", details: { result: { action: readyAction } } } }),
+          JSON.stringify({ run: { id: "run_locked_configuration", providerCalled: false, provider: null, model: null, details: { result: { action: readyAction } } } }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -434,14 +597,14 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    const selectedFixture = screen.getByRole("button", { name: /Invoice exception packet/i });
+    const selectedFixture = screen.getByRole("button", { name: /Northstar Office Supply invoice/i });
     await user.click(screen.getByRole("button", { name: "Run assurance check" }));
 
     expect(selectedFixture).toBeDisabled();
     expect(screen.getByRole("button", { name: "+ Add your document" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Live custom-run model" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Processing model" })).toBeDisabled();
     expect(screen.getByLabelText("Document file")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /Warehouse receiving sheet/i }));
+    await user.click(screen.getByRole("button", { name: /Northstar Office Supply goods receipt/i }));
     expect(selectedFixture).toHaveAttribute("aria-pressed", "true");
     await act(async () => {
       resolveModels(
@@ -452,13 +615,14 @@ describe("Workbench request lifecycle", () => {
               { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
             ],
             defaults: { openai: "claude-haiku-4-5" },
+            providerAvailability: { openai: false, anthropic: false },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
       await Promise.resolve();
     });
-    expect(screen.getByRole("combobox", { name: "Live custom-run model" })).toHaveValue("gpt-5.6-luna");
+    expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-luna");
 
     resolveRun(ndjson([
       { type: "completed", outcome: "clear", runId: "run_locked_configuration", executionMode: "recorded", deletionToken: "locked_token", timestamp: "2026-08-28T00:00:00.100Z" },
@@ -485,7 +649,7 @@ describe("Workbench request lifecycle", () => {
           });
         }
         return new Response(
-          JSON.stringify({ run: { id: "run_detail_recovery", details: { result: { action: readyAction } } } }),
+          JSON.stringify({ run: { id: "run_detail_recovery", providerCalled: false, provider: null, model: null, details: { result: { action: readyAction } } } }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -593,6 +757,7 @@ describe("Workbench request lifecycle", () => {
               { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
             ],
             defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+            providerAvailability: { openai: false, anthropic: false },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -603,6 +768,9 @@ describe("Workbench request lifecycle", () => {
           JSON.stringify({
             run: {
               id: "run_action_result",
+              providerCalled: false,
+              provider: null,
+              model: null,
               details: { result: { action: readyAction } },
             },
           }),
@@ -626,7 +794,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: /Warehouse receiving sheet/i }));
+    await user.click(screen.getByRole("button", { name: /Harborline Components goods receipt/i }));
     await user.click(screen.getByRole("button", { name: "Run assurance check" }));
 
     expect(await screen.findByRole("heading", { name: "Stage inventory receipt" })).toBeVisible();
@@ -653,6 +821,9 @@ describe("Workbench request lifecycle", () => {
   it("sends custom preflight metadata with a failed terminal event", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/models") {
+        return modelCatalogue({ openai: true, anthropic: false });
+      }
       if (!init?.method) return emptyHistory();
       return ndjson([{
         type: "failed",
@@ -775,7 +946,24 @@ describe("Workbench request lifecycle", () => {
       ]),
     ];
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      if (!init?.method) return emptyHistory();
+      if (String(_input) === "/api/models") {
+        return modelCatalogue({ openai: true, anthropic: false });
+      }
+      if (!init?.method) {
+        const runId = String(_input).split("/").at(-1);
+        if (runId === "run_custom_a" || runId === "run_custom_b") {
+          return new Response(JSON.stringify({
+            run: {
+              id: runId,
+              providerCalled: true,
+              provider: "openai",
+              model: "gpt-5.6-luna",
+              details: { result: { action: readyAction } },
+            },
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return emptyHistory();
+      }
       return terminals.shift()!;
     });
     vi.stubGlobal("fetch", fetchMock);

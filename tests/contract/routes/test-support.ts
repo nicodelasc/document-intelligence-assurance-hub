@@ -25,6 +25,7 @@ export function createTestContainer(
     bucketTokenSource: () => "test-browser-bucket-token-with-enough-entropy-1234567890",
     replayStageDelayMs: 0,
     liveModeEnabled: false,
+    providerAvailability: { openai: false, anthropic: false },
     cronSecret: "test-cron-secret",
     execute: executeRun,
     async createProvider(input) {
@@ -82,7 +83,7 @@ export function formRequest(
 }
 
 export function syntheticRequest(
-  sampleId = "warehouse-receiving-sheet",
+  sampleId = "warehouse-clean-receipt",
   provider = "openai",
   idempotencyKey?: string,
   model: string = defaultModelForProvider(provider as Provider),

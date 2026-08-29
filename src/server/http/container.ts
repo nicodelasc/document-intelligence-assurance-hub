@@ -33,6 +33,8 @@ import {
 
 type SyntheticFixtureId = (typeof syntheticFixtures)[number]["id"];
 
+export type ProviderAvailability = Record<Provider, boolean>;
+
 export type ProviderFactoryInput = {
   provider: Provider;
   model: string;
@@ -54,6 +56,7 @@ export type HttpContainer = {
   bucketTokenSource: () => string;
   replayStageDelayMs: number;
   liveModeEnabled: boolean;
+  providerAvailability: ProviderAvailability;
   cronSecret: string | undefined;
   execute: (
     input: ExecuteRunInput,
@@ -134,6 +137,10 @@ export function createDefaultHttpContainer(
     bucketTokenSource: defaultBucketTokenSource,
     replayStageDelayMs: 140,
     liveModeEnabled,
+    providerAvailability: {
+      openai: liveModeEnabled && Boolean(environment.OPENAI_API_KEY),
+      anthropic: liveModeEnabled && Boolean(environment.ANTHROPIC_API_KEY),
+    },
     cronSecret: environment.CRON_SECRET,
     execute: executeRun,
     async createProvider(input) {

@@ -23,7 +23,7 @@ describe("POST /api/runs", () => {
     const container = createTestContainer();
     const response = await handleRunsPost(
       syntheticRequest(
-        "warehouse-receiving-sheet",
+        "warehouse-clean-receipt",
         "openai",
         "operational-fixture-action-20260828",
       ),
@@ -43,14 +43,20 @@ describe("POST /api/runs", () => {
 
     expect(response.status).toBe(200);
     expect(completed.outcome).toBe("clear");
-    expect(stored?.file.filename).toBe("warehouse-receiving-sheet.pdf");
+    expect(stored?.file.filename).toBe("warehouse-clean-receipt.pdf");
     expect(stored?.requestedFields.map((field) => field.key)).toEqual([
-      "shipment_id",
+      "goods_receipt_number",
+      "delivery_note_number",
       "purchase_order_number",
+      "item_code",
+      "lot_number",
+      "expected_quantity",
       "received_quantity",
+      "damaged_quantity",
+      "receiver_comments",
     ]);
     expect(stored?.details?.result?.action).toEqual(
-      syntheticFixtures[1].action,
+      syntheticFixtures.find((fixture) => fixture.id === "warehouse-clean-receipt")?.action,
     );
   });
 
@@ -58,7 +64,7 @@ describe("POST /api/runs", () => {
     const container = createTestContainer();
     const response = await handleRunsPost(
       syntheticRequest(
-        "invoice-exception-packet",
+        "invoice-total-mismatch",
         "openai",
         "invoice-conflict-outcome-20260828",
       ),
@@ -87,7 +93,7 @@ describe("POST /api/runs", () => {
 
     const response = await handleRunsPost(
       syntheticRequest(
-        "warehouse-receiving-sheet",
+        "warehouse-clean-receipt",
         "openai",
         "valid-model-selection-20260828",
         "gpt-5.6-terra",
@@ -113,7 +119,7 @@ describe("POST /api/runs", () => {
 
     const response = await handleRunsPost(
       syntheticRequest(
-        "warehouse-receiving-sheet",
+        "warehouse-clean-receipt",
         "openai",
         "unknown-model-selection-20260828",
         "gpt-unknown",
@@ -131,7 +137,7 @@ describe("POST /api/runs", () => {
   it("rejects a provider-model mismatch before provider construction", async () => {
     const response = await handleRunsPost(
       syntheticRequest(
-        "warehouse-receiving-sheet",
+        "warehouse-clean-receipt",
         "openai",
         "mismatched-model-selection-20260828",
         "claude-haiku-4-5",
@@ -213,7 +219,7 @@ describe("POST /api/runs", () => {
     const request = formRequest([
       ["sourceType", "synthetic"],
       ["provider", "openai"],
-      ["sampleId", "warehouse-receiving-sheet"],
+      ["sampleId", "warehouse-clean-receipt"],
       ["ignored", "x".repeat(4_000_100)],
     ]);
     expect(request.headers.get("content-length")).toBeNull();
@@ -383,11 +389,11 @@ describe("POST /api/runs", () => {
 
     const responses = await Promise.all([
       handleRunsPost(
-        syntheticRequest("warehouse-receiving-sheet", "openai", idempotencyKey),
+        syntheticRequest("warehouse-clean-receipt", "openai", idempotencyKey),
         container,
       ),
       handleRunsPost(
-        syntheticRequest("warehouse-receiving-sheet", "openai", idempotencyKey),
+        syntheticRequest("warehouse-clean-receipt", "openai", idempotencyKey),
         container,
       ),
     ]);
@@ -519,7 +525,7 @@ describe("POST /api/runs", () => {
     const request = formRequest([
       ["sourceType", "synthetic"],
       ["provider", "openai"],
-      ["sampleId", "warehouse-receiving-sheet"],
+      ["sampleId", "warehouse-clean-receipt"],
       ["executionMode", "live"],
     ]);
 
@@ -1001,7 +1007,7 @@ describe("GET /api/runs", () => {
           model: null,
           configuredProvider: "openai",
           configuredModel: "gpt-5.6-luna",
-          filename: "warehouse-receiving-sheet.pdf",
+          filename: "warehouse-clean-receipt.pdf",
         },
       ],
       pagination: { limit: 20, offset: 0, returned: 1 },
@@ -1011,9 +1017,9 @@ describe("GET /api/runs", () => {
   it("uses bounded limit and offset pagination", async () => {
     const container = createTestContainer();
     for (const sampleId of [
-      "invoice-exception-packet",
-      "warehouse-receiving-sheet",
-      "visitor-access-request",
+      "invoice-clean-match",
+      "warehouse-clean-receipt",
+      "invoice-buyer-hold",
     ]) {
       await (
         await handleRunsPost(syntheticRequest(sampleId), container)
