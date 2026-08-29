@@ -55,6 +55,7 @@ function modelCatalogue(
       { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
       { id: "gpt-5.6-terra", provider: "openai", displayName: "GPT-5.6 Terra", recommended: false },
       { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+      { id: "claude-sonnet-5", provider: "anthropic", displayName: "Claude Sonnet 5", recommended: false },
     ],
     defaults: { openai: openaiDefault, anthropic: "claude-haiku-4-5" },
     providerAvailability,
@@ -142,23 +143,98 @@ describe("Workbench controls", () => {
     );
   });
 
-  it("shows the built-in library before an upload button that opens the native picker", async () => {
+  it("shows two family tabs with five classified variants and opens the native picker", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/models"
+        ? modelCatalogue({ openai: false, anthropic: false })
+        : emptyHistory(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
     render(<WorkbenchView />);
 
-    const fixtureButtons = syntheticFixtures.map((fixture) =>
-      screen.getByRole("button", { name: new RegExp(fixture.title, "i") }),
-    );
-    const upload = screen.getByRole("button", { name: "+ Add your document" });
-    expect(fixtureButtons).toHaveLength(10);
-    expect(fixtureButtons.at(-1)!.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Supplier invoices" })).toBeVisible();
+    expect(
+      screen.getByRole("tab", { name: "Warehouse goods receipts" }),
+    ).toBeVisible();
+    expect(screen.getAllByTestId("fixture-variant")).toHaveLength(5);
+    expect(screen.getByText("Correct")).toBeVisible();
+    expect(screen.getAllByText("Needs attention")).toHaveLength(2);
+    expect(screen.getAllByText("Incorrect")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Process document" })).toBeVisible();
+    expect(screen.getByLabelText("Processing model")).toHaveValue("gpt-5.6-luna");
+    expect(
+      screen.getByRole("option", { name: "GPT-5.6 Luna - Recommended" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("option", { name: "Claude Haiku 4.5 - Recommended" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("option")).toHaveLength(4);
+    expect(
+      screen.queryByRole("option", { name: "GPT-5.6 Terra - Recommended" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Claude Sonnet 5 - Recommended" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/live custom|live provider|live-call/i),
+    ).not.toBeInTheDocument();
 
-    upload.focus();
-    await user.keyboard(" ");
-    expect(clickSpy).toHaveBeenCalled();
-    expect(screen.getByLabelText("Document file")).toBeInTheDocument();
+    const initialFixture = syntheticFixtures[0];
+    expect(screen.getByTitle(`Document preview for ${initialFixture.title}`)).toHaveAttribute(
+      "src",
+      `/samples/${initialFixture.filename}`,
+    );
+    expect(screen.getByText(initialFixture.differenceSummary[0])).toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
+    expect(screen.getAllByTestId("fixture-variant")).toHaveLength(5);
+    const warehouseFixture = syntheticFixtures.find(
+      (fixture) => fixture.id === "warehouse-quantity-mismatch",
+    )!;
+    await user.click(
+      screen.getByRole("button", {
+        name: new RegExp(warehouseFixture.variantLabel, "i"),
+      }),
+    );
+    expect(screen.getByTitle(`Document preview for ${warehouseFixture.title}`)).toHaveAttribute(
+      "src",
+      `/samples/${warehouseFixture.filename}`,
+    );
+    expect(screen.getByText(warehouseFixture.differenceSummary[0])).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) => String(input) === "/api/runs" && init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    const upload = screen.getByRole("button", { name: "+ Add your document" });
+    await user.click(upload);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Document file")).toHaveAttribute(
+      "accept",
+      "application/pdf,image/png,image/jpeg",
+    );
+  });
+
+  it("uses Arrow Home and End keys to activate and focus family tabs", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => emptyHistory()));
+    render(<WorkbenchView />);
+
+    const invoiceTab = screen.getByRole("tab", { name: "Supplier invoices" });
+    const receiptTab = screen.getByRole("tab", { name: "Warehouse goods receipts" });
+    invoiceTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(receiptTab).toHaveFocus();
+    expect(receiptTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Home}");
+    expect(invoiceTab).toHaveFocus();
+    expect(invoiceTab).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{End}");
+    expect(receiptTab).toHaveFocus();
+    expect(receiptTab).toHaveAttribute("aria-selected", "true");
   });
 });
 
@@ -421,7 +497,7 @@ describe("Custom document validation", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Vendor");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     await waitFor(() => expect(screen.getByLabelText("Review field 2")).toHaveFocus());
     expect(screen.getByText("Field labels must be unique.")).toBeVisible();
@@ -472,7 +548,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
     await waitFor(() => expect(postCount).toBe(1));
     const firstPost = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
     expect((firstPost?.[1]?.body as FormData).get("executionMode")).toBe("recorded");
@@ -483,7 +559,7 @@ describe("Workbench request lifecycle", () => {
       );
       await Promise.resolve();
     });
-    expect(screen.getByText("Recorded sample fallback")).toBeVisible();
+    expect(screen.getByText("Sample results - no AI processing")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-luna");
 
     await act(async () => {
@@ -496,10 +572,14 @@ describe("Workbench request lifecycle", () => {
         timestamp: "2026-08-29T00:00:01.000Z",
       }]));
     });
-    expect(await screen.findByText("Live processing available")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Sample results - no AI processing"),
+      ).not.toBeInTheDocument(),
+    );
     expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-terra");
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
     await waitFor(() => expect(postCount).toBe(2));
     const secondPost = fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")[1];
     expect((secondPost?.[1]?.body as FormData).get("executionMode")).toBe("live");
@@ -514,10 +594,10 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     await waitFor(() => expect(postCount).toBe(3));
-    expect(screen.queryByText("Document processing is unavailable for the selected model.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Processing unavailable for this model")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -552,7 +632,7 @@ describe("Workbench request lifecycle", () => {
         "/api/models",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ));
-      await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+      await user.click(screen.getByRole("button", { name: "Process document" }));
 
       await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(true));
       const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
@@ -586,11 +666,8 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Document processing is unavailable for the selected model.",
-    );
+    expect(screen.getByText("Processing unavailable for this model")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Process document" })).toBeDisabled();
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
   });
 
@@ -648,7 +725,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
     expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
     await user.selectOptions(screen.getByLabelText("Run A"), "existing_recorded");
     await user.selectOptions(screen.getByLabelText("Run B"), "run_durable_attribution");
@@ -693,13 +770,15 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     const selectedFixture = screen.getByRole("button", { name: /Northstar Office Supply invoice/i });
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     expect(selectedFixture).toBeDisabled();
     expect(screen.getByRole("button", { name: "+ Add your document" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Processing model" })).toBeDisabled();
     expect(screen.getByLabelText("Document file")).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: /Northstar Office Supply goods receipt/i }));
+    expect(
+      screen.getByRole("tab", { name: "Warehouse goods receipts" }),
+    ).toBeDisabled();
     expect(selectedFixture).toHaveAttribute("aria-pressed", "true");
     await act(async () => {
       resolveModels(
@@ -753,7 +832,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     expect(await screen.findByText("Loading prepared action")).toBeVisible();
     expect(screen.queryByText("No action available")).not.toBeInTheDocument();
@@ -795,7 +874,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     const failedGroup = screen
       .getByText("Resolve and prepare action")
@@ -832,7 +911,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     const failedGroup = screen.getByText("Resolve and prepare action").closest("li");
     expect(failedGroup).not.toBeNull();
@@ -889,8 +968,9 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
+    await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
     await user.click(screen.getByRole("button", { name: /Harborline Components goods receipt/i }));
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     expect(await screen.findByRole("heading", { name: "Stage inventory receipt" })).toBeVisible();
     for (const label of [
@@ -939,7 +1019,7 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     expect(await screen.findByText("failed_delete_once")).toBeVisible();
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
@@ -987,7 +1067,7 @@ describe("Workbench request lifecycle", () => {
     );
     const view = render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
 
     expect(await screen.findByText(hostileLabel)).toBeVisible();
     expect(screen.getByText(hostileEvidence)).toBeVisible();
@@ -1026,6 +1106,81 @@ describe("Workbench request lifecycle", () => {
       method: "DELETE",
       headers: { "x-delete-token": "restore_token_a" },
     }));
+  });
+
+  it("labels a custom partial result as incomplete evidence without a consistent claim", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return modelCatalogue({ openai: true, anthropic: false });
+      }
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_custom_partial") {
+        return new Response(JSON.stringify({
+          run: {
+            id: "run_custom_partial",
+            providerCalled: true,
+            provider: "openai",
+            model: "gpt-5.6-luna",
+            details: { result: { action: readyAction } },
+          },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") {
+        return ndjson([
+          {
+            type: "field",
+            field: field("vendor", "Northstar", "Northstar"),
+            timestamp: "2026-08-29T00:00:00.000Z",
+          },
+          {
+            type: "field",
+            field: {
+              ...field("total", "", ""),
+              extractedValue: null,
+              normalizedValue: null,
+              evidence: null,
+              page: null,
+              evaluatorStatus: "not_found",
+            },
+            timestamp: "2026-08-29T00:00:00.100Z",
+          },
+          {
+            type: "completed",
+            outcome: "not_found",
+            runId: "run_custom_partial",
+            executionMode: "live",
+            deletionToken: "partial_delete_token",
+            timestamp: "2026-08-29T00:00:00.200Z",
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
+    await user.upload(
+      screen.getByLabelText("Document file"),
+      new File(
+        [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+        "partial.png",
+        { type: "image/png" },
+      ),
+    );
+    await user.type(screen.getByLabelText("Review field 1"), "Vendor");
+    await user.type(screen.getByLabelText("Review field 2"), "Total");
+    await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Incomplete evidence - one or more requested fields were not found",
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Evidence-consistent")).not.toBeInTheDocument();
   });
 
   it("isolates streamed fields per custom run then focuses the final outcome", async () => {
@@ -1072,10 +1227,14 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
     expect(await screen.findByRole("heading", { name: "Evidence-consistent" })).toHaveFocus();
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
-    expect(await screen.findByRole("heading", { name: "Not found" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "Incomplete evidence - one or more requested fields were not found",
+      }),
+    ).toHaveFocus();
 
     await user.selectOptions(screen.getByLabelText("Run A"), "run_custom_a");
     await user.selectOptions(screen.getByLabelText("Run B"), "run_custom_b");
@@ -1097,7 +1256,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const view = render(<WorkbenchView />);
-    await user.click(screen.getByRole("button", { name: "Run assurance check" }));
+    await user.click(screen.getByRole("button", { name: "Process document" }));
     await waitFor(() => expect(activeSignal).toBeDefined());
 
     view.unmount();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { FileText, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import type { ActionProposal, FieldResult, Outcome, Provider, RunEvent, RunStatus } from "@/domain/types";
 import {
   recordedDocumentRunResults,
@@ -9,7 +9,7 @@ import {
 } from "@/domain/fixtures";
 import { liveModelCatalog } from "@/domain/live-model-catalog";
 import { actionProposalSchema } from "@/domain/run-schema";
-import { Button, EmptyState, KeylessNotice, LiveRegion, RulePanel, StatusMark } from "@/components/ui/primitives";
+import { Button, EmptyState, LiveRegion, ProcessingStatus, RulePanel, StatusMark } from "@/components/ui/primitives";
 import { DangerDialog } from "@/components/ui/dialog";
 import {
   ComparisonLedger,
@@ -30,6 +30,8 @@ import {
 } from "./trace-model";
 import { ActionCard } from "./action-card";
 import type { ProviderAvailability } from "@/server/http/container";
+import { DocumentPreview } from "./document-preview";
+import { FixtureLibrary } from "./fixture-library";
 
 const rawTraceStages: RunStatus[] = [
   "validating",
@@ -464,7 +466,7 @@ export function WorkbenchView() {
     const providerAvailable = providerAvailability[provider];
     const executionMode = providerAvailable ? "live" : "recorded";
     if (source === "custom" && !providerAvailable) {
-      setError("Document processing is unavailable for the selected model.");
+      setError("Processing unavailable for this model");
       return;
     }
     cancellableRef.current = true;
@@ -634,44 +636,26 @@ export function WorkbenchView() {
     <main id="main-content" className="page workbench-page">
       <header className="page-intro">
         <div><h1>Review a document</h1><p>Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.</p></div>
-        <KeylessNotice />
       </header>
       <LiveRegion message={liveMessage} />
       <form noValidate onSubmit={(event) => { event.preventDefault(); runAssurance(); }}>
         <div className="workbench-desk">
-          <RulePanel className="source-rail" title="1. Source">
-            <div className="source-list" aria-label="Document source">
-              {syntheticFixtures.map((sample) => (
-                <button
-                  key={sample.id}
-                  type="button"
-                  className={`source-tile${source === "synthetic" && sampleId === sample.id ? " selected-control" : ""}`}
-                  aria-pressed={source === "synthetic" && sampleId === sample.id}
-                  disabled={running}
-                  onClick={() => {
-                    setSource("synthetic");
-                    setSampleId(sample.id);
-                    setError("");
-                  }}
-                >
-                  <strong>{sample.title}</strong>
-                  <small>{sample.description}</small>
-                </button>
-              ))}
-              <button
-                type="button"
-                className={`source-tile source-tile--upload${source === "custom" ? " selected-control" : ""}`}
-                aria-pressed={source === "custom"}
-                disabled={running}
-                onClick={() => {
-                  setSource("custom");
-                  setError("");
-                  customUploadRef.current?.openFilePicker();
-                }}
-              >
-                <strong>+ Add your document</strong>
-              </button>
-            </div>
+          <RulePanel className="source-rail" title="1. Document library">
+            <FixtureLibrary
+              fixtures={syntheticFixtures}
+              selectedId={source === "synthetic" ? sampleId : ""}
+              disabled={running}
+              onSelect={(fixtureId) => {
+                setSource("synthetic");
+                setSampleId(fixtureId);
+                setError("");
+              }}
+              onUpload={() => {
+                setSource("custom");
+                setError("");
+                customUploadRef.current?.openFilePicker();
+              }}
+            />
             <div className="custom-upload-panel" hidden={source !== "custom"}>
               <CustomUploadFields ref={customUploadRef} onReadyChange={setCustom} disabled={running} />
             </div>
@@ -681,13 +665,20 @@ export function WorkbenchView() {
             <div className="run-controls">
               <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
               <div className="run-actions">
-                {source === "synthetic" ? <span className="demo-mode-label">{providerAvailability[provider] ? "Live processing available" : "Recorded sample fallback"}</span> : null}
-                <Button ref={runButtonRef} type="submit" busy={running}>Run assurance check</Button>
+                <ProcessingStatus available={providerAvailability[provider]} source={source} />
+                <Button
+                  ref={runButtonRef}
+                  type="submit"
+                  busy={running}
+                  disabled={source === "custom" && !providerAvailability[provider]}
+                >
+                  Process document
+                </Button>
                 {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
               </div>
             </div>
             {error ? <div className="inline-error recovery-error" role="alert"><strong>Run unavailable</strong><span>{error}</span>{source === "custom" ? <Button type="button" intent="neutral" onClick={() => { setSource("synthetic"); setError(""); }}>Use a synthetic sample</Button> : null}</div> : null}
-            <DocumentPreview source={source} selectedFixture={selectedFixture} custom={custom} previewUrl={previewUrl} />
+            <DocumentPreview source={source} fixture={selectedFixture} custom={custom} previewUrl={previewUrl} />
           </section>
 
           <aside className="assurance-rail">
@@ -716,7 +707,12 @@ export function WorkbenchView() {
                   )}
                 </RulePanel>
                 <RulePanel title="Evidence ledger">
-                  <ResultLedger outcome={outcome} fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []} headingRef={outcomeHeadingRef} />
+                  <ResultLedger
+                    outcome={outcome}
+                    source={source}
+                    fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []}
+                    headingRef={outcomeHeadingRef}
+                  />
                 </RulePanel>
               </>
             )}
@@ -740,42 +736,21 @@ export function WorkbenchView() {
   );
 }
 
-function DocumentPreview({
+function ResultLedger({
+  outcome,
   source,
-  selectedFixture,
-  custom,
-  previewUrl,
+  fields,
+  headingRef,
 }: {
+  outcome: Outcome;
   source: "synthetic" | "custom";
-  selectedFixture: (typeof syntheticFixtures)[number];
-  custom: CustomUploadState;
-  previewUrl: string;
+  fields: FieldResult[];
+  headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
-  if (source === "custom") {
-    let preview = <EmptyState title="Choose a local file">The file remains local until consented submission.</EmptyState>;
-    if (custom.file?.type.startsWith("image/") && previewUrl) {
-      // eslint-disable-next-line @next/next/no-img-element -- object URLs cannot use the Next image optimizer
-      preview = <img src={previewUrl} alt={`Local preview of ${custom.file.name}`} />;
-    } else if (custom.file?.type.startsWith("image/")) {
-      preview = <div className="pdf-fallback"><FileText aria-hidden="true" /><h3>{custom.file.name}</h3><p>Preparing the local image preview…</p></div>;
-    } else if (custom.file) {
-      preview = <div className="pdf-fallback"><FileText aria-hidden="true" /><h3>{custom.file.name}</h3><p>PDF preview is kept local before consent.</p><a href={previewUrl} target="_blank" rel="noreferrer">Open local PDF</a></div>;
-    }
-    return <RulePanel className="document-preview" title="Document preview">{preview}</RulePanel>;
-  }
-  return (
-    <RulePanel className="document-preview" title="Document preview" action={<a href={`/samples/${selectedFixture.filename}`} target="_blank" rel="noreferrer">Open fixture PDF</a>}>
-      <article className="invoice-sheet" aria-label={`Synthetic document: ${selectedFixture.title}`}>
-        <header><div><span className="invoice-kicker">Synthetic document</span><h2>{selectedFixture.title}</h2><p>{selectedFixture.description}</p></div><strong>REVIEW</strong></header>
-        <div className="invoice-meta"><dl>{selectedFixture.requestedFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{selectedFixture.documentData[field.key] ?? "Not present"}</dd></div>)}</dl></div>
-        <div className="document-instruction"><span>Document instruction</span><strong>{selectedFixture.action.instructionEvidence ?? "No document instruction found"}</strong></div>
-        <footer><span>Fixture ID</span><code>{selectedFixture.id}</code></footer>
-      </article>
-    </RulePanel>
-  );
-}
-
-function ResultLedger({ outcome, fields, headingRef }: { outcome: Outcome; fields: FieldResult[]; headingRef: RefObject<HTMLHeadingElement | null> }) {
   const custom = outcome === "evidence_consistent" || outcome === "conflict" || outcome === "not_found";
-  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{outcomeLabel[outcome]}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
+  const heading =
+    source === "custom" && outcome === "not_found"
+      ? "Incomplete evidence - one or more requested fields were not found"
+      : outcomeLabel[outcome];
+  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{heading}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
 }

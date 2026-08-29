@@ -15,6 +15,7 @@
 | Domain / scope | Authoritative source | Source type | Reviewed date |
 |---|---|---|---|
 | Product behavior | `docs/superpowers/specs/2026-08-27-document-intelligence-assurance-hub-design.md` | Approved product specification | 2026-08-27 |
+| Document operations redesign | `docs/superpowers/specs/2026-08-29-document-operations-workflow-redesign.md` | Approved redesign specification | 2026-08-29 |
 | Experience and claim boundaries | Local claim-controlled resume and workbook named in the specification | Approved source artifacts | 2026-08-27 |
 | Data lifecycle | Approved 24-hour public upload requirement in the specification | Product specification | 2026-08-27 |
 | Deletion and retention | Approved early-delete token and hourly expiry cleanup requirement | Product specification | 2026-08-27 |
@@ -37,6 +38,7 @@
 |---|---|---|---|---|
 | Table Selection | `RunExplorer` radio-row selection | This contract | one selected run | component and E2E |
 | Select/Listbox | Grouped native model select with accepted platform popup | `/api/models` and this contract | native | keyboard and browser |
+| Tabs | `FixtureLibrary` document-family tablist | This contract | Supplier invoices and Warehouse goods receipts | Arrow keys, Home, End and browser |
 | Form | Shared labeled field components with Zod adapters | This contract | run and calculator | validation E2E |
 | Scrollbar | Global application stylesheet | `DESIGN.md` | stable-gutter geometry | computed style |
 | Toast | Shared polite status region | This contract | success, warning, info and error | live-region test |
@@ -65,12 +67,12 @@
 
 | Operation | Trigger | Pending | Success destination | Success feedback | Failure recovery | Focus outcome | Source ref |
 |---|---|---|---|---|---|---|---|
-| Create run | `Run assurance check` | Streamed stage rail | Same Workbench | Final result and status announcement | Safe error and replay option | Outcome heading | Product specification |
+| Create run | `Process document` | Streamed stage rail | Same Workbench | Final result and status announcement | Safe error and replay option | Outcome heading | Product specification |
 | Stage prepared action | `Stage action` | Pessimistic busy button | Same Workbench | Server-returned staged state | Preserve proposal and retry | Action status | Product specification |
 | Compare runs | `Compare runs` | Stable inline loader | Same Workbench | Difference table | Preserve selections and retry | Comparison heading | Product specification |
 | Delete run | `Delete now` | Dialog action busy | Run list | `Run deleted` status | Dialog remains open with safe error | Next run or list heading | Product specification |
 | Search runs | Search input | Stable ledger loader | Same Operations route | Result count | Clear and retry | Search or results heading | Product specification |
-| Upload/background job | `Run assurance check` | Three named progress groups | Same Workbench | Prepared action, evidence and private deletion token | Cancel, retry or synthetic sample | Current stage or outcome | Product specification |
+| Upload/background job | `Process document` | Three named progress groups | Same Workbench | Prepared action, evidence and private deletion token | Cancel, retry or synthetic sample | Current stage or outcome | Product specification |
 | Cancel/back | `Cancel run` or route link | Stop pending client request | Same route or chosen route | Neutral cancellation status | Preserve selected source | Originating control | Product specification |
 | Hard-delete | `Delete now` | Danger dialog busy | Active runs list | Deleted status | Retry with same token | Next logical run | Product specification |
 
@@ -79,7 +81,7 @@
 - Route document title policy: `{Page} — Document Intelligence Assurance Hub`.
 - Route error behavior: App-owned not-found and safe server error pages keep route navigation available.
 - Route-state policy: Workbench and Operations are bookmarkable routes. Operations selection is URL-backed.
-- Responsive transformation: Workbench source, preview and trace stack in that order. The prepared action remains before the evidence ledger. Operations metrics wrap while the run table scrolls horizontally.
+- Responsive transformation: Workbench library, preview and trace stack in that order. Family tabs and the five active variants stack without horizontal page overflow at 390 px. The actual PDF iframe keeps stable geometry and `What changed` moves below it. The prepared action remains before the evidence ledger. Operations metrics wrap while the run table scrolls horizontally.
 - Truncation/full-value access: Important evidence wraps. Long IDs provide a labeled copy control.
 - Focus restoration and sticky-obstruction policy: Sticky regions use `scroll-margin` and never cover focused controls.
 
@@ -88,7 +90,7 @@
 - Dialog primitive: Shared accessible dialog with inert backdrop, Escape close and focus restoration.
 - Destructive confirmation levels: Early deletion is irreversible for detailed public data and uses danger intent with explicit consequence.
 - Toast placement/duration/deduplication: One top-right polite region. Critical corrections remain inline.
-- Alert/banner scope and persistence: Upload consent and keyless mode are persistent page notices.
+- Alert/banner scope and persistence: Upload consent is persistent for custom documents. `Sample results - no AI processing` appears only for a recorded fixture on an unavailable route. An unavailable custom route instead shows `Processing unavailable for this model`.
 - Tooltip delay/dismissal: Supplemental only and dismissible with Escape.
 - Layer contract: dialog above popover above toast above sticky content.
 
@@ -116,7 +118,7 @@
 - Required static commands: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm verify:premium` and `pnpm build`.
 - Browser matrix: Chromium desktop 1440x1000 and mobile 390x844 with reduced motion.
 - Accessibility checks: axe scan, keyboard route and form use plus live-region status.
-- Component-state coverage: Upload validation, grouped model selection, three-stage trace, action staging, errors, empty history, run selection, comparison and deletion dialog.
+- Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, actual PDF preview, direct native file picker, grouped model selection, conditional unavailable-provider feedback, custom incomplete-evidence wording, three-stage trace, action staging, errors, empty history, run selection, comparison and deletion dialog.
 - Canonical sibling flow used for comparison: Workbench run ledger compared with Operations run explorer.
 - CRUD full-flow evidence: `tests/e2e/workbench.spec.ts`.
 - Failure-path evidence: `tests/e2e/failure-and-delete.spec.ts`.

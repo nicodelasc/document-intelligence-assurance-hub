@@ -60,6 +60,26 @@ export function KeylessNotice() {
   );
 }
 
+export function ProcessingStatus({
+  available,
+  source,
+}: {
+  available: boolean;
+  source: "synthetic" | "custom";
+}) {
+  if (available) return null;
+  return (
+    <div className="processing-status" role="note">
+      <StatusMark status="active" />
+      <span>
+        {source === "synthetic"
+          ? "Sample results - no AI processing"
+          : "Processing unavailable for this model"}
+      </span>
+    </div>
+  );
+}
+
 export function LiveRegion({ message }: { message: string }) {
   return (
     <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">

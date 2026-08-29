@@ -21,7 +21,7 @@ test("Workbench preserves source preview trace order on mobile", async ({ page }
   await page.goto("/workbench");
 
   const headings = await Promise.all(
-    ["1. Source", "Document preview", "Assurance trace"].map(async (name) => {
+    ["1. Document library", "Document preview", "Assurance trace"].map(async (name) => {
       const box = await page.getByRole("heading", { name }).boundingBox();
       expect(box).not.toBeNull();
       return box!;
@@ -29,6 +29,7 @@ test("Workbench preserves source preview trace order on mobile", async ({ page }
   );
   expect(headings[0].y).toBeLessThan(headings[1].y);
   expect(headings[1].y).toBeLessThan(headings[2].y);
-  await expect(page.getByLabel("Live custom-run model")).toBeVisible();
+  await expect(page.getByLabel("Processing model")).toBeVisible();
   await expect(page.getByRole("button", { name: "+ Add your document" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

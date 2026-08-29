@@ -90,7 +90,7 @@ export function ModelSelector({
               .filter((model) => model.provider === group.provider)
               .map((model) => (
                 <option key={model.id} value={model.id}>
-                  {model.displayName}{model.recommended ? " — Recommended" : ""}
+                  {model.displayName}{model.recommended ? " - Recommended" : ""}
                 </option>
               ))}
           </optgroup>
@@ -195,7 +195,7 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
           aria-label="Document file"
           type="file"
           disabled={disabled}
-          accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+          accept="application/pdf,image/png,image/jpeg"
           onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
           onBlur={() => setFileFocusProxy(false)}
           aria-invalid={Boolean(errors.file)}
