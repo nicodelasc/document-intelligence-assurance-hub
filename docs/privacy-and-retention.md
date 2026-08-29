@@ -26,7 +26,9 @@ Logical access denial is immediate. Physical cleanup can lag when Blob is unavai
 
 Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply workflow status, workflow activity, processing performance and explorer rows while those details remain active.
 
-At expiry or Delete now traces, results, document locators and workflow events are removed from active access. Retained anonymous summaries and confirmed cost aggregates do not expose filenames, evidence, field values, event IDs, run IDs, recipient roles, deletion capabilities, anonymous bucket values or reservation identifiers. The latest workflow-activity aggregate exposes only a status and timestamp.
+At expiry or Delete now traces, results, document locators and workflow events are removed from active access. Repository-wide aggregate projections do not expose filenames, evidence, field values, event IDs, run IDs, recipient roles, deletion capabilities, anonymous bucket values or reservation identifiers.
+
+The newest 100 public run summaries are a separate bounded detail projection and do include run IDs so a reviewer can select an explorer row. Each latest workflow projection includes the action, status and timestamp. It omits the event ID and recipient role.
 
 Confirmed completed cost metrics contain aggregate model usage only when a provider was dispatched and trustworthy token usage was recorded. Quota settlement and active reservations remain separate accounting populations. A failed dispatched request can settle conservatively without appearing as a completed model run.
 

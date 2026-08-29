@@ -53,9 +53,9 @@ The connected HTTP container also uses an atomic Neon minute-window limiter for 
 | Quota snapshot                                 | Settled spend for today and month to date plus active reservations            | Settled API spend and daily budget position                                 |
 | Newest 100 public run summaries                | At most 100 current summaries with active detail where available              | Workflow status, workflow activity, performance and explorer rows           |
 | Repository-wide active-detail lifecycle        | Every unexpired detail record                                                 | Active documents, public uploads and expiry buckets                         |
-| Repository-wide cleanup backlog                | Every pending physical cleanup job                                            | Cleanup backlog                                                             |
+| Repository-wide cleanup backlog                | Expired detailed runs awaiting tombstoning plus pending physical cleanup jobs | Cleanup backlog                                                             |
 
-The newest-100 workflow population includes completed and failed terminal active runs. Its latest activity is the newest event by creation time then stable identifier. The metrics response exposes only the event status and timestamp. It does not expose an event ID, run ID or recipient role through that aggregate.
+The newest-100 workflow population includes completed and failed terminal active runs. Its latest activity is the newest event by creation time then stable identifier. Each latest workflow projection includes the action, status and timestamp. It does not expose an event ID or recipient role. The parent public summary does include its run ID while workflow-status and workflow-activity aggregate projections contain counts only.
 
 Cost populations never use selected configuration as execution attribution. Completed model-cost estimates require a confirmed dispatched completed run with valid usage. A failed dispatched request may add conservative settled spend to the quota ledger but it cannot enter the completed estimate, average or confirmed-usage split. Settled spend and active reservations are separate values. Remaining budget is the configured daily budget minus both values clamped at zero.
 
