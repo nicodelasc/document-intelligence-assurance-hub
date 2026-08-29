@@ -2,7 +2,7 @@
 
 ## Product context
 
-- Audience: A headquarters interviewer assessing a public-safe AI automation prototype.
+- Audience: A headquarters interviewer assessing a public-safe AI automation demonstration.
 - Primary jobs: Run guided samples, prepare safe actions, compare two runs and inspect evidence and operational signals.
 - Target market: Portfolio review for a Singapore regional role.
 - Active locale: `en-SG`.
@@ -81,7 +81,7 @@
 - Route document title policy: `{Page} — Document Intelligence Assurance Hub`.
 - Route error behavior: App-owned not-found and safe server error pages keep route navigation available.
 - Route-state policy: Workbench and Operations are bookmarkable routes. Operations selection is URL-backed.
-- Responsive transformation: Workbench library, preview and trace stack in that order. Family tabs and the five active variants stack without horizontal page overflow at 390 px. The actual PDF iframe keeps stable geometry and `What changed` moves below it. The prepared action remains before the evidence ledger. Operations metrics wrap while the run table scrolls horizontally.
+- Responsive transformation: Workbench library, preview and trace stack in that order. Family tabs and the five active variants stack without horizontal page overflow at 390 px. The actual PDF iframe keeps stable geometry and `What changed` moves below it. The prepared action remains before the evidence ledger. Operations starts with four summary metrics then a two-thirds Operations workspace and one-third Costs workspace. At 960 px and below Operations stacks before Costs. The run table scrolls inside its own region and the 390 px page root stays within the viewport.
 - Truncation/full-value access: Important evidence wraps. Long IDs provide a labeled copy control.
 - Focus restoration and sticky-obstruction policy: Sticky regions use `scroll-margin` and never cover focused controls.
 
@@ -118,7 +118,7 @@
 - Required static commands: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm verify:premium` and `pnpm build`.
 - Browser matrix: Chromium desktop 1440x1000 and mobile 390x844 with reduced motion.
 - Accessibility checks: axe scan, keyboard route and form use plus live-region status.
-- Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, actual PDF preview, direct native file picker, grouped model selection, conditional unavailable-provider feedback, custom incomplete-evidence wording, three-stage trace, action staging, errors, empty history, run selection, comparison and deletion dialog.
+- Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, actual PDF preview, direct native file picker, grouped model selection, conditional unavailable-provider feedback, custom incomplete-evidence wording, three-stage trace, action staging, errors, empty history, run selection, comparison, deletion dialog, four Operations summary cards, 2:1 Operations and Costs workspaces, recorded-only cost empties, model and outcome filters, URL Back and Forward restoration, fixture differences, comments evidence, workflow activity and safe diagnostics.
 - Canonical sibling flow used for comparison: Workbench run ledger compared with Operations run explorer.
 - CRUD full-flow evidence: `tests/e2e/workbench.spec.ts`.
 - Failure-path evidence: `tests/e2e/failure-and-delete.spec.ts`.

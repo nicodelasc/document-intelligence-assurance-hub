@@ -262,7 +262,7 @@ const modelDisplayNames = new Map<string, string>(liveModelCatalog.map((model) =
 function executionTarget(run: ComparableRun): string {
   return run.providerCalled
     ? `${run.provider ?? "Unavailable"} · ${run.model ?? "Unavailable"}`
-    : "Not called (demo)";
+    : "No AI processing";
 }
 
 function configuredTarget(run: ComparableRun): string {

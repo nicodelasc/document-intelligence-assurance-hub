@@ -1,9 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/models", async (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      models: [
+        { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+        { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+      ],
+      defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+      providerAvailability: { openai: true, anthropic: true },
+    }),
+  }));
+});
+
 test("quota failure offers a demo fallback", async ({ page }) => {
   await page.route("**/api/runs", async (route) => route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "recorded_run_limit", message: "The demo run limit is active.", requestId: "safe" } }) }));
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByText("The demo run limit is active.", { exact: true })).toBeVisible();
 });
 
@@ -27,7 +42,8 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
   await page.getByLabel("Review field 1").fill("Vendor");
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Validate custom upload" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByText(token)).toBeVisible();
   await page.getByRole("button", { name: "Delete run run_mock_delete" }).click();
   await expect(page.getByRole("alertdialog")).not.toContainText(token);
@@ -40,7 +56,7 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
 test("operations supports filter state and drill-down", async ({ page }) => {
   await page.goto("/operations");
   await expect(page.getByRole("heading", { name: "Operations" })).toBeVisible();
-  await page.getByLabel("Live-call provider filter").selectOption("openai");
+  await page.getByLabel("Processing model filter").selectOption("openai");
   await expect(page).toHaveURL(/provider=openai/);
   await expect(page.getByText(/Illustrative scenario — not measured savings/)).toBeVisible();
 });

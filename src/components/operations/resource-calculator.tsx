@@ -5,7 +5,13 @@ import { calculateResourceScenario } from "@/domain/resource-model";
 
 const currency = new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" });
 
-export function ResourceCalculator({ averageModelCostPerRun }: { averageModelCostPerRun: number }) {
+export function ResourceCalculator({
+  averageModelCostPerRun,
+  usdToSgd = 1.35,
+}: {
+  averageModelCostPerRun: number;
+  usdToSgd?: number;
+}) {
   const [inputs, setInputs] = useState({
     documents: 200,
     fields: 3,
@@ -25,6 +31,7 @@ export function ResourceCalculator({ averageModelCostPerRun }: { averageModelCos
   return (
     <div className="calculator">
       <p className="claim-label">Illustrative scenario — not measured savings</p>
+      <p className="exchange-assumption">Illustrative exchange-rate assumption: US$1 = S${usdToSgd.toFixed(2)}</p>
       <div className="calculator__inputs">
         {fields.map(([key, label, step]) => (
           <label key={key}>

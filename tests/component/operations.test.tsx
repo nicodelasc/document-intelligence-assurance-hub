@@ -55,9 +55,16 @@ describe("Run explorer", () => {
     latencyMs: 100,
     estimatedCostUsd: 0.01,
     filename: `fixture-${index + 1}.pdf`,
+    documentFamily: index === 1 || index === 2 ? null : "supplier_invoice" as const,
+    fixtureId: index === 0 ? "invoice-total-mismatch" : null,
+    latestWorkflowEvent: index === 0 ? {
+      action: "prepare_email" as const,
+      status: "prepared" as const,
+      timestamp: "2026-08-27T00:04:00.000Z",
+    } : null,
   }));
 
-  it("updates URL state and filters only live provider calls", async () => {
+  it("updates URL state and filters only confirmed provider processing", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/operations");
     render(<RunExplorer runs={runs} onSelect={() => undefined} />);
@@ -65,7 +72,7 @@ describe("Run explorer", () => {
     await user.click(screen.getByRole("button", { name: /next page/i }));
     expect(window.location.search).toContain("page=2");
     await user.click(screen.getByRole("button", { name: /previous page/i }));
-    await user.selectOptions(screen.getByLabelText("Live-call provider filter"), "anthropic");
+    await user.selectOptions(screen.getByLabelText("Processing model filter"), "anthropic");
     expect(window.location.search).toContain("provider=anthropic");
     expect(screen.queryByRole("radio", { name: "Select run_4" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /select run_2/i }));
@@ -80,14 +87,14 @@ describe("Run explorer", () => {
     }));
     render(<RunExplorer runs={popRuns} onSelect={() => undefined} />);
 
-    expect(screen.getByLabelText("Live-call provider filter")).toHaveValue("anthropic");
+    expect(screen.getByLabelText("Processing model filter")).toHaveValue("anthropic");
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("conflict");
     expect(screen.getByLabelText("Search runs")).toHaveValue("fixture");
 
     window.history.pushState({}, "", "/operations?provider=openai&outcome=not_found&q=run_3&page=1&run=run_3");
     fireEvent(window, new PopStateEvent("popstate"));
 
-    await waitFor(() => expect(screen.getByLabelText("Live-call provider filter")).toHaveValue("openai"));
+    await waitFor(() => expect(screen.getByLabelText("Processing model filter")).toHaveValue("openai"));
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("not_found");
     expect(screen.getByLabelText("Search runs")).toHaveValue("run_3");
     expect(screen.getByRole("radio", { name: "Select run_3" })).toBeChecked();
@@ -126,7 +133,10 @@ describe("Run explorer", () => {
       ...active,
       promptVersion: "document-extraction-2026-08-27.v1",
       file: { filename: "fixture-1.pdf", mediaType: "application/pdf", sizeBytes: 1024, pageCount: 1 },
-      requestedFields: [{ key: "vendor_name", label: "Vendor name" }],
+      requestedFields: [
+        { key: "invoice_total", label: "Invoice total" },
+        { key: "reviewer_comments", label: "Reviewer comments" },
+      ],
       usage: { inputTokens: 0, outputTokens: 0 },
       stepDurations: { validating: 25, extracting: 75 },
       documentUrl: "/api/runs/run_1/document",
@@ -137,16 +147,25 @@ describe("Run explorer", () => {
         ],
         result: {
           fields: [{
-            key: "vendor_name",
-            label: "Vendor name",
-            extractedValue: "Northstar Paperworks",
-            normalizedValue: "northstar paperworks",
-            evidence: "Supplier: Northstar Paperworks",
+            key: "invoice_total",
+            label: "Invoice total",
+            extractedValue: "1,475.00 SGD",
+            normalizedValue: "1475.00 sgd",
+            evidence: "Invoice total: 1,475.00 SGD",
+            page: 1,
+            evaluatorStatus: "conflict",
+            referenceMatch: false,
+          }, {
+            key: "reviewer_comments",
+            label: "Reviewer comments",
+            extractedValue: "Buyer review required",
+            normalizedValue: "buyer review required",
+            evidence: "Handwritten: Buyer review required",
             page: 1,
             evaluatorStatus: "pass",
             referenceMatch: true,
           }],
-          outcome: "clear",
+          outcome: "needs_review",
           documentInstruction: "Post the corrected quantity after verification.",
           action: {
             type: "stage_inventory_receipt",
@@ -170,6 +189,14 @@ describe("Run explorer", () => {
           stepDurations: { validating: 25, extracting: 75 },
           completedAt: "2026-08-27T00:00:02.000Z",
         },
+        workflowEvents: [{
+          id: "event_private",
+          runId: "run_1",
+          action: "prepare_email",
+          recipientRole: "Buyer",
+          status: "prepared",
+          createdAt: "2026-08-27T00:04:00.000Z",
+        }],
       },
     } }), { status: 200 })));
     render(<RunExplorer runs={[active]} onSelect={() => undefined} />);
@@ -177,11 +204,16 @@ describe("Run explorer", () => {
     await user.click(screen.getByRole("radio", { name: "Select run_1" }));
 
     const runTable = screen.getByRole("table", { name: "Public assurance runs" });
-    expect(within(runTable).getByText("Not called (demo)")).toBeVisible();
+    expect(within(runTable).getByText("No AI processing")).toBeVisible();
+    expect(within(runTable).getByText("Supplier invoice")).toBeVisible();
+    expect(within(runTable).getByText("Total mismatch")).toBeVisible();
+    expect(within(runTable).getByText("Email copy prepared - not sent")).toBeVisible();
     expect(await screen.findByTitle("Active document preview for fixture-1.pdf")).toHaveAttribute("src", "/api/runs/run_1/document");
-    for (const heading of ["Prepared action", "Structured extraction", "Reference comparison", "Diagnostics", "Safe errors", "Metadata"]) {
+    for (const heading of ["Prepared action", "What differed", "Comments evidence", "Structured extraction", "Reference comparison", "Processing diagnostics", "Safe diagnostics", "Workflow activity", "Metadata"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeVisible();
     }
+    expect(screen.getByRole("heading", { name: "Run detail", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "What differed", level: 4 })).toBeVisible();
     const action = screen.getByRole("heading", { name: "Prepared action" }).closest("section")!;
     expect(within(action).getByText("Stage inventory receipt")).toBeVisible();
     expect(within(action).getByText("stage inventory receipt")).toBeVisible();
@@ -190,71 +222,170 @@ describe("Run explorer", () => {
     expect(within(action).getByText("Shipment ID")).toBeVisible();
     expect(within(action).getByText("SHIP-2048")).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Run detail views" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Normalized: northstar paperworks/)).toBeVisible();
-    expect(screen.getByText("Match")).toBeVisible();
+    expect(screen.getByText(/Normalized: 1475\.00 sgd/)).toBeVisible();
+    expect(screen.getByText("Mismatch")).toBeVisible();
+    expect(screen.getByText("Invoice total conflicts with the purchase-order reference.")).toBeVisible();
+    expect(screen.getByText("Handwritten: Buyer review required")).toBeVisible();
+    expect(screen.getByText("27 Aug 2026, 08:04 SGT")).toBeVisible();
     expect(screen.getByText("provider_retry")).toBeVisible();
     expect(screen.getAllByText("100.3 ms")).toHaveLength(2);
     expect(screen.getByText("25.3 ms")).toBeVisible();
     expect(screen.queryByText(/system prompt/i)).not.toBeInTheDocument();
     const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
-    expect(within(metadata).getAllByText("Not called (demo)")).toHaveLength(2);
+    expect(within(metadata).getAllByText("No AI processing")).toHaveLength(2);
     expect(within(metadata).queryByText("gpt-5-mini")).not.toBeInTheDocument();
+    expect(document.querySelector(".run-inspector")).not.toHaveAttribute("aria-live");
   });
 });
 
 describe("Operations metric claims", () => {
-  it("shows persisted action readiness with its run population and expiry boundary", async () => {
-    const metrics = {
-      generatedAt: "2026-08-27T00:00:00.000Z",
-      summary: { totalRuns: 4, completionRate: 1, reviewRate: 0.5, failureRate: 0 },
-      performance: { sampleCount: 4, p50LatencyMs: 100, p95LatencyMs: 200, retryCount: 0, averageStepDurationsMs: {} },
-      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 4, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
-      benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
-      retention: { activePublicUploads: 0, upcomingExpirations: 1, cleanupBacklog: 0, sampleCount: 4 },
-      actions: {
-        ready: 1,
-        needsReview: 2,
-        blocked: 1,
-        stagedDryRuns: 2,
-        population: { activeRuns: 4, actionProposals: 4, maximumRuns: 100, detailExpiryHours: 24 },
+  const populatedMetrics = {
+    generatedAt: "2026-08-29T12:00:00.000Z",
+    operations: {
+      workflowStatus: { ready: 2, needsAttention: 4, incomplete: 2, processingErrors: 1 },
+      workflowActivity: { prepared: 2, staged: 1, simulated: 3 },
+      performance: {
+        sampleCount: 9,
+        p50LatencyMs: 1240,
+        p95LatencyMs: 2810,
+        retryCount: 3,
+        averageStepDurationsMs: { verifying: 420, extracting: 185 },
       },
-      runExplorer: [],
-      resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(metrics), { status: 200 })));
+      lifecycle: {
+        activeDocuments: 8,
+        activePublicUploads: 2,
+        expiryBuckets: { lessThanOneHour: 1, oneToSixHours: 3, sixToTwentyFourHours: 4 },
+        cleanupBacklog: 1,
+      },
+    },
+    costs: {
+      estimated: true,
+      currency: "USD",
+      pricingAsOf: "2026-08-28",
+      settledSpend: { todayUsd: 0.4, monthToDateUsd: 0.9, mayIncludeConservativeSettlements: true },
+      completedRunEstimates: {
+        todayUsd: 0.08,
+        monthToDateUsd: 0.2,
+        completedModelRuns: 2,
+        totalUsd: 0.2,
+        averageUsd: 0.1,
+      },
+      byModel: [
+        { provider: "anthropic", model: "claude-haiku-4-5", runCount: 1, totalEstimatedCostUsd: 0.12, averageEstimatedCostUsd: 0.12 },
+        { provider: "openai", model: "gpt-5.6-luna", runCount: 1, totalEstimatedCostUsd: 0.08, averageEstimatedCostUsd: 0.08 },
+      ],
+      byFamily: [
+        { documentFamily: "supplier_invoice", runCount: 1, totalEstimatedCostUsd: 0.08, averageEstimatedCostUsd: 0.08 },
+        { documentFamily: "warehouse_goods_receipt", runCount: 1, totalEstimatedCostUsd: 0.12, averageEstimatedCostUsd: 0.12 },
+      ],
+      dailyBudget: { limitUsd: 5, settledUsd: 0.4, reservedUsd: 1, remainingUsd: 3.6, pendingReservations: 1 },
+    },
+    referenceQuality: {
+      source: "deterministic_synthetic_observations",
+      observationCount: 10,
+      exactMatchRate: 1,
+      missingFieldRecall: 1,
+      evaluatorAgreement: 1,
+      falseClearCount: 0,
+      expectedOutcomes: { clear: 2, needs_review: 6, incomplete: 2 },
+      actionStatuses: { ready: 2, needs_review: 6, blocked: 2 },
+      familyCounts: { supplier_invoice: 5, warehouse_goods_receipt: 5 },
+      classificationCounts: { correct: 2, attention: 4, incorrect: 4 },
+      unreadableCriticalEvidenceDetected: 2,
+      unreadableCriticalEvidenceFixtures: 2,
+      unreadableCriticalEvidenceDetectionRate: 1,
+    },
+    summary: { totalRuns: 9, completionRate: 8 / 9, reviewRate: 0.75, failureRate: 1 / 9 },
+    performance: { sampleCount: 9, p50LatencyMs: 1240, p95LatencyMs: 2810, retryCount: 3, averageStepDurationsMs: { verifying: 420, extracting: 185 } },
+    usage: { inputTokens: 300, outputTokens: 60, providerSplit: { openai: 1, anthropic: 1 }, recordedRuns: 7, liveRuns: 2, estimatedApiCostUsd: 0.2, estimatedCost: true, pricingAsOf: "2026-08-28" },
+    benchmark: { source: "deterministic_synthetic_observations", observationCount: 10, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
+    retention: { activeDocuments: 8, activePublicUploads: 2, expiryBuckets: { lessThanOneHour: 1, oneToSixHours: 3, sixToTwentyFourHours: 4 }, cleanupBacklog: 1, upcomingExpirations: 1, sampleCount: 9 },
+    actions: { ready: 2, needsReview: 4, blocked: 2, stagedDryRuns: 1, population: { activeRuns: 9, actionProposals: 8, maximumRuns: 100, detailExpiryHours: 24 } },
+    runExplorer: [],
+    resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0.1, usdToSgd: 1.35 } },
+  };
+
+  it("renders the populated Operations and Costs workspaces", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(populatedMetrics), { status: 200 })));
     render(<OperationsDashboard />);
 
-    const panel = (await screen.findByRole("heading", { name: "Action readiness" })).closest(".rule-panel")!;
-    expect(within(panel).getByText("Ready").parentElement).toHaveTextContent("Ready1");
-    expect(within(panel).getByText("Needs review").parentElement).toHaveTextContent("Needs review2");
-    expect(within(panel).getByText("Blocked").parentElement).toHaveTextContent("Blocked1");
-    expect(within(panel).getByText("Staged dry runs").parentElement).toHaveTextContent("Staged dry runs2");
-    expect(within(panel).getByText("4 action proposals across 4 active runs.")).toBeVisible();
-    expect(within(panel).getByText("Latest 100 runs inspected. Details expire within 24 hours.")).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "Latency and step duration" })).not.toBeInTheDocument();
+    for (const heading of [
+      "Operations workspace",
+      "Costs workspace",
+      "Processing performance",
+      "Reference quality suite",
+      "Settled API spend estimate",
+      "Completed-run cost estimates",
+      "Confirmed provider usage",
+      "Daily model budget",
+    ]) {
+      expect(await screen.findByRole("heading", { name: heading })).toBeVisible();
+    }
+    expect(screen.getByRole("heading", { name: "Operations workspace", level: 2 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Workflow status", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
+    expect(screen.getByText("1,240 ms")).toBeVisible();
+    expect(screen.getByText("2,810 ms")).toBeVisible();
+    expect(screen.getByText("3 retries")).toBeVisible();
+    expect(screen.getByText("Extracting").parentElement).toHaveTextContent("Extracting185 ms");
+    expect(screen.getByText("Verifying").parentElement).toHaveTextContent("Verifying420 ms");
+    expect(screen.getByText("Less than 1 hour").parentElement).toHaveTextContent("1");
+    expect(screen.getByText("1 to 6 hours").parentElement).toHaveTextContent("3");
+    expect(screen.getByText("6 to 24 hours").parentElement).toHaveTextContent("4");
+    const unreadable = screen.getByText("Unreadable critical evidence detection").parentElement!;
+    expect(unreadable).toHaveTextContent("100%");
+    expect(unreadable).toHaveTextContent("2 of 2 fixtures");
+    expect(screen.getByText("Provider-neutral contract baseline")).toBeVisible();
+    expect(document.body).toHaveTextContent("US$1 = S$1.35");
+    for (const progress of screen.getAllByRole("progressbar")) {
+      expect(progress).toHaveAccessibleName(/.+/);
+    }
+    expect(document.body).not.toHaveTextContent(/live-call|live provider|public prototype|recorded replay/i);
   });
 
-  it("separates zero live calls from provider-neutral deterministic coverage", async () => {
-    const metrics = {
-      generatedAt: "2026-08-27T00:00:00.000Z",
-      summary: { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 },
-      performance: { sampleCount: 0, p50LatencyMs: 0, p95LatencyMs: 0, retryCount: 0, averageStepDurationsMs: {} },
-      usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 0, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
-      benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
-      retention: { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 0 },
-      runExplorer: [],
-      resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
+  it("shows an explicit empty confirmed-run state for recorded-only traffic", async () => {
+    const recordedOnly = structuredClone(populatedMetrics);
+    recordedOnly.costs.completedRunEstimates = {
+      todayUsd: 0,
+      monthToDateUsd: 0,
+      completedModelRuns: 0,
+      totalUsd: 0,
+      averageUsd: 0,
     };
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(metrics), { status: 200 })));
+    recordedOnly.costs.byModel = [];
+    recordedOnly.costs.byFamily = [];
+    recordedOnly.usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      providerSplit: { openai: 0, anthropic: 0 },
+      recordedRuns: 9,
+      liveRuns: 0,
+      estimatedApiCostUsd: 0,
+      estimatedCost: true,
+      pricingAsOf: "2026-08-28",
+    };
+    recordedOnly.resourceScenario.modelCostAssumption.averageModelCostPerRunUsd = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(recordedOnly), { status: 200 })));
     render(<OperationsDashboard />);
 
-    const panel = (await screen.findByRole("heading", { name: "Provider usage" })).closest(".rule-panel")!;
-    expect(within(panel).getByText("OpenAI 0 live runs")).toBeVisible();
-    expect(within(panel).getByText("Anthropic 0 live runs")).toBeVisible();
-    expect(within(panel).getByText("Deterministic observations: 3 synthetic fixtures")).toBeVisible();
-    expect(within(panel).getByText("Text summary: Live-call counts exclude deterministic benchmark scenarios.")).toBeVisible();
-    expect(screen.getByText("Deterministic synthetic evidence · provider-neutral observations")).toBeVisible();
-    expect(screen.queryByText(/recorded benchmark/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/fixture-provider|Benchmark coverage:|OpenAI 3|Anthropic 3/i)).not.toBeInTheDocument();
+    expect((await screen.findAllByText("No confirmed model runs")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("US$0.00").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Average per confirmed model run US$0.00")).not.toBeInTheDocument();
+  });
+
+  it("omits proportion bars when their denominator is zero", async () => {
+    const zeroDenominators = structuredClone(populatedMetrics);
+    zeroDenominators.summary = { totalRuns: 0, completionRate: 0, reviewRate: 0, failureRate: 0 };
+    zeroDenominators.usage.providerSplit = { openai: 0, anthropic: 0 };
+    zeroDenominators.referenceQuality.observationCount = 0;
+    zeroDenominators.referenceQuality.unreadableCriticalEvidenceDetected = 0;
+    zeroDenominators.referenceQuality.unreadableCriticalEvidenceFixtures = 0;
+    zeroDenominators.referenceQuality.unreadableCriticalEvidenceDetectionRate = 0;
+    zeroDenominators.costs.dailyBudget = { limitUsd: 0, settledUsd: 0, reservedUsd: 0, remainingUsd: 0, pendingReservations: 0 };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(zeroDenominators), { status: 200 })));
+    render(<OperationsDashboard />);
+
+    expect(await screen.findByRole("heading", { name: "Operations workspace" })).toBeVisible();
+    expect(screen.queryAllByRole("progressbar")).toHaveLength(0);
   });
 });

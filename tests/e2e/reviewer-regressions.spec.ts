@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 const emptyRuns = { runs: [], pagination: { limit: 12, offset: 0, returned: 0 } };
+const availableModels = {
+  models: [
+    { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+    { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+  ],
+  defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+  providerAvailability: { openai: true, anthropic: true },
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/models", async (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(availableModels),
+  }));
+});
 
 function sixPagePdf(): Buffer {
   const objects = [
@@ -56,7 +72,8 @@ test("failed custom receipts survive refresh then delete independently", async (
   await page.getByLabel("Review field 1").fill("Vendor");
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Validate custom upload" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByText(failedToken)).toBeVisible();
 
   await page.evaluate(({ token }) => {
@@ -93,7 +110,7 @@ test("picker and drop validation block invalid custom documents before POST", as
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   const pointerOnlyPickerFocus = await page.locator(".drop-zone").evaluate((dropZone) => getComputedStyle(dropZone).outlineStyle);
   expect(pointerOnlyPickerFocus).toBe("none");
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Validate custom upload" }).click();
   await expect(page.getByText("Upload a PDF, PNG or JPG document.")).toBeVisible();
   await expect(page.getByLabel("Document file")).toBeFocused();
   const visiblePickerFocus = await page.locator(".drop-zone").evaluate((dropZone) => {
@@ -205,9 +222,10 @@ test("custom streams stay isolated then public history restores after refresh", 
   await page.getByLabel("Review field 1").fill("Vendor");
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Validate custom upload" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByRole("heading", { name: "Evidence-consistent" })).toBeFocused();
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByRole("heading", { name: "Not found" })).toBeFocused();
 
   await page.reload();
@@ -229,6 +247,8 @@ test("Operations restores URL state and exposes the complete active inspector", 
     configuredModel: index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: "recorded",
     sourceType: "synthetic",
+    documentFamily: "supplier_invoice",
+    fixtureId: index === 0 ? "invoice-total-mismatch" : "invoice-clean-match",
     status: "completed",
     outcome: index === 0 ? "conflict" : index === 1 ? "not_found" : "evidence_consistent",
     createdAt: "2026-08-27T00:00:00.000Z",
@@ -238,14 +258,52 @@ test("Operations restores URL state and exposes the complete active inspector", 
     latencyMs: 100,
     estimatedCostUsd: 0,
     filename: `fixture-${index + 1}.pdf`,
+    latestWorkflowEvent: index === 0
+      ? { action: "prepare_email", status: "prepared", timestamp: "2026-08-27T00:04:00.000Z" }
+      : null,
   }));
+  const performance = { sampleCount: 1, p50LatencyMs: 100, p95LatencyMs: 100, retryCount: 0, averageStepDurationsMs: { validating: 20 } };
+  const lifecycle = { activeDocuments: 1, activePublicUploads: 0, expiryBuckets: { lessThanOneHour: 0, oneToSixHours: 0, sixToTwentyFourHours: 1 }, cleanupBacklog: 0 };
+  const referenceQuality = {
+    source: "deterministic_synthetic_observations",
+    observationCount: 10,
+    exactMatchRate: 1,
+    missingFieldRecall: 1,
+    evaluatorAgreement: 1,
+    falseClearCount: 0,
+    expectedOutcomes: { clear: 2, needs_review: 6, incomplete: 2 },
+    actionStatuses: { ready: 2, needs_review: 6, blocked: 2 },
+    familyCounts: { supplier_invoice: 5, warehouse_goods_receipt: 5 },
+    classificationCounts: { correct: 2, attention: 4, incorrect: 4 },
+    unreadableCriticalEvidenceDetected: 2,
+    unreadableCriticalEvidenceFixtures: 2,
+    unreadableCriticalEvidenceDetectionRate: 1,
+  };
   const metrics = {
     generatedAt: "2026-08-27T00:00:00.000Z",
+    operations: {
+      workflowStatus: { ready: 0, needsAttention: 1, incomplete: 0, processingErrors: 0 },
+      workflowActivity: { prepared: 1, staged: 0, simulated: 0 },
+      performance,
+      lifecycle,
+    },
+    costs: {
+      estimated: true,
+      currency: "USD",
+      pricingAsOf: "2026-08-28",
+      settledSpend: { todayUsd: 0, monthToDateUsd: 0, mayIncludeConservativeSettlements: true },
+      completedRunEstimates: { todayUsd: 0, monthToDateUsd: 0, completedModelRuns: 0, totalUsd: 0, averageUsd: 0 },
+      byModel: [],
+      byFamily: [],
+      dailyBudget: { limitUsd: 5, settledUsd: 0, reservedUsd: 0, remainingUsd: 5, pendingReservations: 0 },
+    },
+    referenceQuality,
     summary: { totalRuns: 1, completionRate: 1, reviewRate: 1, failureRate: 0 },
-    performance: { sampleCount: 1, p50LatencyMs: 100, p95LatencyMs: 100, retryCount: 0, averageStepDurationsMs: { validating: 20 } },
-    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, pricingAsOf: "2026-08-28" },
-    benchmark: { source: "deterministic_synthetic_observations", observationCount: 3, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
-    retention: { activePublicUploads: 0, upcomingExpirations: 0, cleanupBacklog: 0, sampleCount: 1 },
+    performance,
+    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, estimatedCost: true, pricingAsOf: "2026-08-28" },
+    benchmark: referenceQuality,
+    retention: { ...lifecycle, upcomingExpirations: 1, sampleCount: 1 },
+    actions: { ready: 0, needsReview: 1, blocked: 0, stagedDryRuns: 0, population: { activeRuns: 1, actionProposals: 0, maximumRuns: 100, detailExpiryHours: 24 } },
     runExplorer: runs,
     resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0, usdToSgd: 1.35 } },
   };
@@ -263,23 +321,24 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await page.route("**/api/runs/ops_1/document", async (route) => route.fulfill({ status: 200, contentType: "application/pdf", body: "%PDF-1.4\n%%EOF" }));
   await page.goto("/operations");
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
-  await expect(page.getByText("Anthropic 0 live runs")).toBeVisible();
-  await expect(page.getByText("Deterministic observations: 3 synthetic fixtures")).toBeVisible();
-  await expect(page.getByText("Deterministic synthetic evidence · provider-neutral observations")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Operations workspace", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
+  await expect(page.getByText("Provider-neutral contract baseline")).toBeVisible();
+  await expect(page.getByText("No confirmed model runs").first()).toBeVisible();
   await page.getByLabel("Outcome filter").selectOption("conflict");
-  await page.getByLabel("Live-call provider filter").selectOption("openai");
+  await page.getByLabel("Processing model filter").selectOption("openai");
   await page.goBack();
-  await expect(page.getByLabel("Live-call provider filter")).toHaveValue("all");
+  await expect(page.getByLabel("Processing model filter")).toHaveValue("all");
   await expect(page.getByLabel("Outcome filter")).toHaveValue("conflict");
   await page.goForward();
-  await expect(page.getByLabel("Live-call provider filter")).toHaveValue("openai");
+  await expect(page.getByLabel("Processing model filter")).toHaveValue("openai");
   await expect(page.getByText("No matching runs")).toBeVisible();
-  await page.getByLabel("Live-call provider filter").selectOption("all");
+  await page.getByLabel("Processing model filter").selectOption("all");
   await page.getByRole("radio", { name: "Select ops_1" }).check();
   await expect(page.getByTitle("Active document preview for fixture-1.pdf")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reference comparison" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Diagnostics" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Safe errors" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Processing diagnostics" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Safe diagnostics" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Run detail views" })).toHaveCount(0);
 });
 
@@ -297,7 +356,7 @@ test("navigating away aborts an active Workbench stream", async ({ page }) => {
   });
   await page.route("**/api/metrics", async (route) => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await page.getByRole("link", { name: "Operations" }).click();
   await expect(page).toHaveURL(/\/operations/);
   await expect.poll(() => requestFailed).toBe(true);

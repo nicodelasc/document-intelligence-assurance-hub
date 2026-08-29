@@ -30,15 +30,27 @@ export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLBut
 export function RulePanel({
   title,
   action,
+  headingLevel = 2,
   className = "",
   children,
   ...props
-}: HTMLAttributes<HTMLElement> & { title?: ReactNode; action?: ReactNode }) {
+}: HTMLAttributes<HTMLElement> & {
+  title?: ReactNode;
+  action?: ReactNode;
+  headingLevel?: 2 | 3 | 4;
+}) {
+  const heading = title
+    ? headingLevel === 4
+      ? <h4>{title}</h4>
+      : headingLevel === 3
+        ? <h3>{title}</h3>
+        : <h2>{title}</h2>
+    : <span />;
   return (
     <section className={`rule-panel ${className}`} {...props}>
       {title || action ? (
         <header className="rule-panel__header">
-          {title ? <h2>{title}</h2> : <span />}
+          {heading}
           {action}
         </header>
       ) : null}
@@ -49,15 +61,6 @@ export function RulePanel({
 
 export function StatusMark({ status }: { status: "idle" | "active" | "pass" | "warning" | "error" }) {
   return <span className={`status-mark status-mark--${status}`} aria-hidden="true" />;
-}
-
-export function KeylessNotice() {
-  return (
-    <div className="keyless-notice" role="note">
-      <StatusMark status="active" />
-      <span>Live provider calls remain off until server credentials are explicitly configured.</span>
-    </div>
-  );
 }
 
 export function ProcessingStatus({

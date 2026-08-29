@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: "Document Intelligence Assurance Hub"
-description: "An evidence-desk interface for reviewing AI document extraction and operating a public-safe prototype."
+description: "An evidence-desk interface for reviewing AI document extraction and operating a public-safe portfolio demonstration."
 colors:
   canvas: "#F8F9FB"
   surface: "#FFFFFF"
@@ -51,7 +51,7 @@ The interface borrows from an evidence review desk: ruled ledgers, clipped docum
 ### Product context and register
 
 - **Audience and primary job:** A non-technical headquarters interviewer should be able to run a sample, understand the assurance trace and inspect a prepared action with its evidence.
-- **Target market and evidence:** The prototype is designed for a Singapore regional role described in the approved product specification. It does not assume Samsung internal systems or users.
+- **Target market and evidence:** The demonstration is designed for a Singapore regional role described in the approved product specification. It does not assume Samsung internal systems or users.
 - **Locale and language policy:** English UI with `en-SG` number and currency formatting. Technical timestamps display an explicit timezone.
 - **Usage scene:** Small-laptop and desktop review first with mobile stacking for link sharing.
 - **Register:** Product interface on both routes.
@@ -72,7 +72,7 @@ Manrope carries route headings and the product name. Inter owns controls, tables
 
 ## Layout
 
-Workbench uses a three-region evidence desk: document library, document canvas and assurance rail. The library exposes Supplier invoices and Warehouse goods receipts as a real two-tab family set with five variants in each family. Variant tiles carry Correct, Needs attention or Incorrect text plus a supporting icon and semantic edge color. `+ Add your document` follows the variants and invokes the existing native file picker. The canvas embeds the selected actual PDF and keeps a stable frame beside its `What changed` annotation. The assurance rail groups the raw workflow into three visible stages then presents the prepared action before the evidence ledger. Operations uses open metric bands followed by a run ledger and detail inspector. Panels use thin rules instead of nested cards. At widths below 1024 px regions stack as library, preview and trace. At narrow widths family tabs and variants stack without horizontal page overflow while the PDF frame keeps a stable viewport. Tables retain explicit horizontal scrolling and values are never silently hidden.
+Workbench uses a three-region evidence desk: document library, document canvas and assurance rail. The library exposes Supplier invoices and Warehouse goods receipts as a real two-tab family set with five variants in each family. Variant tiles carry Correct, Needs attention or Incorrect text plus a supporting icon and semantic edge color. `+ Add your document` follows the variants and invokes the existing native file picker. The canvas embeds the selected actual PDF and keeps a stable frame beside its `What changed` annotation. The assurance rail groups the raw workflow into three visible stages then presents the prepared action before the evidence ledger. Operations starts with four summary metrics then uses a durable two-thirds Operations workspace and one-third Costs workspace. Operations contains workflow status, processing performance, the Reference quality suite, document lifecycle and the explorer with its detail inspector. Costs contains settled API spend estimates, completed-run cost estimates, confirmed provider usage, model and document-family breakdowns, the daily model budget and the illustrative resource calculator. Panels use thin rules instead of nested cards. At widths below 1024 px Workbench regions stack as library, preview and trace. At 960 px and below the Operations workspace stacks before the Costs workspace. At narrow widths family tabs and variants stack without horizontal page overflow while the PDF frame keeps a stable viewport. Tables retain explicit horizontal scrolling and values are never silently hidden.
 
 ## Elevation & Depth
 
@@ -102,7 +102,7 @@ Forms use visible labels, app-owned validation, `noValidate` and first-error foc
 
 ### Workbench action states
 
-The primary Workbench mutation is `Process document`. Browsing a family or selecting a variant changes the actual PDF preview without submitting a run. The visible trace is `Understand document`, `Verify evidence` and `Resolve and prepare action`. Publishing remains a server concern and is not shown or announced as a user task. Grouped stage announcements are deduplicated. A terminal failure marks the active visible group as needing attention. Prepared actions use pessimistic staging: the button becomes busy without changing the proposal then success replaces it with the server-returned staged state. Ready and review-required actions may stage while blocked actions may not. The browser sends the private run capability in a request header and never a URL. Duplicate clicks are inert while pending. Failure preserves the proposal and exposes a safe retry. Library controls and the native grouped model select lock during validation and execution. Completion removes cancellation before prepared-action detail loading begins. That loading state and its recoverable failure remain distinct from an absent action. Recorded fixtures show `Sample results - no AI processing` only when the selected provider route is unavailable. Available recorded routes show no equivalent note and fixture results are never attributed to the selected live model. An unavailable custom route shows `Processing unavailable for this model` and disables processing. A custom `not_found` result uses `Incomplete evidence - one or more requested fields were not found` and never displays Evidence-consistent. Operations labels demo provider and model calls as `Not called (demo)` while provider usage counts only live-run configuration.
+The primary Workbench mutation is `Process document`. Browsing a family or selecting a variant changes the actual PDF preview without submitting a run. The visible trace is `Understand document`, `Verify evidence` and `Resolve and prepare action`. Publishing remains a server concern and is not shown or announced as a user task. Grouped stage announcements are deduplicated. A terminal failure marks the active visible group as needing attention. Prepared actions use pessimistic staging: the button becomes busy without changing the proposal then success replaces it with the server-returned staged state. Ready and review-required actions may stage while blocked actions may not. The browser sends the private run capability in a request header and never a URL. Duplicate clicks are inert while pending. Failure preserves the proposal and exposes a safe retry. Library controls and the native grouped model select lock during validation and execution. Completion removes cancellation before prepared-action detail loading begins. That loading state and its recoverable failure remain distinct from an absent action. Recorded fixtures show `Sample results - no AI processing` only when the selected provider route is unavailable. Available recorded routes show no equivalent note and fixture results are never attributed to the selected model. An unavailable custom route shows `Processing unavailable for this model` and disables processing. A custom `not_found` result uses `Incomplete evidence - one or more requested fields were not found` and never displays Evidence-consistent. Operations uses `No AI processing` for every non-dispatched run. Configured provider and model choices never appear as execution attribution. Confirmed tokens and provider splits count dispatched runs only.
 
 ### Iconography
 
@@ -114,7 +114,7 @@ The evidence rail advances with a 180 ms state transition. Other motion is limit
 
 ### Content and data visualization
 
-Copy describes evidence and prototype behavior directly. It never calls an extraction a payment approval. Cost and savings figures are labeled estimates or illustrative scenarios. Charts have adjacent numeric summaries and accessible labels.
+Copy describes evidence and demonstration behavior directly. It never calls an extraction a payment approval. Cost and savings figures are labeled estimates or illustrative scenarios. Charts have adjacent numeric summaries and accessible labels.
 
 ## Do's and Don'ts
 

@@ -446,7 +446,7 @@ describe("Comparison ledger", () => {
     });
     expect(comparison).toHaveTextContent("openai · GPT-5.6 Luna");
     expect(comparison).toHaveTextContent("anthropic · Claude Haiku 4.5");
-    expect(within(comparison).getAllByText("Not called (demo)")).toHaveLength(2);
+    expect(within(comparison).getAllByText("No AI processing")).toHaveLength(2);
   });
 });
 
@@ -749,8 +749,8 @@ describe("Workbench request lifecycle", () => {
     const table = screen.getByRole("table", { name: /comparison of two assurance runs/i });
     const providerRow = within(table).getByRole("row", { name: /Provider and model/i });
     expect(within(providerRow).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "Not called (demo)",
-      "Not called (demo)",
+      "No AI processing",
+      "No AI processing",
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/runs/run_durable_attribution",
