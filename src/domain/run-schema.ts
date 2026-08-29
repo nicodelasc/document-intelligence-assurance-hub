@@ -1,5 +1,10 @@
 import { z } from "zod";
-import type { ActionProposal, RunEvent } from "./types";
+import type {
+  ActionProposal,
+  RunEvent,
+  WorkflowActionRequest,
+  WorkflowEvent,
+} from "./types";
 
 function requiredPublicText(max: number) {
   return z
@@ -116,3 +121,39 @@ export const runEventSchema: z.ZodType<RunEvent> = runEventUnion.superRefine((ev
     });
   }
 });
+
+export const workflowActionTypeSchema = z.enum([
+  "approve_and_stage",
+  "mark_for_later_review",
+  "assign_review",
+  "request_clarification",
+  "request_clearer_document",
+  "prepare_email",
+  "replace_document",
+  "retry_processing",
+  "download_summary",
+]);
+
+export const workflowEventStatusSchema = z.enum([
+  "prepared",
+  "staged",
+  "simulated",
+]);
+
+export const workflowEventSchema: z.ZodType<WorkflowEvent> = z
+  .object({
+    id: requiredPublicText(160),
+    runId: requiredPublicText(160),
+    action: workflowActionTypeSchema,
+    recipientRole: z.string().trim().min(1).max(80).nullable(),
+    status: workflowEventStatusSchema,
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+
+export const workflowActionRequestSchema: z.ZodType<WorkflowActionRequest> = z
+  .object({
+    action: workflowActionTypeSchema,
+    recipientRole: z.string().trim().min(1).max(80).nullable(),
+  })
+  .strict();

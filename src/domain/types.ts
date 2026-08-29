@@ -88,6 +88,40 @@ export interface FieldResult {
   referenceMatch: boolean | null;
 }
 
+export type WorkflowActionType =
+  | "approve_and_stage"
+  | "mark_for_later_review"
+  | "assign_review"
+  | "request_clarification"
+  | "request_clearer_document"
+  | "prepare_email"
+  | "replace_document"
+  | "retry_processing"
+  | "download_summary";
+
+export type WorkflowEventStatus = "prepared" | "staged" | "simulated";
+
+export interface WorkflowEvent {
+  id: string;
+  runId: string;
+  action: WorkflowActionType;
+  recipientRole: string | null;
+  status: WorkflowEventStatus;
+  createdAt: string;
+}
+
+export interface WorkflowActionRequest {
+  action: WorkflowActionType;
+  recipientRole: string | null;
+}
+
+export interface EmailPreview {
+  recipientRole: string;
+  subject: string;
+  body: string;
+  deliveryStatus: "prepared_only_not_sent";
+}
+
 export type UploadValidationError =
   | "empty_file"
   | "unsupported_format"
