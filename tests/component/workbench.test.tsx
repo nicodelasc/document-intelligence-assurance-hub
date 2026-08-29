@@ -1423,6 +1423,162 @@ describe("Workbench request lifecycle", () => {
     expect(runForms[1].get("model")).not.toBe("claude-haiku-4-5");
   });
 
+  it("persists a failed-run retry then starts its immutable snapshot before delayed diagnostics resolve", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const runForms: FormData[] = [];
+    let detailReleased = false;
+    let detailSignal: AbortSignal | undefined;
+    let releaseDetail!: () => void;
+    let resolveSecondRun!: (response: Response) => void;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return modelCatalogue({ openai: false, anthropic: false });
+      }
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_delayed_retry_detail") {
+        detailSignal = init?.signal as AbortSignal;
+        return new Promise<Response>((resolve, reject) => {
+          releaseDetail = () => {
+            detailReleased = true;
+            resolve(new Response(JSON.stringify({ run: null }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }));
+          };
+          detailSignal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      if (url === "/api/runs/run_delayed_retry_detail/workflow-actions") {
+        order.push("workflow persisted");
+        return workflowResponse("retry_processing", {
+          id: "event_delayed_retry",
+          runId: "run_delayed_retry_detail",
+        });
+      }
+      if (url === "/api/runs" && init?.method === "POST") {
+        runForms.push(init.body as FormData);
+        if (runForms.length === 1) {
+          return ndjson([{
+            type: "failed",
+            code: "provider_unavailable",
+            message: "The first run stopped safely.",
+            runId: "run_delayed_retry_detail",
+            deletionToken: "delayed_retry_capability",
+            timestamp: "2026-08-29T00:00:00.000Z",
+          }]);
+        }
+        order.push("second run posted");
+        return new Promise<Response>((resolve) => {
+          resolveSecondRun = resolve;
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Retry processing" }),
+    );
+
+    await waitFor(() => expect(runForms).toHaveLength(2));
+    expect(order).toEqual(["workflow persisted", "second run posted"]);
+    expect(detailReleased).toBe(false);
+    expect(releaseDetail).toBeTypeOf("function");
+    expect(detailSignal?.aborted).toBe(true);
+    expect(runForms[1].get("sourceType")).toBe("synthetic");
+    expect(runForms[1].get("sampleId")).toBe(syntheticFixtures[0].id);
+    expect(runForms[1].get("model")).toBe("gpt-5.6-luna");
+
+    await act(async () => {
+      resolveSecondRun(ndjson([{
+        type: "failed",
+        code: "provider_unavailable",
+        message: "The retry stopped safely.",
+        timestamp: "2026-08-29T00:01:00.000Z",
+      }]));
+    });
+    expect(await screen.findByText("The retry stopped safely.")).toBeVisible();
+  });
+
+  it("merges a locally appended failed-run event when delayed diagnostics return an older snapshot", async () => {
+    const user = userEvent.setup();
+    let resolveDetail!: (response: Response) => void;
+    const createObjectURL = vi.fn(() => "blob:delayed-error-summary");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") {
+        return modelCatalogue({ openai: false, anthropic: false });
+      }
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_delayed_download_detail") {
+        return new Promise<Response>((resolve) => {
+          resolveDetail = resolve;
+        });
+      }
+      if (url === "/api/runs/run_delayed_download_detail/workflow-actions") {
+        return workflowResponse("download_summary", {
+          id: "event_local_download",
+          runId: "run_delayed_download_detail",
+          createdAt: "2026-08-29T00:00:02.000Z",
+        });
+      }
+      if (url === "/api/runs" && init?.method === "POST") {
+        return ndjson([{
+          type: "failed",
+          code: "provider_unavailable",
+          message: "The run stopped safely.",
+          runId: "run_delayed_download_detail",
+          deletionToken: "delayed_download_capability",
+          timestamp: "2026-08-29T00:00:00.000Z",
+        }]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Download error summary" }),
+    );
+    expect(await screen.findByText("Summary prepared")).toBeVisible();
+
+    await act(async () => {
+      resolveDetail(new Response(JSON.stringify({
+        run: {
+          id: "run_delayed_download_detail",
+          status: "failed",
+          outcome: null,
+          documentFamily: "supplier_invoice",
+          providerCalled: false,
+          provider: null,
+          model: null,
+          details: {
+            steps: [],
+            result: null,
+            workflowEvents: [],
+          },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading prepared workflow details…")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Summary prepared")).toBeVisible();
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:delayed-error-summary");
+  });
+
   it("shows three visible stages then orders outcome, differences, workflow, evidence and activity", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -311,6 +311,15 @@ function sortWorkflowEvents(events: readonly WorkflowEvent[]): WorkflowEvent[] {
   });
 }
 
+function mergeWorkflowEvents(
+  current: readonly WorkflowEvent[],
+  incoming: readonly WorkflowEvent[],
+): WorkflowEvent[] {
+  const byId = new Map(current.map((event) => [event.id, event]));
+  for (const event of incoming) byId.set(event.id, event);
+  return sortWorkflowEvents([...byId.values()]);
+}
+
 function modelConfigurationFromPayload(payload: unknown): ModelConfiguration | null {
   if (!payload || typeof payload !== "object") return null;
   const record = payload as {
@@ -565,7 +574,9 @@ export function WorkbenchView() {
         setActiveRunFamily(hydration.documentFamily);
       }
       setPreparedAction(hydration.proposal);
-      setWorkflowEvents(sortWorkflowEvents(hydration.workflowEvents));
+      setWorkflowEvents((current) =>
+        mergeWorkflowEvents(current, hydration.workflowEvents),
+      );
       if (hydration.fields.length) setFields(hydration.fields);
       setSafeDiagnosticCodes((current) => [
         ...new Set([...current, ...hydration.safeDiagnosticCodes]),
@@ -736,6 +747,8 @@ export function WorkbenchView() {
       }
       if (terminal.type === "failed") {
         cancellableRef.current = false;
+        unlockConfiguration();
+        setRunning(false);
         setTrace((current) => failActiveTrace(current));
         lastStageRef.current = null;
         setError(terminal.message);

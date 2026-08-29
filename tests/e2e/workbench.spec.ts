@@ -245,6 +245,122 @@ test("prepares a role-scoped email without sending and records the workflow acti
   expect(workflowRequests).toBe(1);
 });
 
+test("retries a failed run before delayed diagnostics are released", async ({ page }) => {
+  const order: string[] = [];
+  let runPosts = 0;
+  let detailReleased = false;
+  let releaseDetail!: () => void;
+  const detailGate = new Promise<void>((resolve) => {
+    releaseDetail = () => {
+      detailReleased = true;
+      resolve();
+    };
+  });
+
+  await page.route("**/api/models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [
+          { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+          { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+        ],
+        defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+        providerAvailability: { openai: false, anthropic: false },
+      }),
+    });
+  });
+  await page.route("**/api/runs?limit=12", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        runs: [],
+        pagination: { limit: 12, offset: 0, returned: 0 },
+      }),
+    });
+  });
+  await page.route("**/api/runs/run_failed_delayed_e2e", async (route) => {
+    await detailGate;
+    try {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          run: {
+            id: "run_failed_delayed_e2e",
+            status: "failed",
+            outcome: null,
+            documentFamily: "supplier_invoice",
+            providerCalled: false,
+            provider: null,
+            model: null,
+            details: { steps: [], result: null, workflowEvents: [] },
+          },
+        }),
+      });
+    } catch {
+      // The retry intentionally aborts this stale diagnostics request.
+    }
+  });
+  await page.route("**/api/runs/run_failed_delayed_e2e/workflow-actions", async (route) => {
+    order.push("workflow persisted");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        workflow: {
+          status: "created",
+          event: {
+            id: "event_failed_retry_e2e",
+            runId: "run_failed_delayed_e2e",
+            action: "retry_processing",
+            recipientRole: null,
+            status: "simulated",
+            createdAt: "2026-08-29T03:10:00.000Z",
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/runs", async (route, request) => {
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    runPosts += 1;
+    if (runPosts === 2) order.push("second run posted");
+    const events = runPosts === 1
+      ? [{
+          type: "failed",
+          code: "provider_unavailable",
+          message: "The first run stopped safely.",
+          runId: "run_failed_delayed_e2e",
+          deletionToken: "failed_delayed_capability",
+          timestamp: "2026-08-29T03:09:00.000Z",
+        }]
+      : [{
+          type: "failed",
+          code: "provider_unavailable",
+          message: "The retry stopped safely.",
+          timestamp: "2026-08-29T03:11:00.000Z",
+        }];
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+      body: `${events.map((item) => JSON.stringify(item)).join("\n")}\n`,
+    });
+  });
+
+  await page.goto("/workbench");
+  await page.getByRole("button", { name: "Process document" }).click();
+  await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry processing" }).click();
+
+  await expect.poll(() => runPosts).toBe(2);
+  expect(order).toEqual(["workflow persisted", "second run posted"]);
+  expect(detailReleased).toBe(false);
+  releaseDetail();
+  await expect(page.getByText("The retry stopped safely.", { exact: true })).toBeVisible();
+});
+
 test("the upload tile directly opens the picker and explains unavailable custom processing", async ({
   page,
 }) => {
