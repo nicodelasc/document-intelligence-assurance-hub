@@ -341,6 +341,104 @@ describe("InMemoryQuotaRepository", () => {
     });
   });
 
+  it("reports the requested UTC day budget and month-to-date ledger without stale or released reservations", async () => {
+    let nextId = 0;
+    const quotas = new InMemoryQuotaRepository(
+      5,
+      () => `snapshot-reservation-${++nextId}`,
+      0.1,
+      {},
+      60_000,
+    );
+    const reserveAt = (date: Date, estimatedCostUsd: number) =>
+      quotas.reserve({
+        bucket: `snapshot-browser-${nextId + 1}`,
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd,
+        liveEnabled: true,
+        now: date,
+      });
+    const settleAt = async (date: Date, settledCostUsd: number) => {
+      const reservation = await reserveAt(date, settledCostUsd);
+      if (!reservation.allowed || !reservation.reservationId) {
+        throw new Error("expected_snapshot_reservation");
+      }
+      await quotas.settleLiveReservation(
+        reservation.reservationId,
+        settledCostUsd,
+      );
+    };
+
+    await settleAt(new Date("2026-08-03T09:00:00.000Z"), 0.5);
+    await settleAt(new Date("2026-07-31T09:00:00.000Z"), 0.7);
+    await settleAt(new Date("2026-08-30T09:00:00.000Z"), 0.6);
+
+    const settledToday = await reserveAt(now, 0.6);
+    const pendingToday = await reserveAt(now, 1);
+    const releasedToday = await reserveAt(now, 0.75);
+    const staleToday = await reserveAt(
+      new Date(now.getTime() - 60_000),
+      0.8,
+    );
+    if (
+      !settledToday.allowed ||
+      !settledToday.reservationId ||
+      !pendingToday.allowed ||
+      !pendingToday.reservationId ||
+      !releasedToday.allowed ||
+      !releasedToday.reservationId ||
+      !staleToday.allowed ||
+      !staleToday.reservationId
+    ) {
+      throw new Error("expected_current_snapshot_reservations");
+    }
+    await quotas.settleLiveReservation(settledToday.reservationId, 0.4);
+    await quotas.releaseLiveReservation(releasedToday.reservationId);
+
+    await expect(quotas.snapshot(now)).resolves.toMatchObject({
+      dailyBudgetUsd: 5,
+      globalSpendUsd: 0.4,
+      monthToDateSpendUsd: 0.9,
+      reservedSpendUsd: 1,
+      pendingReservationCount: 1,
+    });
+  });
+
+  it("counts active dispatched and undispatched reservations in the same daily budget", async () => {
+    let nextId = 0;
+    const quotas = new InMemoryQuotaRepository(
+      5,
+      () => `pending-mode-${++nextId}`,
+      0.1,
+    );
+    const reserve = (estimatedCostUsd: number) =>
+      quotas.reserve({
+        bucket: `pending-browser-${nextId + 1}`,
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd,
+        liveEnabled: true,
+        now,
+      });
+    const dispatched = await reserve(0.4);
+    const undispatched = await reserve(0.6);
+    if (
+      !dispatched.allowed ||
+      !dispatched.reservationId ||
+      !undispatched.allowed ||
+      !undispatched.reservationId
+    ) {
+      throw new Error("expected_pending_mode_reservations");
+    }
+    await quotas.markLiveReservationDispatched(dispatched.reservationId);
+
+    await expect(quotas.snapshot(now)).resolves.toMatchObject({
+      reservedSpendUsd: 1,
+      pendingReservationCount: 2,
+    });
+  });
+
   it("settles a pending reservation from its repository-stored amount", async () => {
     const quotas = quotaRepository();
     const reservation = await quotas.reserve({
@@ -747,6 +845,105 @@ describe("InMemoryQuotaRepository", () => {
       sql: "SELECT reconcile_stale_daily_quota($1::date, $2::timestamptz)",
       parameters: ["2026-08-27", now.toISOString()],
     });
+  });
+
+  it("hydrates safe Neon budget totals without joining daily spend to reservations", async () => {
+    const statements: Array<{ sql: string; parameters: unknown[] }> = [];
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        const normalizedSql = sql.trim();
+        statements.push({ sql: normalizedSql, parameters });
+        if (normalizedSql.startsWith("SELECT reconcile_stale_daily_quota")) {
+          return [{ reconcile_stale_daily_quota: "0" }];
+        }
+        return [
+          {
+            anonymous_buckets: JSON.stringify({
+              "anonymous-browser": {
+                customUploads: 1,
+                liveRuns: 2,
+                recordedRuns: 3,
+              },
+            }),
+            global_spend_usd: "0.40",
+            month_to_date_spend_usd: "0.90",
+            reserved_spend_usd: "1.00",
+            pending_reservation_count: "1",
+            global_custom_uploads: "1",
+            global_recorded_runs: "3",
+          },
+        ];
+      },
+    };
+    const quotas = createNeonQuotaRepository({
+      databaseUrl: undefined,
+      driver,
+      dailyBudgetUsd: 5,
+    });
+
+    await expect(quotas.snapshot(now)).resolves.toEqual({
+      dailyBudgetUsd: 5,
+      globalSpendUsd: 0.4,
+      monthToDateSpendUsd: 0.9,
+      reservedSpendUsd: 1,
+      pendingReservationCount: 1,
+      globalCustomUploads: 1,
+      globalRecordedRuns: 3,
+      customUploadsByBucket: { "anonymous-browser": 1 },
+      liveRunsByBucket: { "anonymous-browser": 2 },
+      recordedRunsByBucket: { "anonymous-browser": 3 },
+    });
+
+    expect(statements[0]).toEqual({
+      sql: "SELECT reconcile_stale_daily_quota($1::date, $2::timestamptz)",
+      parameters: ["2026-08-27", now.toISOString()],
+    });
+    expect(statements[1]?.sql).not.toMatch(/JOIN\s+model_budget_reservations/i);
+    expect(statements[1]?.sql).not.toMatch(/reservation\.id|SELECT\s+id\b/i);
+    expect(statements[1]?.sql).not.toMatch(/dispatched_at/i);
+    expect(statements[1]?.parameters).toEqual([
+      "2026-08-27",
+      now.toISOString(),
+    ]);
+  });
+
+  it("returns historical Neon month-to-date spend when the requested day has no usage row", async () => {
+    const statements: string[] = [];
+    const driver: NeonDriver = {
+      async query(sql) {
+        const normalizedSql = sql.trim();
+        statements.push(normalizedSql);
+        if (normalizedSql.startsWith("SELECT reconcile_stale_daily_quota")) {
+          return [{ reconcile_stale_daily_quota: "0" }];
+        }
+        return [
+          {
+            anonymous_buckets: null,
+            global_spend_usd: "0",
+            month_to_date_spend_usd: "0.50",
+            reserved_spend_usd: "0",
+            pending_reservation_count: "0",
+            global_custom_uploads: "0",
+            global_recorded_runs: "0",
+          },
+        ];
+      },
+    };
+    const quotas = createNeonQuotaRepository({
+      databaseUrl: undefined,
+      driver,
+      dailyBudgetUsd: 5,
+    });
+
+    await expect(quotas.snapshot(now)).resolves.toMatchObject({
+      globalSpendUsd: 0,
+      monthToDateSpendUsd: 0.5,
+      customUploadsByBucket: {},
+      liveRunsByBucket: {},
+      recordedRunsByBucket: {},
+    });
+    expect(statements[1]).toMatch(/FROM \(VALUES \(1\)\)/i);
+    expect(statements[1]).toMatch(/month_usage\.usage_day <= \$1::date/i);
   });
 
   it("never lets a negative reservation lower the global spend ledger", async () => {

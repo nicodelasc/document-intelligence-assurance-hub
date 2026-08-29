@@ -67,8 +67,11 @@ const defaultQuotaLimits: QuotaLimits = {
 };
 
 export type QuotaSnapshot = {
+  dailyBudgetUsd: number;
   globalSpendUsd: number;
+  monthToDateSpendUsd: number;
   reservedSpendUsd: number;
+  pendingReservationCount: number;
   globalCustomUploads: number;
   globalRecordedRuns: number;
   customUploadsByBucket: Record<string, number>;
@@ -365,10 +368,15 @@ export class InMemoryQuotaRepository implements QuotaRepository {
   async snapshot(now: Date): Promise<QuotaSnapshot> {
     return this.withLock(() => {
       this.reclaimStaleReservations(now.getTime());
+      const requestedDay = utcDay(now);
       const usage = this.day(now);
       return {
+        dailyBudgetUsd: this.dailyBudgetUsd,
         globalSpendUsd: usage.globalSpendUsd,
-        reservedSpendUsd: this.pendingSpendUsd(utcDay(now)),
+        monthToDateSpendUsd: this.monthToDateSpendUsd(requestedDay),
+        reservedSpendUsd: this.pendingSpendUsd(requestedDay),
+        pendingReservationCount:
+          this.pendingReservationCount(requestedDay),
         globalCustomUploads: usage.globalCustomUploads,
         globalRecordedRuns: usage.globalRecordedRuns,
         customUploadsByBucket: Object.fromEntries(usage.customUploadsByBucket),
@@ -400,6 +408,27 @@ export class InMemoryQuotaRepository implements QuotaRepository {
     for (const reservation of this.reservations.values()) {
       if (reservation.day === day && reservation.status === "pending") {
         total += reservation.reservedCostUsd;
+      }
+    }
+    return total;
+  }
+
+  private pendingReservationCount(day: string): number {
+    let total = 0;
+    for (const reservation of this.reservations.values()) {
+      if (reservation.day === day && reservation.status === "pending") {
+        total += 1;
+      }
+    }
+    return total;
+  }
+
+  private monthToDateSpendUsd(requestedDay: string): number {
+    const monthStart = `${requestedDay.slice(0, 7)}-01`;
+    let total = 0;
+    for (const [day, usage] of this.days.entries()) {
+      if (day >= monthStart && day <= requestedDay) {
+        total += usage.globalSpendUsd;
       }
     }
     return total;
@@ -607,31 +636,52 @@ class NeonQuotaRepository implements QuotaRepository {
     const rows = await driver.query<{
       anonymous_buckets: unknown;
       global_spend_usd: unknown;
+      month_to_date_spend_usd: unknown;
       reserved_spend_usd: unknown;
+      pending_reservation_count: unknown;
       global_custom_uploads: unknown;
       global_recorded_runs: unknown;
     }>(
       `SELECT
         usage.anonymous_buckets,
-        usage.global_spend_usd,
-        usage.global_custom_uploads,
-        usage.global_recorded_runs,
-        COALESCE(SUM(reservation.reserved_cost_usd), 0) AS reserved_spend_usd
-      FROM daily_usage AS usage
-      LEFT JOIN model_budget_reservations AS reservation
-        ON reservation.usage_day = usage.usage_day
-          AND reservation.status = 'pending'
-          AND reservation.expires_at > $2::timestamptz
-      WHERE usage.usage_day = $1::date
-      GROUP BY usage.usage_day, usage.anonymous_buckets, usage.global_spend_usd,
-        usage.global_custom_uploads, usage.global_recorded_runs`,
+        COALESCE(usage.global_spend_usd, 0) AS global_spend_usd,
+        COALESCE((
+          SELECT SUM(month_usage.global_spend_usd)
+          FROM daily_usage AS month_usage
+          WHERE month_usage.usage_day >=
+              date_trunc('month', $1::date)::date
+            AND month_usage.usage_day <= $1::date
+        ), 0) AS month_to_date_spend_usd,
+        COALESCE(usage.global_custom_uploads, 0) AS global_custom_uploads,
+        COALESCE(usage.global_recorded_runs, 0) AS global_recorded_runs,
+        COALESCE((
+          SELECT SUM(reservation.reserved_cost_usd)
+          FROM model_budget_reservations AS reservation
+          WHERE reservation.usage_day = $1::date
+            AND reservation.status = 'pending'
+            AND reservation.expires_at > $2::timestamptz
+        ), 0) AS reserved_spend_usd,
+        (
+          SELECT COUNT(*)
+          FROM model_budget_reservations AS reservation
+          WHERE reservation.usage_day = $1::date
+            AND reservation.status = 'pending'
+            AND reservation.expires_at > $2::timestamptz
+        ) AS pending_reservation_count
+      FROM (VALUES (1)) AS requested(single_row)
+      LEFT JOIN daily_usage AS usage
+        ON usage.usage_day = $1::date`,
       [utcDay(now), now.toISOString()],
     );
     const row = rows[0];
     if (!row) {
       return {
+        dailyBudgetUsd:
+          this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
         globalSpendUsd: 0,
+        monthToDateSpendUsd: 0,
         reservedSpendUsd: 0,
+        pendingReservationCount: 0,
         globalCustomUploads: 0,
         globalRecordedRuns: 0,
         customUploadsByBucket: {},
@@ -639,19 +689,22 @@ class NeonQuotaRepository implements QuotaRepository {
         recordedRunsByBucket: {},
       };
     }
+    const rawBuckets = row.anonymous_buckets ?? {};
     const buckets = (
-      typeof row.anonymous_buckets === "string"
-        ? JSON.parse(row.anonymous_buckets)
-        : row.anonymous_buckets
+      typeof rawBuckets === "string" ? JSON.parse(rawBuckets) : rawBuckets
     ) as Record<
       string,
       { customUploads?: number; liveRuns?: number; recordedRuns?: number }
     >;
     return {
-      globalSpendUsd: Number(row.global_spend_usd),
-      reservedSpendUsd: Number(row.reserved_spend_usd),
-      globalCustomUploads: Number(row.global_custom_uploads),
-      globalRecordedRuns: Number(row.global_recorded_runs),
+      dailyBudgetUsd:
+        this.options.dailyBudgetUsd ?? DEFAULT_DAILY_MODEL_BUDGET_USD,
+      globalSpendUsd: Number(row.global_spend_usd ?? 0),
+      monthToDateSpendUsd: Number(row.month_to_date_spend_usd ?? 0),
+      reservedSpendUsd: Number(row.reserved_spend_usd ?? 0),
+      pendingReservationCount: Number(row.pending_reservation_count ?? 0),
+      globalCustomUploads: Number(row.global_custom_uploads ?? 0),
+      globalRecordedRuns: Number(row.global_recorded_runs ?? 0),
       customUploadsByBucket: Object.fromEntries(
         Object.entries(buckets).map(([bucket, usage]) => [
           bucket,
