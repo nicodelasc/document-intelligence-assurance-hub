@@ -227,7 +227,8 @@ describe("executeRun", () => {
     );
     expect(run?.details?.result?.action).toMatchObject({
       status: "ready",
-      reason: "Custom documents require review before staging.",
+      reason:
+        "Evidence is consistent. The action is ready for internal dry-run staging.",
       stagedAt: null,
     });
   });

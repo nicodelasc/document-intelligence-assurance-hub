@@ -63,6 +63,83 @@ describe("synthetic document fixtures", () => {
     expect(recordedDocumentRunResults).toHaveLength(10);
   });
 
+  it("keeps the complete business classification contract bound to each fixture ID", () => {
+    expect(
+      syntheticFixtures.map((fixture) => [
+        fixture.id,
+        fixture.family,
+        fixture.classification,
+        fixture.attentionReason,
+        fixture.expectedOutcome,
+      ]),
+    ).toEqual([
+      ["invoice-clean-match", "supplier_invoice", "correct", "none", "clear"],
+      [
+        "invoice-buyer-hold",
+        "supplier_invoice",
+        "attention",
+        "manual_instruction",
+        "needs_review",
+      ],
+      [
+        "invoice-unreadable-approval",
+        "supplier_invoice",
+        "attention",
+        "unreadable_critical_evidence",
+        "incomplete",
+      ],
+      [
+        "invoice-total-mismatch",
+        "supplier_invoice",
+        "incorrect",
+        "reference_conflict",
+        "needs_review",
+      ],
+      [
+        "invoice-po-currency-mismatch",
+        "supplier_invoice",
+        "incorrect",
+        "reference_conflict",
+        "needs_review",
+      ],
+      [
+        "warehouse-clean-receipt",
+        "warehouse_goods_receipt",
+        "correct",
+        "none",
+        "clear",
+      ],
+      [
+        "warehouse-quantity-correction",
+        "warehouse_goods_receipt",
+        "attention",
+        "manual_correction",
+        "needs_review",
+      ],
+      [
+        "warehouse-unreadable-damage-note",
+        "warehouse_goods_receipt",
+        "attention",
+        "unreadable_critical_evidence",
+        "incomplete",
+      ],
+      [
+        "warehouse-quantity-mismatch",
+        "warehouse_goods_receipt",
+        "incorrect",
+        "reference_conflict",
+        "needs_review",
+      ],
+      [
+        "warehouse-item-lot-mismatch",
+        "warehouse_goods_receipt",
+        "incorrect",
+        "reference_conflict",
+        "needs_review",
+      ],
+    ]);
+  });
+
   it("keeps every scenario invented and action metadata aligned to its outcome", () => {
     const serializedFixtures = JSON.stringify(syntheticFixtures);
     expect(serializedFixtures).not.toMatch(/Samsung|Kyndryl/i);

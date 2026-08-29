@@ -28,11 +28,13 @@ export function applyActionPolicy(
       ...proposed,
       status,
       reason:
-        outcome === "not_found"
-          ? "Incomplete evidence - one or more requested fields were not found"
-          : status === "blocked"
-            ? "Required evidence is incomplete."
-            : "Custom documents require review before staging.",
+        outcome === "evidence_consistent"
+          ? "Evidence is consistent. The action is ready for internal dry-run staging."
+          : outcome === "not_found"
+            ? "Incomplete evidence - one or more requested fields were not found"
+            : status === "blocked"
+              ? "Required evidence is incomplete."
+              : "Custom documents require review before staging.",
     };
   }
 
