@@ -58,6 +58,7 @@ export type StoredRunRecord = {
   estimatedCostUsd: number;
   consent: boolean;
   createdAt: string;
+  completedAt: string | null;
   expiresAt: string;
   deletedAt: string | null;
   deletionTokenHash: string;
@@ -139,6 +140,42 @@ export type CreateWorkflowEventInput = {
   eventId: string;
 };
 
+export type ConfirmedModelCostAggregate = {
+  completedRunCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  providerCounts: Record<Provider, number>;
+  totalEstimatedCostUsd: number;
+  averageEstimatedCostUsd: number;
+  todayEstimatedCostUsd: number;
+  monthToDateEstimatedCostUsd: number;
+  byModel: Array<{
+    provider: Provider;
+    model: string;
+    runCount: number;
+    totalEstimatedCostUsd: number;
+    averageEstimatedCostUsd: number;
+  }>;
+  byFamily: Array<{
+    documentFamily: DocumentFamily;
+    runCount: number;
+    totalEstimatedCostUsd: number;
+    averageEstimatedCostUsd: number;
+  }>;
+};
+
+export type ExpiryBucketCounts = {
+  lessThanOneHour: number;
+  oneToSixHours: number;
+  sixToTwentyFourHours: number;
+};
+
+export type ActiveDetailLifecycleAggregate = {
+  activeDocuments: number;
+  activePublicUploads: number;
+  expiryBuckets: ExpiryBucketCounts;
+};
+
 export type CreateWorkflowEventResult =
   | { status: "created" | "already_created"; event: WorkflowEvent }
   | {
@@ -167,6 +204,10 @@ export interface RunRepository {
   listPublicRuns(now: Date, options?: PublicRunListOptions): Promise<PublicRunRecord[]>;
   countCleanupBacklog(now: Date): Promise<number>;
   aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate>;
+  aggregateConfirmedModelCosts(now: Date): Promise<ConfirmedModelCostAggregate>;
+  aggregateActiveDetailLifecycle(
+    now: Date,
+  ): Promise<ActiveDetailLifecycleAggregate>;
   getDeletionTokenHash(runId: string): Promise<string | null>;
   deleteDetailedData(
     runId: string,
@@ -210,6 +251,70 @@ function compareWorkflowEvents(left: WorkflowEvent, right: WorkflowEvent): numbe
   );
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const SIX_HOURS_MS = 6 * ONE_HOUR_MS;
+const TWENTY_FOUR_HOURS_MS = 24 * ONE_HOUR_MS;
+
+function roundedAmount(value: number): number {
+  return Number(value.toFixed(12));
+}
+
+function isTrustworthyPositiveUsage(usage: TokenUsage): boolean {
+  return (
+    Number.isSafeInteger(usage.inputTokens) &&
+    usage.inputTokens >= 0 &&
+    Number.isSafeInteger(usage.outputTokens) &&
+    usage.outputTokens >= 0 &&
+    usage.inputTokens + usage.outputTokens > 0
+  );
+}
+
+function isConfirmedCompletedModelRun(run: InternalRun, now: Date): boolean {
+  const completedAt =
+    run.record.completedAt === null ? Number.NaN : Date.parse(run.record.completedAt);
+  return (
+    run.completionAggregated &&
+    run.record.providerDispatched &&
+    Number.isFinite(completedAt) &&
+    completedAt <= now.getTime() &&
+    isTrustworthyPositiveUsage(run.record.usage) &&
+    Number.isFinite(run.record.estimatedCostUsd) &&
+    run.record.estimatedCostUsd >= 0
+  );
+}
+
+function emptyConfirmedModelCostAggregate(): ConfirmedModelCostAggregate {
+  return {
+    completedRunCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    providerCounts: { openai: 0, anthropic: 0 },
+    totalEstimatedCostUsd: 0,
+    averageEstimatedCostUsd: 0,
+    todayEstimatedCostUsd: 0,
+    monthToDateEstimatedCostUsd: 0,
+    byModel: [],
+    byFamily: [],
+  };
+}
+
+function compareModelCostRows(
+  left: ConfirmedModelCostAggregate["byModel"][number],
+  right: ConfirmedModelCostAggregate["byModel"][number],
+): number {
+  return (
+    left.provider.localeCompare(right.provider) ||
+    left.model.localeCompare(right.model)
+  );
+}
+
+function compareFamilyCostRows(
+  left: ConfirmedModelCostAggregate["byFamily"][number],
+  right: ConfirmedModelCostAggregate["byFamily"][number],
+): number {
+  return left.documentFamily.localeCompare(right.documentFamily);
+}
+
 export class InMemoryRunRepository implements RunRepository {
   private readonly runs = new Map<string, InternalRun>();
   private readonly runRequestClaims = new Map<string, string>();
@@ -249,6 +354,7 @@ export class InMemoryRunRepository implements RunRepository {
     if (this.runs.has(record.id)) throw new Error("run_already_exists");
     const initialRecord = clone(record);
     initialRecord.providerDispatched = false;
+    initialRecord.completedAt = null;
     this.runs.set(record.id, {
       record: initialRecord,
       steps: [],
@@ -290,6 +396,7 @@ export class InMemoryRunRepository implements RunRepository {
     run.record.outcome = result.outcome;
     run.record.usage = clone(result.usage);
     run.record.estimatedCostUsd = result.estimatedCostUsd;
+    run.record.completedAt = result.completedAt;
     run.record.retryCount = result.retryCount;
     run.record.latencyMs = result.latencyMs;
     run.record.stepDurations = clone(result.stepDurations);
@@ -422,6 +529,138 @@ export class InMemoryRunRepository implements RunRepository {
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
     return clone(this.aggregate);
+  }
+
+  async aggregateConfirmedModelCosts(
+    now: Date,
+  ): Promise<ConfirmedModelCostAggregate> {
+    const aggregate = emptyConfirmedModelCostAggregate();
+    const modelGroups = new Map<
+      string,
+      ConfirmedModelCostAggregate["byModel"][number]
+    >();
+    const familyGroups = new Map<
+      DocumentFamily,
+      ConfirmedModelCostAggregate["byFamily"][number]
+    >();
+    const todayStart = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+    );
+    const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+
+    for (const run of this.runs.values()) {
+      if (!isConfirmedCompletedModelRun(run, now)) continue;
+      const completedAt = Date.parse(run.record.completedAt!);
+      const cost = run.record.estimatedCostUsd;
+      aggregate.completedRunCount += 1;
+      aggregate.totalInputTokens += run.record.usage.inputTokens;
+      aggregate.totalOutputTokens += run.record.usage.outputTokens;
+      aggregate.providerCounts[run.record.provider] += 1;
+      aggregate.totalEstimatedCostUsd += cost;
+      if (completedAt >= todayStart) aggregate.todayEstimatedCostUsd += cost;
+      if (completedAt >= monthStart) aggregate.monthToDateEstimatedCostUsd += cost;
+
+      const modelKey = `${run.record.provider}\u0000${run.record.model}`;
+      const modelGroup = modelGroups.get(modelKey) ?? {
+        provider: run.record.provider,
+        model: run.record.model,
+        runCount: 0,
+        totalEstimatedCostUsd: 0,
+        averageEstimatedCostUsd: 0,
+      };
+      modelGroup.runCount += 1;
+      modelGroup.totalEstimatedCostUsd += cost;
+      modelGroups.set(modelKey, modelGroup);
+
+      if (run.record.documentFamily !== null) {
+        const familyGroup = familyGroups.get(run.record.documentFamily) ?? {
+          documentFamily: run.record.documentFamily,
+          runCount: 0,
+          totalEstimatedCostUsd: 0,
+          averageEstimatedCostUsd: 0,
+        };
+        familyGroup.runCount += 1;
+        familyGroup.totalEstimatedCostUsd += cost;
+        familyGroups.set(run.record.documentFamily, familyGroup);
+      }
+    }
+
+    aggregate.totalEstimatedCostUsd = roundedAmount(
+      aggregate.totalEstimatedCostUsd,
+    );
+    aggregate.todayEstimatedCostUsd = roundedAmount(
+      aggregate.todayEstimatedCostUsd,
+    );
+    aggregate.monthToDateEstimatedCostUsd = roundedAmount(
+      aggregate.monthToDateEstimatedCostUsd,
+    );
+    aggregate.averageEstimatedCostUsd =
+      aggregate.completedRunCount === 0
+        ? 0
+        : roundedAmount(
+            aggregate.totalEstimatedCostUsd / aggregate.completedRunCount,
+          );
+    aggregate.byModel = [...modelGroups.values()]
+      .map((group) => ({
+        ...group,
+        totalEstimatedCostUsd: roundedAmount(group.totalEstimatedCostUsd),
+        averageEstimatedCostUsd: roundedAmount(
+          group.totalEstimatedCostUsd / group.runCount,
+        ),
+      }))
+      .sort(compareModelCostRows);
+    aggregate.byFamily = [...familyGroups.values()]
+      .map((group) => ({
+        ...group,
+        totalEstimatedCostUsd: roundedAmount(group.totalEstimatedCostUsd),
+        averageEstimatedCostUsd: roundedAmount(
+          group.totalEstimatedCostUsd / group.runCount,
+        ),
+      }))
+      .sort(compareFamilyCostRows);
+    return aggregate;
+  }
+
+  async aggregateActiveDetailLifecycle(
+    now: Date,
+  ): Promise<ActiveDetailLifecycleAggregate> {
+    const aggregate: ActiveDetailLifecycleAggregate = {
+      activeDocuments: 0,
+      activePublicUploads: 0,
+      expiryBuckets: {
+        lessThanOneHour: 0,
+        oneToSixHours: 0,
+        sixToTwentyFourHours: 0,
+      },
+    };
+    for (const run of this.runs.values()) {
+      const expiresAt = Date.parse(run.record.expiresAt);
+      const remainingMs = expiresAt - now.getTime();
+      if (
+        run.detailsDeleted ||
+        run.record.status === "expired" ||
+        run.record.status === "deleted" ||
+        !Number.isFinite(expiresAt) ||
+        remainingMs <= 0 ||
+        remainingMs > TWENTY_FOUR_HOURS_MS
+      ) {
+        continue;
+      }
+      aggregate.activeDocuments += 1;
+      if (run.record.sourceType === "custom") {
+        aggregate.activePublicUploads += 1;
+      }
+      if (remainingMs <= ONE_HOUR_MS) {
+        aggregate.expiryBuckets.lessThanOneHour += 1;
+      } else if (remainingMs <= SIX_HOURS_MS) {
+        aggregate.expiryBuckets.oneToSixHours += 1;
+      } else {
+        aggregate.expiryBuckets.sixToTwentyFourHours += 1;
+      }
+    }
+    return aggregate;
   }
 
   async getDeletionTokenHash(runId: string): Promise<string | null> {
@@ -620,6 +859,48 @@ function workflowEventFromRow(row: DatabaseRow): WorkflowEvent | null {
   }
 }
 
+const confirmedRunEligibilityCte = `WITH eligible_confirmed_runs AS MATERIALIZED (
+  SELECT provider, model, document_family, estimated_cost_usd, completed_at,
+    CASE
+      WHEN jsonb_typeof(usage -> 'inputTokens') = 'number'
+      THEN CASE
+        WHEN (usage ->> 'inputTokens') ~ '^[0-9]+$'
+        THEN CASE
+          WHEN (usage ->> 'inputTokens')::numeric <= 9007199254740991
+          THEN (usage ->> 'inputTokens')::bigint
+          ELSE NULL
+        END
+        ELSE NULL
+      END
+      ELSE NULL
+    END AS input_tokens,
+    CASE
+      WHEN jsonb_typeof(usage -> 'outputTokens') = 'number'
+      THEN CASE
+        WHEN (usage ->> 'outputTokens') ~ '^[0-9]+$'
+        THEN CASE
+          WHEN (usage ->> 'outputTokens')::numeric <= 9007199254740991
+          THEN (usage ->> 'outputTokens')::bigint
+          ELSE NULL
+        END
+        ELSE NULL
+      END
+      ELSE NULL
+    END AS output_tokens
+  FROM runs
+  WHERE provider_dispatched = true
+    AND was_completed = true
+    AND provider IN ('openai', 'anthropic')
+    AND completed_at IS NOT NULL
+    AND completed_at <= $1::timestamptz
+    AND estimated_cost_usd >= 0
+), confirmed_runs AS MATERIALIZED (
+  SELECT * FROM eligible_confirmed_runs
+  WHERE input_tokens IS NOT NULL
+    AND output_tokens IS NOT NULL
+    AND input_tokens + output_tokens > 0
+)`;
+
 class NeonRunRepository implements RunRepository {
   private driverPromise: Promise<NeonDriver> | null = null;
 
@@ -652,10 +933,10 @@ class NeonRunRepository implements RunRepository {
         id, provider, model, execution_mode, source_type, file_metadata, document_key,
         requested_fields, status, outcome, usage, estimated_cost_usd, consent, created_at,
         expires_at, deleted_at, deletion_token_hash, retry_count, latency_ms, step_durations,
-        prompt_version, provider_dispatched, document_family, fixture_id
+        prompt_version, provider_dispatched, document_family, fixture_id, completed_at
       ) VALUES (
         $1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12,
-        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false, $22, $23
+        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false, $22, $23, NULL
       )`,
       [
         record.id,
@@ -731,7 +1012,8 @@ class NeonRunRepository implements RunRepository {
       )
       UPDATE runs SET status = 'completed', outcome = $3, usage = $4::jsonb,
         estimated_cost_usd = $5, retry_count = $6, latency_ms = $7,
-        step_durations = $8::jsonb, was_completed = true
+        step_durations = $8::jsonb, completed_at = $9::timestamptz,
+        was_completed = true
       FROM saved WHERE runs.id = saved.run_id`,
       [
         runId,
@@ -742,6 +1024,7 @@ class NeonRunRepository implements RunRepository {
         result.retryCount,
         result.latencyMs,
         JSON.stringify(result.stepDurations),
+        result.completedAt,
       ],
     );
   }
@@ -957,7 +1240,7 @@ class NeonRunRepository implements RunRepository {
       provider_dispatched,
       source_type, document_family, fixture_id, file_metadata, requested_fields, status, outcome, usage,
       estimated_cost_usd, consent, created_at, expires_at, deleted_at,
-      retry_count, latency_ms, step_durations, details_deleted`;
+      completed_at, retry_count, latency_ms, step_durations, details_deleted`;
     const rows = options
       ? await driver.query(
           `SELECT ${publicColumns} FROM runs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
@@ -1031,6 +1314,134 @@ class NeonRunRepository implements RunRepository {
       outcomeCounts,
     };
     return aggregate;
+  }
+
+  async aggregateConfirmedModelCosts(
+    now: Date,
+  ): Promise<ConfirmedModelCostAggregate> {
+    const driver = await this.readyDriver();
+    const nowIso = now.toISOString();
+    const [summaryRows, modelRows, familyRows] = await Promise.all([
+      driver.query(
+        `${confirmedRunEligibilityCte}
+        SELECT
+          COUNT(*) AS completed_run_count,
+          COALESCE(SUM(input_tokens), 0) AS input_tokens,
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
+          COUNT(*) FILTER (WHERE provider = 'openai') AS openai_runs,
+          COUNT(*) FILTER (WHERE provider = 'anthropic') AS anthropic_runs,
+          COALESCE(SUM(estimated_cost_usd), 0) AS total_estimated_cost_usd,
+          COALESCE(AVG(estimated_cost_usd), 0) AS average_estimated_cost_usd,
+          COALESCE(SUM(estimated_cost_usd) FILTER (
+            WHERE completed_at >= date_trunc(
+              'day', $1::timestamptz AT TIME ZONE 'UTC'
+            ) AT TIME ZONE 'UTC'
+          ), 0) AS today_estimated_cost_usd,
+          COALESCE(SUM(estimated_cost_usd) FILTER (
+            WHERE completed_at >= date_trunc(
+              'month', $1::timestamptz AT TIME ZONE 'UTC'
+            ) AT TIME ZONE 'UTC'
+          ), 0) AS month_to_date_estimated_cost_usd
+        FROM confirmed_runs`,
+        [nowIso],
+      ),
+      driver.query(
+        `${confirmedRunEligibilityCte}
+        SELECT provider, model, COUNT(*) AS run_count,
+          COALESCE(SUM(estimated_cost_usd), 0) AS total_estimated_cost_usd,
+          COALESCE(AVG(estimated_cost_usd), 0) AS average_estimated_cost_usd
+        FROM confirmed_runs
+        GROUP BY provider, model`,
+        [nowIso],
+      ),
+      driver.query(
+        `${confirmedRunEligibilityCte}
+        SELECT document_family, COUNT(*) AS run_count,
+          COALESCE(SUM(estimated_cost_usd), 0) AS total_estimated_cost_usd,
+          COALESCE(AVG(estimated_cost_usd), 0) AS average_estimated_cost_usd
+        FROM confirmed_runs
+        WHERE document_family IN ('supplier_invoice', 'warehouse_goods_receipt')
+        GROUP BY document_family`,
+        [nowIso],
+      ),
+    ]);
+    const summary = summaryRows[0] ?? {};
+    return {
+      completedRunCount: Number(summary.completed_run_count ?? 0),
+      totalInputTokens: Number(summary.input_tokens ?? 0),
+      totalOutputTokens: Number(summary.output_tokens ?? 0),
+      providerCounts: {
+        openai: Number(summary.openai_runs ?? 0),
+        anthropic: Number(summary.anthropic_runs ?? 0),
+      },
+      totalEstimatedCostUsd: Number(summary.total_estimated_cost_usd ?? 0),
+      averageEstimatedCostUsd: Number(
+        summary.average_estimated_cost_usd ?? 0,
+      ),
+      todayEstimatedCostUsd: Number(summary.today_estimated_cost_usd ?? 0),
+      monthToDateEstimatedCostUsd: Number(
+        summary.month_to_date_estimated_cost_usd ?? 0,
+      ),
+      byModel: modelRows
+        .map((row) => ({
+          provider: row.provider as Provider,
+          model: String(row.model),
+          runCount: Number(row.run_count ?? 0),
+          totalEstimatedCostUsd: Number(row.total_estimated_cost_usd ?? 0),
+          averageEstimatedCostUsd: Number(
+            row.average_estimated_cost_usd ?? 0,
+          ),
+        }))
+        .sort(compareModelCostRows),
+      byFamily: familyRows
+        .map((row) => ({
+          documentFamily: row.document_family as DocumentFamily,
+          runCount: Number(row.run_count ?? 0),
+          totalEstimatedCostUsd: Number(row.total_estimated_cost_usd ?? 0),
+          averageEstimatedCostUsd: Number(
+            row.average_estimated_cost_usd ?? 0,
+          ),
+        }))
+        .sort(compareFamilyCostRows),
+    };
+  }
+
+  async aggregateActiveDetailLifecycle(
+    now: Date,
+  ): Promise<ActiveDetailLifecycleAggregate> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query(
+      `SELECT
+        COUNT(*) AS active_documents,
+        COUNT(*) FILTER (WHERE source_type = 'custom') AS active_public_uploads,
+        COUNT(*) FILTER (
+          WHERE expires_at <= $1::timestamptz + interval '1 hour'
+        ) AS less_than_one_hour,
+        COUNT(*) FILTER (
+          WHERE expires_at > $1::timestamptz + interval '1 hour'
+            AND expires_at <= $1::timestamptz + interval '6 hours'
+        ) AS one_to_six_hours,
+        COUNT(*) FILTER (
+          WHERE expires_at > $1::timestamptz + interval '6 hours'
+            AND expires_at <= $1::timestamptz + interval '24 hours'
+        ) AS six_to_twenty_four_hours
+      FROM runs
+      WHERE details_deleted = false
+        AND status NOT IN ('expired', 'deleted')
+        AND expires_at > $1::timestamptz
+        AND expires_at <= $1::timestamptz + interval '24 hours'`,
+      [now.toISOString()],
+    );
+    const row = rows[0] ?? {};
+    return {
+      activeDocuments: Number(row.active_documents ?? 0),
+      activePublicUploads: Number(row.active_public_uploads ?? 0),
+      expiryBuckets: {
+        lessThanOneHour: Number(row.less_than_one_hour ?? 0),
+        oneToSixHours: Number(row.one_to_six_hours ?? 0),
+        sixToTwentyFourHours: Number(row.six_to_twenty_four_hours ?? 0),
+      },
+    };
   }
 
   async getDeletionTokenHash(runId: string): Promise<string | null> {
@@ -1233,6 +1644,7 @@ class NeonRunRepository implements RunRepository {
       estimatedCostUsd: Number(row.estimated_cost_usd),
       consent: Boolean(row.consent),
       createdAt: asIso(row.created_at),
+      completedAt: row.completed_at ? asIso(row.completed_at) : null,
       expiresAt,
       deletedAt: row.deleted_at ? asIso(row.deleted_at) : null,
       retryCount: Number(row.retry_count),

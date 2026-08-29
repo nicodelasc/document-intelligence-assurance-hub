@@ -38,6 +38,7 @@ function runRecord(id = "run-1") {
     estimatedCostUsd: 0,
     consent: false,
     createdAt,
+    completedAt: null,
     expiresAt,
     deletedAt: null,
     deletionTokenHash: `sha256:${"a".repeat(64)}`,
@@ -484,6 +485,23 @@ describe("InMemoryRunRepository", () => {
     expect(statements[0]?.sql).toContain("document_family, fixture_id");
     expect(statements[0]?.parameters).toContain("supplier_invoice");
     expect(statements[0]?.parameters).toContain("invoice-clean-match");
+    expect(statements[0]?.sql).toMatch(/fixture_id, completed_at/);
+    expect(statements[0]?.sql).toMatch(/\$23, NULL\s+\)/);
+  });
+
+  it("forces an initial null completion time until results are durably saved", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({
+      ...runRecord("initial-completion"),
+      completedAt: "2026-08-27T00:00:00.001Z",
+    });
+
+    await expect(
+      repository.readPublicRun(
+        "initial-completion",
+        new Date("2026-08-27T00:01:00.000Z"),
+      ),
+    ).resolves.toMatchObject({ completedAt: null });
   });
 
   it("counts provider usage only after one idempotent confirmed dispatch", async () => {
@@ -1196,6 +1214,8 @@ describe("InMemoryRunRepository", () => {
     expect(queries[0].sql).toMatch(
       /UPDATE runs SET[\s\S]+FROM saved[\s\S]+WHERE runs.id = saved.run_id/,
     );
+    expect(queries[0].sql).toMatch(/completed_at = \$9::timestamptz/);
+    expect(queries[0].parameters[8]).toBe("2026-08-27T00:00:02.000Z");
   });
 
   it("skips a late Neon failure when the active tombstone row is unavailable", async () => {
@@ -1317,6 +1337,408 @@ describe("InMemoryRunRepository", () => {
     expect(await repository.countCleanupBacklog(new Date(expiresAt))).toBe(1);
     await repository.purgeExpiredData(new Date(expiresAt));
     expect(await repository.countCleanupBacklog(new Date(expiresAt))).toBe(0);
+  });
+
+  it("aggregates only completed confirmed model runs with trustworthy usage", async () => {
+    const repository = new InMemoryRunRepository();
+    const now = new Date("2026-08-29T12:00:00.000Z");
+    const action = structuredClone(syntheticFixtures[0].action);
+    const saveCompleted = async (input: {
+      id: string;
+      provider: "openai" | "anthropic";
+      model: string;
+      executionMode: "live" | "recorded";
+      documentFamily: "supplier_invoice" | "warehouse_goods_receipt" | null;
+      usage: { inputTokens: number; outputTokens: number };
+      estimatedCostUsd: number;
+      completedAt: string;
+      expiresAt: string;
+      sourceType?: "synthetic" | "custom";
+    }) => {
+      await repository.createRun({
+        ...runRecord(input.id),
+        provider: input.provider,
+        model: input.model,
+        executionMode: input.executionMode,
+        documentFamily: input.documentFamily,
+        fixtureId: input.documentFamily === null ? null : `${input.id}-fixture`,
+        sourceType: input.sourceType ?? "synthetic",
+        expiresAt: input.expiresAt,
+      });
+      if (input.executionMode === "live") {
+        await repository.markProviderDispatched(input.id);
+      }
+      await repository.saveResults(input.id, {
+        fields,
+        outcome: "clear",
+        documentInstruction: action.instructionEvidence,
+        action,
+        usage: input.usage,
+        estimatedCostUsd: input.estimatedCostUsd,
+        retryCount: 0,
+        latencyMs: 100,
+        stepDurations: { extracting: 50 },
+        completedAt: input.completedAt,
+      });
+    };
+
+    await saveCompleted({
+      id: "openai-invoice",
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      executionMode: "live",
+      documentFamily: "supplier_invoice",
+      usage: { inputTokens: 120, outputTokens: 20 },
+      estimatedCostUsd: 0.08,
+      completedAt: "2026-08-29T08:00:00.000Z",
+      expiresAt: "2026-08-29T12:30:00.000Z",
+    });
+    await saveCompleted({
+      id: "anthropic-warehouse",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      executionMode: "live",
+      documentFamily: "warehouse_goods_receipt",
+      usage: { inputTokens: 180, outputTokens: 40 },
+      estimatedCostUsd: 0.12,
+      completedAt: "2026-08-10T08:00:00.000Z",
+      expiresAt: "2026-08-29T16:00:00.000Z",
+    });
+    await saveCompleted({
+      id: "recorded-zero",
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      executionMode: "recorded",
+      documentFamily: "supplier_invoice",
+      usage: { inputTokens: 999, outputTokens: 999 },
+      estimatedCostUsd: 0,
+      completedAt: "2026-08-29T09:00:00.000Z",
+      expiresAt: "2026-08-29T22:00:00.000Z",
+    });
+    await saveCompleted({
+      id: "malformed-usage",
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      executionMode: "live",
+      documentFamily: "supplier_invoice",
+      usage: { inputTokens: Number.NaN, outputTokens: 1 },
+      estimatedCostUsd: 0.9,
+      completedAt: "2026-08-29T10:00:00.000Z",
+      expiresAt: "2026-08-30T13:00:00.000Z",
+    });
+    await repository.createRun({
+      ...runRecord("failed-dispatch"),
+      executionMode: "live",
+      usage: { inputTokens: 500, outputTokens: 100 },
+      estimatedCostUsd: 0.5,
+      expiresAt: "2026-08-30T13:00:00.000Z",
+    });
+    await repository.markProviderDispatched("failed-dispatch");
+    await repository.markFailed("failed-dispatch", {
+      timestamp: "2026-08-29T11:00:00.000Z",
+      safeCode: "provider_unavailable",
+      failedStage: "failed",
+      retryCount: 1,
+      latencyMs: 50,
+      stepDurations: { extracting: 50 },
+    });
+
+    const expected = {
+      completedRunCount: 2,
+      totalInputTokens: 300,
+      totalOutputTokens: 60,
+      providerCounts: { openai: 1, anthropic: 1 },
+      totalEstimatedCostUsd: 0.2,
+      averageEstimatedCostUsd: 0.1,
+      todayEstimatedCostUsd: 0.08,
+      monthToDateEstimatedCostUsd: 0.2,
+      byModel: [
+        {
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.12,
+          averageEstimatedCostUsd: 0.12,
+        },
+        {
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.08,
+          averageEstimatedCostUsd: 0.08,
+        },
+      ],
+      byFamily: [
+        {
+          documentFamily: "supplier_invoice",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.08,
+          averageEstimatedCostUsd: 0.08,
+        },
+        {
+          documentFamily: "warehouse_goods_receipt",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.12,
+          averageEstimatedCostUsd: 0.12,
+        },
+      ],
+    };
+    await expect(repository.aggregateConfirmedModelCosts(now)).resolves.toEqual(
+      expected,
+    );
+    await expect(repository.aggregateActiveDetailLifecycle(now)).resolves.toEqual({
+      activeDocuments: 3,
+      activePublicUploads: 0,
+      expiryBuckets: {
+        lessThanOneHour: 1,
+        oneToSixHours: 1,
+        sixToTwentyFourHours: 1,
+      },
+    });
+
+    await repository.deleteDetailedData(
+      "anthropic-warehouse",
+      "2026-08-29T12:01:00.000Z",
+    );
+    await expect(repository.aggregateConfirmedModelCosts(now)).resolves.toEqual(
+      expected,
+    );
+    await expect(repository.aggregateActiveDetailLifecycle(now)).resolves.toMatchObject({
+      activeDocuments: 2,
+      expiryBuckets: { oneToSixHours: 0 },
+    });
+  });
+
+  it("uses inclusive UTC time boundaries and excludes future completions", async () => {
+    const repository = new InMemoryRunRepository();
+    const now = new Date("2026-08-29T12:00:00.000Z");
+    const completionTimes = [
+      ["previous-month", "2026-07-31T23:59:59.999Z"],
+      ["month-boundary", "2026-08-01T00:00:00.000Z"],
+      ["before-today", "2026-08-28T23:59:59.999Z"],
+      ["today-boundary", "2026-08-29T00:00:00.000Z"],
+      ["at-now", "2026-08-29T12:00:00.000Z"],
+      ["future", "2026-08-29T12:00:00.001Z"],
+    ] as const;
+    for (const [id, completedAt] of completionTimes) {
+      await repository.createRun({
+        ...runRecord(id),
+        executionMode: "live",
+        expiresAt: "2026-08-30T12:00:00.000Z",
+      });
+      await repository.markProviderDispatched(id);
+      await repository.saveResults(id, {
+        fields,
+        outcome: "clear",
+        documentInstruction: null,
+        action: structuredClone(syntheticFixtures[0].action),
+        usage: { inputTokens: 1, outputTokens: 0 },
+        estimatedCostUsd: 0.01,
+        retryCount: 0,
+        latencyMs: 1,
+        stepDurations: {},
+        completedAt,
+      });
+    }
+
+    await expect(repository.aggregateConfirmedModelCosts(now)).resolves.toMatchObject({
+      completedRunCount: 5,
+      totalEstimatedCostUsd: 0.05,
+      todayEstimatedCostUsd: 0.02,
+      monthToDateEstimatedCostUsd: 0.04,
+    });
+  });
+
+  it("places exact active-detail expiry boundaries into exclusive buckets", async () => {
+    const repository = new InMemoryRunRepository();
+    const now = new Date("2026-08-29T12:00:00.000Z");
+    const records = [
+      ["at-one-hour", "2026-08-29T13:00:00.000Z", "custom"],
+      ["at-six-hours", "2026-08-29T18:00:00.000Z", "synthetic"],
+      ["at-twenty-four-hours", "2026-08-30T12:00:00.000Z", "synthetic"],
+      ["beyond-twenty-four", "2026-08-30T12:00:00.001Z", "synthetic"],
+      ["already-expired", "2026-08-29T12:00:00.000Z", "synthetic"],
+    ] as const;
+    for (const [id, recordExpiresAt, sourceType] of records) {
+      await repository.createRun({
+        ...runRecord(id),
+        sourceType,
+        documentFamily: sourceType === "custom" ? null : "supplier_invoice",
+        fixtureId: sourceType === "custom" ? null : "invoice-clean-match",
+        expiresAt: recordExpiresAt,
+      });
+    }
+    await repository.createRun({
+      ...runRecord("explicit-deleted"),
+      status: "deleted",
+      expiresAt: "2026-08-29T13:00:00.000Z",
+    });
+    await repository.createRun({
+      ...runRecord("explicit-expired"),
+      status: "expired",
+      expiresAt: "2026-08-29T13:00:00.000Z",
+    });
+    await repository.createRun({
+      ...runRecord("details-deleted"),
+      expiresAt: "2026-08-29T13:00:00.000Z",
+    });
+    await repository.deleteDetailedData(
+      "details-deleted",
+      "2026-08-29T11:00:00.000Z",
+    );
+
+    await expect(repository.aggregateActiveDetailLifecycle(now)).resolves.toEqual({
+      activeDocuments: 3,
+      activePublicUploads: 1,
+      expiryBuckets: {
+        lessThanOneHour: 1,
+        oneToSixHours: 1,
+        sixToTwentyFourHours: 1,
+      },
+    });
+  });
+
+  it("hydrates sorted bounded Neon cost and lifecycle aggregates", async () => {
+    const statements: Array<{ sql: string; parameters: unknown[] }> = [];
+    const now = new Date("2026-08-29T12:00:00.000Z");
+    const driver: NeonDriver = {
+      async query(sql, parameters = []) {
+        statements.push({ sql, parameters });
+        if (sql.includes("AS active_documents")) {
+          return [
+            {
+              active_documents: "3",
+              active_public_uploads: "1",
+              less_than_one_hour: "1",
+              one_to_six_hours: "1",
+              six_to_twenty_four_hours: "1",
+            },
+          ];
+        }
+        if (sql.includes("GROUP BY provider, model")) {
+          return [
+            {
+              provider: "openai",
+              model: "gpt-5.6-luna",
+              run_count: "1",
+              total_estimated_cost_usd: "0.08",
+              average_estimated_cost_usd: "0.08",
+            },
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              run_count: "1",
+              total_estimated_cost_usd: "0.12",
+              average_estimated_cost_usd: "0.12",
+            },
+          ];
+        }
+        if (sql.includes("GROUP BY document_family")) {
+          return [
+            {
+              document_family: "warehouse_goods_receipt",
+              run_count: "1",
+              total_estimated_cost_usd: "0.12",
+              average_estimated_cost_usd: "0.12",
+            },
+            {
+              document_family: "supplier_invoice",
+              run_count: "1",
+              total_estimated_cost_usd: "0.08",
+              average_estimated_cost_usd: "0.08",
+            },
+          ];
+        }
+        if (sql.includes("AS completed_run_count")) {
+          return [
+            {
+              completed_run_count: "2",
+              input_tokens: "300",
+              output_tokens: "60",
+              openai_runs: "1",
+              anthropic_runs: "1",
+              total_estimated_cost_usd: "0.20",
+              average_estimated_cost_usd: "0.10",
+              today_estimated_cost_usd: "0.08",
+              month_to_date_estimated_cost_usd: "0.20",
+            },
+          ];
+        }
+        return [];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await expect(repository.aggregateConfirmedModelCosts(now)).resolves.toEqual({
+      completedRunCount: 2,
+      totalInputTokens: 300,
+      totalOutputTokens: 60,
+      providerCounts: { openai: 1, anthropic: 1 },
+      totalEstimatedCostUsd: 0.2,
+      averageEstimatedCostUsd: 0.1,
+      todayEstimatedCostUsd: 0.08,
+      monthToDateEstimatedCostUsd: 0.2,
+      byModel: [
+        {
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.12,
+          averageEstimatedCostUsd: 0.12,
+        },
+        {
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.08,
+          averageEstimatedCostUsd: 0.08,
+        },
+      ],
+      byFamily: [
+        {
+          documentFamily: "supplier_invoice",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.08,
+          averageEstimatedCostUsd: 0.08,
+        },
+        {
+          documentFamily: "warehouse_goods_receipt",
+          runCount: 1,
+          totalEstimatedCostUsd: 0.12,
+          averageEstimatedCostUsd: 0.12,
+        },
+      ],
+    });
+    await expect(repository.aggregateActiveDetailLifecycle(now)).resolves.toEqual({
+      activeDocuments: 3,
+      activePublicUploads: 1,
+      expiryBuckets: {
+        lessThanOneHour: 1,
+        oneToSixHours: 1,
+        sixToTwentyFourHours: 1,
+      },
+    });
+
+    const costQueries = statements.filter((entry) =>
+      entry.sql.includes("eligible_confirmed_runs"),
+    );
+    expect(costQueries).toHaveLength(3);
+    for (const query of costQueries) {
+      expect(query.parameters).toEqual([now.toISOString()]);
+      expect(query.sql).toMatch(/provider_dispatched = true/);
+      expect(query.sql).toMatch(/was_completed = true/);
+      expect(query.sql).toMatch(/completed_at <= \$1::timestamptz/);
+      expect(query.sql).toMatch(/input_tokens \+ output_tokens > 0/);
+    }
+    const lifecycleQuery = statements.find((entry) =>
+      entry.sql.includes("AS active_documents"),
+    );
+    expect(lifecycleQuery?.parameters).toEqual([now.toISOString()]);
+    expect(lifecycleQuery?.sql).toMatch(/details_deleted = false/);
+    expect(lifecycleQuery?.sql).toMatch(/status NOT IN \('expired', 'deleted'\)/);
+    expect(lifecycleQuery?.sql).toMatch(
+      /expires_at <= \$1::timestamptz \+ interval '24 hours'/,
+    );
   });
 
   it("computes Neon anonymous totals in one server-side aggregate row", async () => {

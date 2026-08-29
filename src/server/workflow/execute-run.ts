@@ -596,6 +596,7 @@ export async function* executeRun(
       estimatedCostUsd: 0,
       consent: input.consent,
       createdAt,
+      completedAt: null,
       expiresAt,
       deletedAt: null,
       deletionTokenHash: deletionCredential.hash,

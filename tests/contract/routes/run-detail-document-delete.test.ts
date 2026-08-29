@@ -149,6 +149,7 @@ describe("document streaming", () => {
       estimatedCostUsd: 0,
       consent: true,
       createdAt: "2026-08-27T00:00:00.000Z",
+      completedAt: null,
       expiresAt: "2026-08-27T23:55:00.000Z",
       deletedAt: null,
       deletionTokenHash: hashDeletionToken(deletionToken),

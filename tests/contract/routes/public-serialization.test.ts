@@ -32,6 +32,7 @@ function poisonedRun(): PublicRunRecord {
     estimatedCostUsd: 0,
     consent: true,
     createdAt: "2026-08-27T00:00:00.000Z",
+    completedAt: "2026-08-27T00:00:00.012Z",
     expiresAt: "2026-08-27T23:55:00.000Z",
     deletedAt: null,
     retryCount: 0,
@@ -131,6 +132,21 @@ describe("public serializers", () => {
       configuredProvider: "anthropic",
       configuredModel: "claude-sonnet-5",
     });
+  });
+
+  it("exposes only the persisted completion timestamp without inferring one", () => {
+    expect(serializePublicRunListRow(poisonedRun())).toMatchObject({
+      completedAt: "2026-08-27T00:00:00.012Z",
+    });
+    expect(serializePublicRunDetail(poisonedRun())).toMatchObject({
+      completedAt: "2026-08-27T00:00:00.012Z",
+    });
+
+    const unfinished = poisonedRun();
+    unfinished.status = "deciding";
+    unfinished.completedAt = null;
+    expect(serializePublicRunListRow(unfinished)).toMatchObject({ completedAt: null });
+    expect(serializePublicRunDetail(unfinished)).toMatchObject({ completedAt: null });
   });
 
   it("serializes active fixture identity in detail and list rows", () => {
