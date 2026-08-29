@@ -33,3 +33,19 @@ test("Workbench preserves source preview trace order on mobile", async ({ page }
   await expect(page.getByRole("button", { name: "+ Add your document" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+test("Workbench workflow role dialog has no serious or critical axe violations", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/workbench");
+  await page.getByRole("button", { name: /Total mismatch/i }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
+  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible();
+  await page.getByRole("button", { name: "Assign for review" }).click();
+  await expect(page.getByRole("dialog", { name: "Assign for review" })).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).analyze();
+  const blocking = results.violations.filter(
+    (violation) => violation.impact === "serious" || violation.impact === "critical",
+  );
+  expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+});

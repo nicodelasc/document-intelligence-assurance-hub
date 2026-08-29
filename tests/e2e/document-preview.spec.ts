@@ -103,4 +103,24 @@ test("the mobile PDF preview and differences panel stack without page overflow",
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBe(true);
+
+  await page.getByRole("button", { name: "Process document" }).click();
+  await expect(page.getByRole("heading", { name: "Clear" })).toBeVisible();
+  const evidenceLedger = page.getByRole("region", {
+    name: "Scrollable extracted field ledger",
+  });
+  await expect(evidenceLedger).toBeVisible();
+  expect(
+    await evidenceLedger.evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    ),
+  ).toBe(true);
+  const fieldColumn = await evidenceLedger
+    .getByRole("columnheader", { name: "Field" })
+    .boundingBox();
+  expect(fieldColumn).not.toBeNull();
+  expect(fieldColumn!.width).toBeGreaterThanOrEqual(110);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
 });

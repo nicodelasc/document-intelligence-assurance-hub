@@ -15,6 +15,7 @@ export type CustomUploadState = {
 
 export type CustomUploadHandle = {
   openFilePicker: () => void;
+  requestReplacement: () => void;
   validate: () => Promise<boolean>;
 };
 
@@ -169,6 +170,17 @@ export const CustomUploadFields = forwardRef<CustomUploadHandle, { onReadyChange
   useImperativeHandle(ref, () => ({
     openFilePicker: () => {
       if (!disabled) fileRef.current?.click();
+    },
+    requestReplacement: () => {
+      if (disabled) return;
+      selectionRef.current += 1;
+      setFile(null);
+      setFileValid(false);
+      setFileChecking(false);
+      setConsent(false);
+      setErrors({});
+      if (fileRef.current) fileRef.current.value = "";
+      fileRef.current?.click();
     },
     validate,
   }), [disabled, validate]);

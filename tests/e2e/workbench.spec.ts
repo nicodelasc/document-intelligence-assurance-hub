@@ -69,6 +69,180 @@ test("browses document families without processing then runs the selected fixtur
   }
   await expect(page.getByText("Publish telemetry", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Review goods receipt" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Assign for review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request clarification" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Prepare email to the selected role" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replace document and reprocess" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download discrepancy summary" })).toBeVisible();
+
+  const sectionHeadings = await page
+    .locator(".assurance-rail > .rule-panel > .rule-panel__header > h2")
+    .allTextContents();
+  expect(sectionHeadings).toEqual([
+    "Assurance trace",
+    "Business outcome",
+    "Differences",
+    "Workflow controls",
+    "Evidence ledger",
+    "Activity timeline",
+  ]);
+});
+
+test("prepares a role-scoped email without sending and records the workflow activity", async ({
+  page,
+}) => {
+  const capability = "workflow-capability-e2e";
+  const event = {
+    id: "workflow_event_private_identifier",
+    runId: "run_workflow_e2e",
+    action: "prepare_email",
+    recipientRole: "Buyer",
+    status: "prepared",
+    createdAt: "2026-08-29T03:04:05.000Z",
+  };
+  let workflowRequests = 0;
+
+  await page.route("**/api/models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [
+          { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
+          { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+        ],
+        defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+        providerAvailability: { openai: false, anthropic: false },
+      }),
+    });
+  });
+  await page.route("**/api/runs?limit=12", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        runs: [],
+        pagination: { limit: 12, offset: 0, returned: 0 },
+      }),
+    });
+  });
+  await page.route("**/api/runs/run_workflow_e2e", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        run: {
+          id: "run_workflow_e2e",
+          status: "completed",
+          outcome: "needs_review",
+          documentFamily: "supplier_invoice",
+          providerCalled: false,
+          provider: null,
+          model: null,
+          details: {
+            steps: [],
+            workflowEvents: [],
+            result: {
+              fields: [{
+                key: "invoice_total",
+                label: "Invoice total",
+                extractedValue: "S$1,250.00",
+                normalizedValue: "1250.00",
+                evidence: "Invoice total S$1,250.00",
+                page: 1,
+                evaluatorStatus: "fail",
+                referenceMatch: false,
+              }],
+              action: {
+                type: "create_invoice_exception_task",
+                title: "Review invoice mismatch",
+                summary: "Keep the invoice in review until the discrepancy is resolved.",
+                payload: [{ label: "Invoice total", value: "S$1,250.00" }],
+                instructionEvidence: null,
+                page: null,
+                risk: "medium",
+                status: "needs_review",
+                reason: "The invoice total differs from the purchase order.",
+                stagedAt: null,
+              },
+            },
+          },
+        },
+      }),
+    });
+  });
+  await page.route("**/api/runs/run_workflow_e2e/workflow-actions", async (route) => {
+    const request = route.request();
+    workflowRequests += 1;
+    expect(request.headers()["x-run-capability"]).toBe(capability);
+    expect(request.url()).not.toContain(capability);
+    expect(request.postDataJSON()).toEqual({
+      action: "prepare_email",
+      recipientRole: "Buyer",
+    });
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        workflow: { status: "created", event },
+        emailPreview: {
+          recipientRole: "Buyer",
+          subject: "Prepared only - not sent | Invoice exception",
+          body: "Buyer review requested for the synthetic invoice mismatch.",
+          deliveryStatus: "prepared_only_not_sent",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/runs", async (route, request) => {
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const events = [
+      {
+        type: "completed",
+        outcome: "needs_review",
+        runId: "run_workflow_e2e",
+        executionMode: "recorded",
+        deletionToken: capability,
+        timestamp: "2026-08-29T03:04:00.000Z",
+      },
+    ];
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+      body: `${events.map((item) => JSON.stringify(item)).join("\n")}\n`,
+    });
+  });
+
+  await page.goto("/workbench");
+  await page.getByRole("button", { name: "Process document" }).click();
+  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible();
+  await page.getByRole("button", { name: "Prepare email to the selected role" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Prepare email copy" });
+  const role = dialog.getByLabel("Recipient role");
+  await expect(role).toHaveValue("");
+  await expect(role.getByRole("option", { name: "Accounts Payable Analyst" })).toBeAttached();
+  await expect(role.getByRole("option", { name: "Buyer" })).toBeAttached();
+  await expect(role.getByRole("option", { name: "Supplier Contact" })).toBeAttached();
+  await expect(dialog.getByRole("button", { name: "Prepare copy" })).toBeDisabled();
+  await role.selectOption("Buyer");
+  await dialog.getByRole("button", { name: "Prepare copy" }).click();
+
+  const previewDialog = page.getByRole("dialog", { name: "Prepared email copy" });
+  await expect(previewDialog.getByText("Prepared only - not sent", { exact: true })).toBeVisible();
+  await expect(previewDialog.getByLabel("Subject")).toHaveAttribute("readonly", "");
+  await expect(previewDialog.getByLabel("Prepared message")).toHaveAttribute("readonly", "");
+  await expect(previewDialog.getByRole("button", { name: "Copy prepared message" })).toBeVisible();
+  await expect(previewDialog.getByRole("button", { name: /send/i })).toHaveCount(0);
+  await expect(previewDialog.locator('input[type="email"]')).toHaveCount(0);
+  await previewDialog.getByRole("button", { name: "Close preview" }).click();
+
+  await expect(page.getByText("Email copy prepared - not sent", { exact: true })).toBeVisible();
+  await expect(page.locator("time[datetime='2026-08-29T03:04:05.000Z']")).toBeVisible();
+  await expect(page.getByText(event.id, { exact: true })).toHaveCount(0);
+  expect(workflowRequests).toBe(1);
 });
 
 test("the upload tile directly opens the picker and explains unavailable custom processing", async ({

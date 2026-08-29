@@ -75,6 +75,10 @@ test("failed custom receipts survive refresh then delete independently", async (
   await page.getByRole("button", { name: "Validate custom upload" }).click();
   await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByText(failedToken)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Processing failed" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Retry processing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download error summary" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /approve|prepare email|assign/i })).toHaveCount(0);
 
   await page.evaluate(({ token }) => {
     localStorage.setItem("assurance-delete:run_restored_public", JSON.stringify({
@@ -226,7 +230,9 @@ test("custom streams stay isolated then public history restores after refresh", 
   await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByRole("heading", { name: "Evidence-consistent" })).toBeFocused();
   await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Not found" })).toBeFocused();
+  await expect(page.getByRole("heading", {
+    name: "Incomplete evidence - one or more requested fields were not found",
+  })).toBeFocused();
 
   await page.reload();
   await page.getByLabel("Run A").selectOption("run_stream_alpha");

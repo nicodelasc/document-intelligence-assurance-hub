@@ -45,6 +45,11 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
   await page.getByRole("button", { name: "Validate custom upload" }).click();
   await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByText(token)).toBeVisible();
+  await expect(page.getByRole("heading", {
+    name: "Incomplete evidence - one or more requested fields were not found",
+  })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Request a clearer document" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upload replacement" })).toBeVisible();
   await page.getByRole("button", { name: "Delete run run_mock_delete" }).click();
   await expect(page.getByRole("alertdialog")).not.toContainText(token);
   await expect(page.getByRole("alertdialog")).not.toContainText("hash");

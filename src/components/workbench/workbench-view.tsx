@@ -1,14 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { ShieldCheck } from "lucide-react";
-import type { ActionProposal, FieldResult, Outcome, Provider, RunEvent, RunStatus } from "@/domain/types";
+import type {
+  ActionProposal,
+  DocumentFamily,
+  FieldResult,
+  Outcome,
+  Provider,
+  RunEvent,
+  RunStatus,
+  WorkflowEvent,
+} from "@/domain/types";
 import {
   recordedDocumentRunResults,
   syntheticFixtures,
 } from "@/domain/fixtures";
 import { liveModelCatalog } from "@/domain/live-model-catalog";
-import { actionProposalSchema } from "@/domain/run-schema";
+import { actionProposalSchema, workflowEventSchema } from "@/domain/run-schema";
 import { Button, EmptyState, LiveRegion, ProcessingStatus, RulePanel, StatusMark } from "@/components/ui/primitives";
 import { DangerDialog } from "@/components/ui/dialog";
 import {
@@ -28,7 +37,8 @@ import {
   type DisplayTraceKey,
   type RawTraceState,
 } from "./trace-model";
-import { ActionCard } from "./action-card";
+import { ActivityTimeline } from "./activity-timeline";
+import { WorkflowPanel } from "./workflow-panel";
 import type { ProviderAvailability } from "@/server/http/container";
 import { DocumentPreview } from "./document-preview";
 import { FixtureLibrary } from "./fixture-library";
@@ -56,6 +66,28 @@ type TraceState = Partial<Record<RunStatus, RawTraceState>>;
 type DeletionReceipt = { runId: string; token: string; expiresAt: string };
 type ActionDetailStatus = "idle" | "loading" | "ready" | "error";
 type ProviderAttribution = Pick<ComparableRun, "providerCalled" | "provider" | "model">;
+type RunSubmissionSnapshot = {
+  source: "synthetic" | "custom";
+  sampleId: string;
+  provider: Provider;
+  model: string;
+  executionMode: "recorded" | "live";
+  documentFamily: DocumentFamily | null;
+  customFile: File | null;
+  customFields: readonly string[];
+  customConsent: boolean;
+};
+type PublicRunHydration = {
+  status: RunStatus | null;
+  outcome: Outcome | null;
+  documentFamily: DocumentFamily | null;
+  documentFamilyPresent: boolean;
+  proposal: ActionProposal | null;
+  workflowEvents: WorkflowEvent[];
+  fields: FieldResult[];
+  safeDiagnosticCodes: string[];
+  attribution: ProviderAttribution | null;
+};
 type ModelConfiguration = {
   models: readonly ModelOption[];
   selectedModel: string;
@@ -172,18 +204,111 @@ function providerAttributionFromPublicPayload(payload: unknown): ProviderAttribu
   return { providerCalled: false, provider: null, model: null };
 }
 
-function actionFromPublicPayload(payload: unknown): ActionProposal | null {
+const runStatuses = new Set<RunStatus>([
+  "validating",
+  "storing",
+  "extracting",
+  "verifying",
+  "comparing",
+  "deciding",
+  "publishing",
+  "completed",
+  "failed",
+  "expired",
+  "deleted",
+]);
+
+function fieldFromUnknown(candidate: unknown): FieldResult | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const field = candidate as Record<string, unknown>;
+  if (
+    typeof field.key !== "string" ||
+    typeof field.label !== "string" ||
+    (field.extractedValue !== null && typeof field.extractedValue !== "string") ||
+    (field.normalizedValue !== null && typeof field.normalizedValue !== "string") ||
+    (field.evidence !== null && typeof field.evidence !== "string") ||
+    (field.page !== null && typeof field.page !== "number") ||
+    (field.evaluatorStatus !== "pass" &&
+      field.evaluatorStatus !== "conflict" &&
+      field.evaluatorStatus !== "not_found") ||
+    (field.referenceMatch !== null && typeof field.referenceMatch !== "boolean")
+  ) {
+    return null;
+  }
+  return field as unknown as FieldResult;
+}
+
+function publicRunHydration(payload: unknown): PublicRunHydration | null {
   if (!payload || typeof payload !== "object") return null;
   const run = (payload as { run?: unknown }).run;
   if (!run || typeof run !== "object") return null;
-  const details = (run as { details?: unknown }).details;
-  if (!details || typeof details !== "object") return null;
-  const result = (details as { result?: unknown }).result;
-  if (!result || typeof result !== "object") return null;
-  const action = (result as { action?: unknown }).action;
-  if (!action || typeof action !== "object") return null;
-  const parsed = actionProposalSchema.safeParse(action);
-  return parsed.success ? parsed.data : null;
+  const record = run as Record<string, unknown>;
+  const details =
+    record.details && typeof record.details === "object"
+      ? (record.details as Record<string, unknown>)
+      : null;
+  const result =
+    details?.result && typeof details.result === "object"
+      ? (details.result as Record<string, unknown>)
+      : null;
+  const parsedAction = result?.action
+    ? actionProposalSchema.safeParse(result.action)
+    : null;
+  const workflowEvents = Array.isArray(details?.workflowEvents)
+    ? details.workflowEvents.flatMap((event) => {
+        const parsed = workflowEventSchema.safeParse(event);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
+  const fields = Array.isArray(result?.fields)
+    ? result.fields.flatMap((field) => {
+        const parsed = fieldFromUnknown(field);
+        return parsed ? [parsed] : [];
+      })
+    : [];
+  const safeDiagnosticCodes = Array.isArray(details?.steps)
+    ? details.steps.flatMap((step) => {
+        if (!step || typeof step !== "object") return [];
+        const safeCode = (step as { safeCode?: unknown }).safeCode;
+        return typeof safeCode === "string" && safeCode.trim()
+          ? [safeCode.trim().slice(0, 80)]
+          : [];
+      })
+    : [];
+  const status =
+    typeof record.status === "string" && runStatuses.has(record.status as RunStatus)
+      ? (record.status as RunStatus)
+      : null;
+  const outcome =
+    typeof record.outcome === "string" && outcomes.has(record.outcome as Outcome)
+      ? (record.outcome as Outcome)
+      : null;
+  const documentFamily =
+    record.documentFamily === "supplier_invoice" ||
+    record.documentFamily === "warehouse_goods_receipt"
+      ? record.documentFamily
+      : null;
+  return {
+    status,
+    outcome,
+    documentFamily,
+    documentFamilyPresent:
+      record.documentFamily === null || documentFamily !== null,
+    proposal: parsedAction?.success ? parsedAction.data : null,
+    workflowEvents,
+    fields,
+    safeDiagnosticCodes: [...new Set(safeDiagnosticCodes)],
+    attribution: providerAttributionFromPublicPayload(payload),
+  };
+}
+
+function sortWorkflowEvents(events: readonly WorkflowEvent[]): WorkflowEvent[] {
+  return [...events].sort((left, right) => {
+    const timestampOrder = left.createdAt.localeCompare(right.createdAt);
+    return timestampOrder === 0
+      ? left.id.localeCompare(right.id)
+      : timestampOrder;
+  });
 }
 
 function modelConfigurationFromPayload(payload: unknown): ModelConfiguration | null {
@@ -242,9 +367,15 @@ export function WorkbenchView() {
   const [preparedAction, setPreparedAction] = useState<ActionProposal | null>(null);
   const [actionRunId, setActionRunId] = useState("");
   const [actionCapability, setActionCapability] = useState("");
+  const [activeRunStatus, setActiveRunStatus] = useState<RunStatus | null>(null);
+  const [activeRunFamily, setActiveRunFamily] =
+    useState<DocumentFamily | null>(null);
+  const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
+  const [safeDiagnosticCodes, setSafeDiagnosticCodes] = useState<string[]>([]);
   const [actionDetailStatus, setActionDetailStatus] = useState<ActionDetailStatus>("idle");
   const [actionDetailError, setActionDetailError] = useState("");
   const [error, setError] = useState("");
+  const [workflowNotice, setWorkflowNotice] = useState("");
   const [liveMessage, setLiveMessage] = useState("Ready to review a document.");
   const [outcomeFocusVersion, setOutcomeFocusVersion] = useState(0);
   const [history, setHistory] = useState<ComparableRun[]>([]);
@@ -258,6 +389,7 @@ export function WorkbenchView() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const detailAbortRef = useRef<AbortController | null>(null);
   const cancellableRef = useRef(false);
   const configurationLockedRef = useRef(false);
   const pendingModelConfigurationRef = useRef<ModelConfiguration | null>(null);
@@ -269,6 +401,7 @@ export function WorkbenchView() {
   const lastStageRef = useRef<{ key: RunStatus; at: number } | null>(null);
   const lastAnnouncedDisplayStageRef = useRef<DisplayTraceKey | null>(null);
   const fieldAccumulatorRef = useRef<{ requestId: number; fields: Map<string, FieldResult> }>({ requestId: 0, fields: new Map() });
+  const activeRunSnapshotRef = useRef<RunSubmissionSnapshot | null>(null);
   const selectedDeletionReceipt = deletionReceipts.find((receipt) => receipt.runId === selectedDeletionId) ?? null;
 
   const applyModelConfiguration = useCallback((configuration: ModelConfiguration) => {
@@ -348,6 +481,8 @@ export function WorkbenchView() {
     requestRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    detailAbortRef.current?.abort();
+    detailAbortRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -364,12 +499,6 @@ export function WorkbenchView() {
     return () => URL.revokeObjectURL(url);
   }, [custom.file]);
 
-  const fixture = useMemo(
-    () =>
-      recordedDocumentRunResults.find((candidate) => candidate.fixtureId === sampleId) ??
-      recordedDocumentRunResults[0],
-    [sampleId],
-  );
   const selectedFixture =
     syntheticFixtures.find((candidate) => candidate.id === sampleId) ??
     syntheticFixtures[0];
@@ -377,6 +506,8 @@ export function WorkbenchView() {
     models.find((model) => model.id === selectedModel) ?? models[0];
   const provider: Provider = selectedModelDefinition?.provider ?? "openai";
   const displayTrace = buildDisplayTrace(trace);
+  const hasTerminalRun = Boolean(actionRunId) &&
+    (activeRunStatus === "completed" || activeRunStatus === "failed");
 
   const onStreamEvent = useCallback((event: RunEvent, requestId: number) => {
     if (requestId !== requestRef.current) return;
@@ -411,7 +542,7 @@ export function WorkbenchView() {
     setDeletionReceipts((current) => [receipt, ...current.filter((candidate) => candidate.runId !== receipt.runId)]);
   }
 
-  async function loadPreparedAction(
+  async function loadRunDetail(
     runId: string,
     requestId: number,
     signal: AbortSignal,
@@ -425,14 +556,22 @@ export function WorkbenchView() {
       );
       if (!detailResponse.ok) throw new Error("action_detail_unavailable");
       const payload = await detailResponse.json();
-      const attribution = providerAttributionFromPublicPayload(payload);
-      if (!attribution) throw new Error("run_attribution_unavailable");
-      const resolvedAction = actionFromPublicPayload(payload);
-      if (!resolvedAction) throw new Error("action_detail_unavailable");
+      const hydration = publicRunHydration(payload);
+      if (!hydration) throw new Error("action_detail_unavailable");
       if (requestId !== requestRef.current) return null;
-      setPreparedAction(resolvedAction);
+      if (hydration.status) setActiveRunStatus(hydration.status);
+      if (hydration.outcome) setOutcome(hydration.outcome);
+      if (hydration.documentFamilyPresent) {
+        setActiveRunFamily(hydration.documentFamily);
+      }
+      setPreparedAction(hydration.proposal);
+      setWorkflowEvents(sortWorkflowEvents(hydration.workflowEvents));
+      if (hydration.fields.length) setFields(hydration.fields);
+      setSafeDiagnosticCodes((current) => [
+        ...new Set([...current, ...hydration.safeDiagnosticCodes]),
+      ]);
       setActionDetailStatus("ready");
-      return attribution;
+      return hydration.attribution;
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
       if (requestId !== requestRef.current) return null;
@@ -445,27 +584,95 @@ export function WorkbenchView() {
 
   async function retryPreparedAction() {
     if (!actionRunId || actionDetailStatus === "loading") return;
-    abortRef.current?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
     const requestId = requestRef.current;
     try {
-      await loadPreparedAction(actionRunId, requestId, controller.signal);
+      detailAbortRef.current?.abort();
+      detailAbortRef.current = controller;
+      await loadRunDetail(actionRunId, requestId, controller.signal);
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === "AbortError")) {
         setActionDetailStatus("error");
         setActionDetailError("The prepared action is temporarily unavailable.");
       }
     } finally {
-      if (requestId === requestRef.current) abortRef.current = null;
+      if (detailAbortRef.current === controller) detailAbortRef.current = null;
     }
   }
 
-  async function runAssurance() {
-    if (running || cancellableRef.current) return;
+  function captureRunSnapshot(): RunSubmissionSnapshot {
     const providerAvailable = providerAvailability[provider];
-    const executionMode = providerAvailable ? "live" : "recorded";
-    if (source === "custom" && !providerAvailable) {
+    return {
+      source,
+      sampleId,
+      provider,
+      model: selectedModel,
+      executionMode: providerAvailable ? "live" : "recorded",
+      documentFamily: source === "synthetic" ? selectedFixture.family : null,
+      customFile: source === "custom" ? custom.file : null,
+      customFields: [...custom.fields],
+      customConsent: custom.consent,
+    };
+  }
+
+  function clearActiveWorkflow() {
+    detailAbortRef.current?.abort();
+    detailAbortRef.current = null;
+    activeRunSnapshotRef.current = null;
+    setOutcome(null);
+    setPreparedAction(null);
+    setActionRunId("");
+    setActionCapability("");
+    setActiveRunStatus(null);
+    setActiveRunFamily(null);
+    setWorkflowEvents([]);
+    setSafeDiagnosticCodes([]);
+    setActionDetailStatus("idle");
+    setActionDetailError("");
+  }
+
+  function appendWorkflowEvent(event: WorkflowEvent) {
+    setWorkflowEvents((current) =>
+      sortWorkflowEvents([
+        ...current.filter((candidate) => candidate.id !== event.id),
+        event,
+      ]),
+    );
+  }
+
+  function requestReplacement(message?: string) {
+    requestRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    clearActiveWorkflow();
+    setSource("custom");
+    setError("");
+    setWorkflowNotice(
+      message ??
+        "Choose a replacement document then confirm consent and process it through the normal review path.",
+    );
+    customUploadRef.current?.requestReplacement();
+  }
+
+  async function reprocessActiveRun() {
+    const snapshot = activeRunSnapshotRef.current;
+    if (!snapshot) return;
+    if (
+      snapshot.source === "custom" &&
+      (!snapshot.customFile || custom.file !== snapshot.customFile)
+    ) {
+      requestReplacement(
+        "The original file is no longer held by this browser. Choose a replacement then confirm consent before processing.",
+      );
+      return;
+    }
+    await runAssurance(snapshot);
+  }
+
+  async function runAssurance(snapshotOverride?: RunSubmissionSnapshot) {
+    if (running || cancellableRef.current) return;
+    const snapshot = snapshotOverride ?? captureRunSnapshot();
+    if (snapshot.source === "custom" && snapshot.executionMode !== "live") {
       setError("Processing unavailable for this model");
       return;
     }
@@ -475,7 +682,7 @@ export function WorkbenchView() {
     abortRef.current?.abort();
     abortRef.current = null;
     const requestId = ++requestRef.current;
-    if (source === "custom") {
+    if (snapshot.source === "custom" && snapshotOverride === undefined) {
       const customValid = await customUploadRef.current?.validate();
       if (requestId !== requestRef.current) return;
       if (!customValid) {
@@ -493,25 +700,22 @@ export function WorkbenchView() {
     lastStageRef.current = null;
     lastAnnouncedDisplayStageRef.current = null;
     setError("");
-    setOutcome(null);
-    setPreparedAction(null);
-    setActionRunId("");
-    setActionCapability("");
-    setActionDetailStatus("idle");
-    setActionDetailError("");
+    setWorkflowNotice("");
+    clearActiveWorkflow();
+    activeRunSnapshotRef.current = snapshot;
     setFields([]);
     setTrace(freshTrace());
     setLiveMessage("Assurance run started.");
     const form = new FormData();
-    form.set("sourceType", source);
-    form.set("provider", provider);
-    form.set("model", selectedModel);
-    form.set("executionMode", executionMode);
-    if (source === "synthetic") form.set("sampleId", sampleId);
-    else if (custom.file) {
-      form.set("document", custom.file);
-      custom.fields.forEach((field) => form.append("requestedField", field));
-      form.set("consent", String(custom.consent));
+    form.set("sourceType", snapshot.source);
+    form.set("provider", snapshot.provider);
+    form.set("model", snapshot.model);
+    form.set("executionMode", snapshot.executionMode);
+    if (snapshot.source === "synthetic") form.set("sampleId", snapshot.sampleId);
+    else if (snapshot.customFile) {
+      form.set("document", snapshot.customFile);
+      snapshot.customFields.forEach((field) => form.append("requestedField", field));
+      form.set("consent", String(snapshot.customConsent));
     }
     try {
       const response = await fetch("/api/runs", {
@@ -519,15 +723,15 @@ export function WorkbenchView() {
         body: form,
         headers: {
           "Idempotency-Key": crypto.randomUUID(),
-          "X-Run-Source-Type": source,
-          "X-Run-Execution-Mode": executionMode,
+          "X-Run-Source-Type": snapshot.source,
+          "X-Run-Execution-Mode": snapshot.executionMode,
         },
         signal: controller.signal,
       });
       const terminal = await consumeNdjson(response, { onEvent: (event) => onStreamEvent(event, requestId) });
       if (requestId !== requestRef.current) return;
       const elapsed = performance.now() - startedRef.current;
-      if (source === "custom" && terminal.runId && terminal.deletionToken) {
+      if (snapshot.source === "custom" && terminal.runId && terminal.deletionToken) {
         rememberDeletionReceipt(terminal.runId, terminal.deletionToken);
       }
       if (terminal.type === "failed") {
@@ -536,6 +740,26 @@ export function WorkbenchView() {
         lastStageRef.current = null;
         setError(terminal.message);
         setLiveMessage(`Run stopped. ${terminal.message}`);
+        setSafeDiagnosticCodes([terminal.code]);
+        if (terminal.runId && terminal.deletionToken) {
+          setActionRunId(terminal.runId);
+          setActionCapability(terminal.deletionToken);
+          setActiveRunStatus("failed");
+          setActiveRunFamily(snapshot.documentFamily);
+          setActionDetailStatus("loading");
+          setOutcomeFocusVersion((current) => current + 1);
+          const detailController = new AbortController();
+          detailAbortRef.current?.abort();
+          detailAbortRef.current = detailController;
+          await loadRunDetail(
+            terminal.runId,
+            requestId,
+            detailController.signal,
+          );
+          if (detailAbortRef.current === detailController) {
+            detailAbortRef.current = null;
+          }
+        }
         return;
       }
       setTrace((current) => {
@@ -546,22 +770,41 @@ export function WorkbenchView() {
       setOutcome(terminal.outcome);
       setActionRunId(terminal.runId);
       setActionCapability(terminal.deletionToken);
+      setActiveRunStatus("completed");
+      setActiveRunFamily(snapshot.documentFamily);
       setActionDetailStatus("loading");
       cancellableRef.current = false;
       unlockConfiguration();
       setRunning(false);
       setLiveMessage(`Run complete. Outcome: ${outcomeLabel[terminal.outcome]}.`);
       const streamedFields = fieldAccumulatorRef.current.requestId === requestId ? [...fieldAccumulatorRef.current.fields.values()] : [];
-      const completedFields = streamedFields.length ? streamedFields : source === "synthetic" ? fixture.fields : [];
+      const recordedFixture = recordedDocumentRunResults.find(
+        (candidate) => candidate.fixtureId === snapshot.sampleId,
+      );
+      const completedFields = streamedFields.length
+        ? streamedFields
+        : snapshot.source === "synthetic"
+          ? (recordedFixture?.fields ?? [])
+          : [];
       setFields(completedFields);
       setOutcomeFocusVersion((current) => current + 1);
-      const attribution = await loadPreparedAction(terminal.runId, requestId, controller.signal);
+      const detailController = new AbortController();
+      detailAbortRef.current?.abort();
+      detailAbortRef.current = detailController;
+      const attribution = await loadRunDetail(
+        terminal.runId,
+        requestId,
+        detailController.signal,
+      );
+      if (detailAbortRef.current === detailController) {
+        detailAbortRef.current = null;
+      }
       if (attribution) {
         const comparable: ComparableRun = {
           id: terminal.runId,
           ...attribution,
-          configuredProvider: provider,
-          configuredModel: selectedModel,
+          configuredProvider: snapshot.provider,
+          configuredModel: snapshot.model,
           executionMode: terminal.executionMode,
           requestedFields: completedFields.map((field) => field.label),
           values: completedFields.map(comparisonValue),
@@ -578,6 +821,7 @@ export function WorkbenchView() {
         setLiveMessage("Run cancelled. The selected source is still available.");
       } else {
         const message = reason instanceof Error ? reason.message : "The run could not be completed.";
+        activeRunSnapshotRef.current = null;
         setTrace((current) => failActiveTrace(current));
         lastStageRef.current = null;
         setError(message);
@@ -599,6 +843,9 @@ export function WorkbenchView() {
     requestRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    detailAbortRef.current?.abort();
+    detailAbortRef.current = null;
+    clearActiveWorkflow();
     unlockConfiguration();
     setRunning(false);
     setTrace((current) => Object.fromEntries(
@@ -678,6 +925,7 @@ export function WorkbenchView() {
               </div>
             </div>
             {error ? <div className="inline-error recovery-error" role="alert"><strong>Run unavailable</strong><span>{error}</span>{source === "custom" ? <Button type="button" intent="neutral" onClick={() => { setSource("synthetic"); setError(""); }}>Use a synthetic sample</Button> : null}</div> : null}
+            {workflowNotice ? <p className="inline-guidance" role="status">{workflowNotice}</p> : null}
             <DocumentPreview source={source} fixture={selectedFixture} custom={custom} previewUrl={previewUrl} />
           </section>
 
@@ -685,34 +933,54 @@ export function WorkbenchView() {
             <RulePanel title="Assurance trace">
               <ol className="trace-list">{displayTrace.map((stage) => <li key={stage.key} className={stage.status === "active" ? "trace-active" : ""}><StatusMark status={stage.status} /><span><strong>{stage.label}</strong><small>{stage.status === "active" ? "In progress" : stage.status === "pass" ? "Completed" : stage.status === "error" ? "Needs attention" : "Pending"}</small></span><time>{stage.duration === null ? "—" : `${(stage.duration / 1000).toFixed(1)} s`}</time></li>)}</ol>
             </RulePanel>
-            {!outcome ? (
-              <RulePanel title="Prepared action">
-                <EmptyState title="Awaiting a run">A safe action proposal will appear here before its evidence.</EmptyState>
+            {!hasTerminalRun ? (
+              <RulePanel title="Business outcome">
+                <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
               </RulePanel>
             ) : (
               <>
-                <RulePanel title="Prepared action">
-                  {preparedAction && actionRunId ? (
-                    <ActionCard key={actionRunId} runId={actionRunId} action={preparedAction} capabilityToken={actionCapability} />
-                  ) : actionDetailStatus === "loading" ? (
-                    <EmptyState title="Loading prepared action">The completed run is loading its safe action proposal.</EmptyState>
-                  ) : actionDetailStatus === "error" ? (
+                <RulePanel title="Business outcome">
+                  <OutcomeSummary
+                    status={activeRunStatus!}
+                    outcome={outcome}
+                    headingRef={outcomeHeadingRef}
+                  />
+                </RulePanel>
+                <RulePanel title="Differences">
+                  <DifferenceSummary status={activeRunStatus!} fields={fields} />
+                </RulePanel>
+                <RulePanel title="Workflow controls">
+                  {actionDetailStatus === "loading" ? (
+                    <p className="workflow-detail-status" role="status">Loading prepared workflow details…</p>
+                  ) : null}
+                  {actionDetailStatus === "error" && activeRunStatus !== "failed" ? (
                     <div className="inline-error recovery-error" role="alert" aria-label="Prepared action unavailable">
                       <strong>Prepared action unavailable</strong>
                       <span>{actionDetailError}</span>
                       <Button type="button" intent="neutral" onClick={() => void retryPreparedAction()}>Retry prepared action</Button>
                     </div>
-                  ) : (
-                    <EmptyState title="No action available">The run did not return a safe action proposal.</EmptyState>
-                  )}
+                  ) : null}
+                  <WorkflowPanel
+                    key={actionRunId}
+                    runId={actionRunId}
+                    status={activeRunStatus!}
+                    outcome={outcome}
+                    proposal={preparedAction}
+                    events={workflowEvents}
+                    capabilityToken={actionCapability}
+                    documentFamily={activeRunFamily}
+                    fields={fields}
+                    safeDiagnosticCodes={safeDiagnosticCodes}
+                    onEvent={appendWorkflowEvent}
+                    onReprocess={reprocessActiveRun}
+                    onRequestReplacement={() => requestReplacement()}
+                  />
                 </RulePanel>
                 <RulePanel title="Evidence ledger">
-                  <ResultLedger
-                    outcome={outcome}
-                    source={source}
-                    fields={fields.length ? fields : source === "synthetic" ? fixture.fields : []}
-                    headingRef={outcomeHeadingRef}
-                  />
+                  <EvidenceLedger fields={fields} />
+                </RulePanel>
+                <RulePanel title="Activity timeline">
+                  <ActivityTimeline events={workflowEvents} />
                 </RulePanel>
               </>
             )}
@@ -736,21 +1004,84 @@ export function WorkbenchView() {
   );
 }
 
-function ResultLedger({
+function OutcomeSummary({
+  status,
   outcome,
-  source,
-  fields,
   headingRef,
 }: {
-  outcome: Outcome;
-  source: "synthetic" | "custom";
-  fields: FieldResult[];
+  status: RunStatus;
+  outcome: Outcome | null;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
+  if (status === "failed") {
+    return (
+      <div className="result-ledger">
+        <header>
+          <StatusMark status="error" />
+          <div>
+            <h3 ref={headingRef} tabIndex={-1}>Processing failed</h3>
+            <p>The document was not approved or advanced. Use only the safe recovery controls below.</p>
+          </div>
+        </header>
+      </div>
+    );
+  }
+  if (outcome === null) {
+    return <EmptyState title="Outcome unavailable">The completed run did not expose a valid business outcome.</EmptyState>;
+  }
   const custom = outcome === "evidence_consistent" || outcome === "conflict" || outcome === "not_found";
   const heading =
-    source === "custom" && outcome === "not_found"
+    outcome === "not_found"
       ? "Incomplete evidence - one or more requested fields were not found"
       : outcomeLabel[outcome];
-  return <div className="result-ledger"><header><StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} /><div><h3 ref={headingRef} tabIndex={-1}>{heading}</h3><p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p></div></header><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
+  return (
+    <div className="result-ledger">
+      <header>
+        <StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} />
+        <div>
+          <h3 ref={headingRef} tabIndex={-1}>{heading}</h3>
+          <p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p>
+        </div>
+      </header>
+    </div>
+  );
+}
+
+function DifferenceSummary({
+  status,
+  fields,
+}: {
+  status: RunStatus;
+  fields: readonly FieldResult[];
+}) {
+  if (status === "failed") {
+    return <p className="difference-empty">No verified differences are available because processing stopped.</p>;
+  }
+  const differences = fields.filter(
+    (field) => field.evaluatorStatus !== "pass" || field.referenceMatch === false,
+  );
+  if (!differences.length) {
+    return <p className="difference-empty">No evidence differences were recorded.</p>;
+  }
+  return (
+    <ul className="result-difference-list">
+      {differences.map((field) => (
+        <li key={field.key}>
+          <strong>{field.label}</strong>
+          <span>
+            {field.evaluatorStatus === "not_found"
+              ? "Required evidence was not found."
+              : `Document evidence ${field.extractedValue ?? "Not found"} does not match the reference.`}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function EvidenceLedger({ fields }: { fields: readonly FieldResult[] }) {
+  if (!fields.length) {
+    return <EmptyState title="No verified field evidence">Processing did not return a field ledger for this run.</EmptyState>;
+  }
+  return <div className="result-ledger"><div className="table-scroll" tabIndex={0} role="region" aria-label="Scrollable extracted field ledger"><table><caption className="sr-only">Extracted field evidence ledger</caption><thead><tr><th scope="col">Field</th><th scope="col">Extracted value</th><th scope="col">Evidence snippet</th><th scope="col">Page</th><th scope="col">Evaluator status</th><th scope="col">Reference match</th></tr></thead><tbody>{fields.map((field) => <tr key={field.key}><th scope="row">{field.label}</th><td>{field.extractedValue ?? "Not found"}</td><td className="evidence-cell">{field.evidence ?? "No evidence found"}</td><td>{field.page ?? "—"}</td><td>{field.evaluatorStatus.replaceAll("_", " ")}</td><td>{field.referenceMatch === null ? "Not applicable" : field.referenceMatch ? "Match" : "Mismatch"}</td></tr>)}</tbody></table></div></div>;
 }
