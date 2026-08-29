@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import nextConfig from "../../../next.config";
+import { handleWorkflowActionPost } from "@/server/http/workflow-action-handler";
+import { createTestContainer } from "./test-support";
 
 describe("deployment security headers", () => {
   it("sets a Next-compatible same-origin CSP and browser isolation policy", async () => {
@@ -50,5 +52,20 @@ describe("deployment security headers", () => {
     expect(documentHeaders.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(csp).toContain("frame-ancestors 'self'");
     expect(csp).not.toContain("frame-ancestors 'none'");
+  });
+
+  it("keeps workflow mutation responses private and non-indexable", async () => {
+    const response = await handleWorkflowActionPost(
+      new Request(
+        "http://local.test/api/runs/run-header-probe/workflow-actions",
+        { method: "POST" },
+      ),
+      { id: "run-header-probe" },
+      createTestContainer(),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 });

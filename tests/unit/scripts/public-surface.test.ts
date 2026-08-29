@@ -71,18 +71,44 @@ describe("public-surface verifier", () => {
 
     expect(
       scanRequiredUiCopy(
-        "Processing model\nReference quality suite",
+        "Processing model\nReference quality suite\nPrepared only - not sent",
         "aggregated UI source",
       ),
     ).toEqual([]);
     expect(
-      scanRequiredUiCopy("Processing model", "aggregated UI source"),
+      scanRequiredUiCopy(
+        "Processing model\nReference quality suite",
+        "aggregated UI source",
+      ),
     ).toEqual([
       expect.objectContaining({
         category: "required public copy missing",
-        marker: "Reference quality suite",
+        marker: "Prepared only - not sent",
       }),
     ]);
+  });
+
+  it("rejects outbound email affordances without flagging the address sanitizer", () => {
+    const findings = scanText(
+      [
+        '<a href="mailto:buyer@example.com">Contact buyer</a>',
+        "Send email",
+        "Recipient email",
+      ].join("\n"),
+      "workflow-ui.tsx",
+    );
+
+    expect(findings.map((finding) => finding.category)).toEqual([
+      "outbound email affordance",
+      "outbound email affordance",
+      "outbound email affordance",
+    ]);
+    expect(
+      scanText(
+        String.raw`/(?:mailto:\S+|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b)/gi`,
+        "workflow-actions.ts",
+      ),
+    ).toEqual([]);
   });
 
   it("scans JSON APIs and bounded active details without fetching raw documents", async () => {

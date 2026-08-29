@@ -30,6 +30,10 @@ const signatures = [
       /\bproduction[- ]proven\b|\b\d+(?:\.\d+)?%\s+(?:cost\s+)?savings\b|\b(?:delivered|achieved|generated|created)\s+(?:cost\s+)?savings\b/gi,
   },
   {
+    category: "outbound email affordance",
+    pattern: /mailto:(?!\\S\+)|\bsend email\b|\brecipient email\b/gi,
+  },
+  {
     category: "retired public copy",
     pattern: /live custom-run/gi,
   },
@@ -46,6 +50,7 @@ const signatures = [
 const requiredUiCopy = [
   { label: "Processing model", pattern: /processing model/i },
   { label: "Reference quality suite", pattern: /reference quality suite/i },
+  { label: "Prepared only - not sent", pattern: /prepared only - not sent/i },
 ];
 
 const scannedExtensions = new Set([

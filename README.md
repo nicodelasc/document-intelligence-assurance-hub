@@ -1,6 +1,6 @@
 # Document Intelligence Assurance Hub
 
-Interpret ten synthetic supplier invoice and warehouse goods receipt variants then inspect field evidence, a deterministic assurance decision and one constrained action proposal. The Workbench prepares internal dry-run actions. Operations exposes public-safe traces, workflow readiness, the provider-neutral Reference quality suite and an illustrative resource calculator.
+Interpret ten synthetic supplier invoice and warehouse goods receipt variants then inspect field evidence, a deterministic assurance decision and one constrained action proposal. The Workbench turns each verified outcome into simulated preparation options with a durable activity timeline. Operations exposes public-safe traces, workflow readiness, the provider-neutral Reference quality suite and an illustrative resource calculator.
 
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
@@ -41,7 +41,7 @@ flowchart LR
   Provider --> Grounding[Local document grounding]
   Grounding --> Evaluators[Field evaluators]
   Evaluators --> Decision[Deterministic decision and action policy]
-  Decision --> Repository[Repository, action dry run and telemetry]
+  Decision --> Repository[Repository, workflow events and telemetry]
   Repository -. optional .-> Neon[(Neon)]
   Workflow -. optional .-> Blob[(Private Blob)]
 ```
@@ -63,7 +63,9 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 - Documents are private in Blob and are served only through active same-origin routes.
 - Cancellation propagates through the response stream, workflow and provider request.
 - Action policy runs on the server after evaluation. A proposal cannot approve or execute a business action.
-- Stage action uses the browser-held run capability to persist one idempotent internal dry-run event. Real email and every ERP, ticketing, payment, inventory or access-control connector remain out of scope.
+- Workflow actions use the browser-held run capability plus server-owned status, outcome and recipient-role policy. Recipient-required actions accept one synthetic business-role label and never an address.
+- `Prepare email copy` returns a bounded preview labelled `Prepared only - not sent`. Its subject and body are not persisted. The interface can copy the text but cannot send it.
+- `/api/runs/:id/stage-action` remains an idempotent compatibility mapping to the simulated `approve_and_stage` event. Real email and every ERP, ticketing, payment, inventory or access-control connector remain out of scope.
 
 ## Evaluation status
 
@@ -81,7 +83,7 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally under test. Local keyless operation uses process-memory adapters when database and Blob variables are absent. Built-in samples then use deterministic results while custom processing is unavailable. Restarting the process clears local runs. Action staging remains an internal dry run and never requires an external connector.
+Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally under test. Local keyless operation uses process-memory adapters when database and Blob variables are absent. Built-in samples then use deterministic results while custom processing is unavailable. Restarting the process clears local runs and workflow events. Simulated workflow preparation never requires an external connector.
 
 ## Verification commands
 
@@ -139,23 +141,24 @@ Never commit environment files or paste secret values into logs, issues or recor
 
 ## Retention and deletion
 
-Active access ends after 23 hours and 55 minutes. Delete now uses a one-time raw token returned only with the terminal stream. The repository tombstones details before it attempts physical Blob deletion. If Blob cleanup fails then access remains denied and the hourly purge retries the durable cleanup job.
+Active access ends after 23 hours and 55 minutes. Delete now uses a one-time raw token returned only with the terminal stream. The repository tombstones traces, results, workflow events and the document locator before it attempts physical Blob deletion. If Blob cleanup fails then access remains denied and the hourly purge retries the durable cleanup job.
 
-The application does not provide user accounts or private per-user run visibility. Stage action is protected by the browser-held run capability but that capability is not enterprise authentication. See [docs/privacy-and-retention.md](docs/privacy-and-retention.md).
+The application does not provide user accounts or private per-user run visibility. Every workflow mutation is protected by the browser-held run capability but that capability is not enterprise authentication. See [docs/privacy-and-retention.md](docs/privacy-and-retention.md).
 
 ## API routes
 
-| Method   | Route                        | Purpose                                                                                                                   |
-| -------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/runs`                  | Validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
-| `GET`    | `/api/models`                | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                       |
-| `GET`    | `/api/runs`                  | List bounded active public run summaries.                                                                                 |
-| `GET`    | `/api/runs/:id`              | Read one public-safe active run.                                                                                          |
-| `POST`   | `/api/runs/:id/stage-action` | Persist one capability-protected internal action dry run without an external connector.                                   |
-| `DELETE` | `/api/runs/:id`              | Tombstone details with the one-time deletion token.                                                                       |
-| `GET`    | `/api/runs/:id/document`     | Serve one active document through a no-store same-origin response.                                                        |
-| `GET`    | `/api/metrics`               | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                  |
-| `GET`    | `/api/cron/purge-expired`    | Tombstone expired details and retry physical cleanup.                                                                     |
+| Method   | Route                            | Purpose                                                                                                                   |
+| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/runs`                      | Validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
+| `GET`    | `/api/models`                    | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                       |
+| `GET`    | `/api/runs`                      | List bounded active public run summaries.                                                                                 |
+| `GET`    | `/api/runs/:id`                  | Read one public-safe active run.                                                                                          |
+| `POST`   | `/api/runs/:id/workflow-actions` | Persist one capability-protected simulated workflow event under outcome and recipient-role policy.                        |
+| `POST`   | `/api/runs/:id/stage-action`     | Compatibility mapping that persists the same idempotent `approve_and_stage` event.                                        |
+| `DELETE` | `/api/runs/:id`                  | Tombstone details with the one-time deletion token.                                                                       |
+| `GET`    | `/api/runs/:id/document`         | Serve one active document through a no-store same-origin response.                                                        |
+| `GET`    | `/api/metrics`                   | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                  |
+| `GET`    | `/api/cron/purge-expired`        | Tombstone expired details and retry physical cleanup.                                                                     |
 
 ## Deployment readiness
 
@@ -165,7 +168,7 @@ Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The stable 
 
 ## Limitations and live-acceptance gate
 
-This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its workflow capability persists simulated internal state only and cannot send real email or contact an external business system.
+This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its workflow capability persists simulated internal state only. Prepared email copy is response-only and no route can send email or contact an external business system.
 
 All four processing routes remain pending:
 

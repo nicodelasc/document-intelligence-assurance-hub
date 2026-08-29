@@ -14,7 +14,7 @@ flowchart LR
   Recorded --> Evaluators
   Grounding --> Evaluators[field evaluators]
   Evaluators --> Decision[deterministic decision and action policy]
-  Decision --> Repository[repository, dry-run action and telemetry]
+  Decision --> Repository[repository, workflow events and telemetry]
 
   Workflow -. connected adapter .-> Blob[(private Blob)]
   Repository -. connected adapter .-> Neon[(Neon Postgres)]
@@ -38,7 +38,7 @@ Each provider-routed field can pass only when the claimed page exists, its evide
 
 Local keyless mode uses process-memory run, quota and document adapters. It is ephemeral and intended for review.
 
-Connected mode uses Neon for runs, traces, quota reservations, idempotency claims and cleanup jobs. Private Vercel Blob stores document bytes. Database and Blob configuration must be present together. Connected production also requires a strong purge-route secret before request handling starts. Production live mode requires Neon even when the controlled in-memory override is set.
+Connected mode uses Neon for runs, traces, workflow events, quota reservations, idempotency claims and cleanup jobs. Private Vercel Blob stores document bytes. Database and Blob configuration must be present together. Connected production also requires a strong purge-route secret before request handling starts. Production live mode requires Neon even when the controlled in-memory override is set.
 
 The connected HTTP container also uses an atomic Neon minute-window limiter for submissions, active-document reads, metrics, public run lists and active run details. Every resource has a per-bucket limit and a deployment-wide global limit. The global row is locked before the caller bucket so rotated cookies and parallel serverless instances share one ceiling. Metrics reuse one 15-second in-process snapshot and coalesce concurrent aggregation while the Neon gate bounds total cross-instance work.
 
@@ -56,11 +56,15 @@ The persisted `provider_dispatched` field is the only proof used for provider-ca
 
 Only `POST /api/runs`, initiated by `Process document`, can reserve model budget. The server validates run admission, multipart agreement, idempotency and the selected model before quota reservation. Recorded built-in results reserve zero model cost. Browsing, previewing, comparison, metrics reads and simulated workflow actions cannot create a model-budget reservation.
 
-## Action staging boundary
+## Simulated workflow boundary
 
-Provider output may propose an action but deterministic server policy owns its final ready, needs-review or blocked status. `POST /api/runs/:id/stage-action` requires the browser-held run capability. The repository records one idempotent internal dry-run event and persists its timestamp. Blocked, failed, expired and deleted runs cannot stage.
+Provider output may propose an action but deterministic server policy owns its final ready, needs-review or blocked status. `POST /api/runs/:id/workflow-actions` applies the public-read rate limit then verifies the browser-held run capability before parsing the strict action request. A server-owned allowlist maps run status and outcome to permitted actions. Actions that require a recipient accept one synthetic business-role label from the document-family catalogue and never an address.
 
-No action path has tool access or an external connector. Real email sending is out of scope. The application cannot contact an ERP, ticketing, payment, inventory or access-control system. The staging capability is private to the browser that holds the run token but it is not user authentication or tenant isolation.
+The repository persists one idempotent event for each run, action and optional role identity. Events record user intent and preparation only. Failed runs allow only retry preparation or a diagnostic summary. Expired and deleted runs allow no workflow mutation. `POST /api/runs/:id/stage-action` remains a compatibility mapping to the same `approve_and_stage` event rather than a separate side effect.
+
+`Prepare email copy` generates a bounded subject and body on demand then returns them only in the no-store response. Email copy is not written to Neon, run results or trace steps. Persisted event metadata is limited to event and run identifiers, action type, optional synthetic role, status and timestamp. Active public run detail exposes the event timeline until expiry or Delete now removes the detailed record.
+
+No workflow path has model tools or an external connector. The application cannot send email or contact an ERP, ticketing, payment, inventory or access-control system. The browser capability authorizes only this simulated run state. It is not user authentication or tenant isolation.
 
 Schema changes run through versioned migration files. Routine request handling issues data queries only.
 
@@ -77,11 +81,12 @@ Before dispatch Neon atomically reserves the higher worst-case cost across the s
 - Typed fixture values are native PDF text. Handwritten comments are raster images and are not available as selectable comment text.
 - Extracted document text and local OCR output are transient grounding material. Neither is stored in Neon, Blob metadata or public traces.
 - Raw deletion tokens are browser-held capabilities. Only hashes are persisted.
-- The same browser-held capability gates internal action staging. It does not authorize an external business action.
+- The same browser-held capability gates every simulated workflow mutation. It does not authorize an external business action.
+- Recipient roles are server-owned synthetic labels. No workflow request accepts a recipient address.
 - Document locators, deletion hashes, full prompts and provider error bodies stay server-side.
 - Public responses contain bounded safe fields and no-store headers where document bytes are involved.
 - The public-surface verifier scans pages, `/api/models`, run-list JSON, metrics JSON and at most eight active trace responses. It never fetches raw document URLs as text.
 
 ## Retention sequence
 
-At expiry or Delete now the repository first marks details deleted and removes public detail access. It then records a cleanup job before requesting Blob deletion. A failed Blob delete leaves the logical tombstone in place. Late workflow writes are conditioned on the active tombstone row so they cannot restore deleted detail. The document route rechecks current state and expiry after Blob retrieval before it returns bytes. The hourly purge retries durable cleanup jobs.
+At expiry or Delete now the repository first marks details deleted, removes workflow events and denies public detail access. It then records a cleanup job before requesting Blob deletion. A failed Blob delete leaves the logical tombstone in place. Late workflow writes are conditioned on the active tombstone row so they cannot restore deleted detail. The document route rechecks current state and expiry after Blob retrieval before it returns bytes. The hourly purge retries durable cleanup jobs.
