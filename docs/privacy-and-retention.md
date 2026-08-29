@@ -22,6 +22,14 @@ Deletion and expiry use the following order:
 
 Logical access denial is immediate. Physical cleanup can lag when Blob is unavailable. The tombstone remains the access-control boundary during that delay. Document reads recheck the tombstone and expiry after Blob retrieval before returning bytes.
 
+## Aggregate retention boundary
+
+Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply workflow status, workflow activity, processing performance and explorer rows while those details remain active.
+
+At expiry or Delete now traces, results, document locators and workflow events are removed from active access. Retained anonymous summaries and confirmed cost aggregates do not expose filenames, evidence, field values, event IDs, run IDs, recipient roles, deletion capabilities, anonymous bucket values or reservation identifiers. The latest workflow-activity aggregate exposes only a status and timestamp.
+
+Confirmed completed cost metrics contain aggregate model usage only when a provider was dispatched and trustworthy token usage was recorded. Quota settlement and active reservations remain separate accounting populations. A failed dispatched request can settle conservatively without appearing as a completed model run.
+
 ## Storage boundary
 
 Connected document storage is private Vercel Blob. Objects are never linked directly to a public client. The app serves active bytes only through a same-origin route with no-store and cross-origin protection headers. The document route permits framing by the same application origin only while ordinary pages deny framing.
@@ -30,7 +38,7 @@ Neon stores run state, public-safe trace data, workflow-event metadata, quota re
 
 Workflow actions require the browser-held run capability and server-owned status, outcome and recipient-role policy. Recipient roles are synthetic business-role labels rather than addresses. No route accepts or stores a recipient address. The capability is not a user account or a private tenant boundary.
 
-Workflow events record simulated user intent and preparation only. Neon retains the event and run identifiers, action type, optional synthetic role, status and timestamp. Prepared email subject and body are generated on demand, returned only in the no-store response and never persisted. The browser may copy the prepared text but the application cannot send it.
+Workflow events record simulated user intent and preparation only. Neon retains the event and run identifiers, action type, optional synthetic role, status and timestamp. Prepared email subject and body are generated on demand, returned only in the no-store response and never persisted. The preview is `Prepared only - not sent`. The browser may copy the prepared text but the application cannot send it.
 
 The server-owned four-model catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5. Demo results are deterministic fixture data. Catalogue selection does not call a provider. Operations labels non-dispatched rows `No AI processing`. Provider acceptance has not been completed or claimed.
 

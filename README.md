@@ -73,6 +73,16 @@ The Reference quality suite contains 10 provider-neutral observations: 5 supplie
 
 A separate 10 by 2 recorded-adapter matrix contains 20 schema and configuration cases. Each fixture is checked under the OpenAI configuration and the Anthropic configuration without a provider call. These cases are not provider observations and are not a model-accuracy measurement. See [docs/evaluation-report.md](docs/evaluation-report.md).
 
+## Operations and Costs metric populations
+
+Operations combines six server-side data sources behind a 15-second cache. The summary cards use a repository-wide anonymous run aggregate. Lifecycle uses a repository-wide active-detail aggregate plus the repository-wide cleanup backlog. Workflow status, workflow activity, processing performance and the run explorer use the newest 100 public run summaries with active detail where available.
+
+Costs keeps provider execution evidence separate from budget accounting. Confirmed provider usage, model and document-family breakdowns plus completed-run cost estimates use only confirmed dispatched completed runs with trustworthy nonzero token usage. When that population is empty the dashboard shows `No confirmed model runs` and US$0.00. A failed dispatched request can contribute conservative settled spend but it is excluded from completed-run estimates and their average.
+
+The quota ledger supplies settled spend for today and month to date. Daily budget use is settled spend plus active reservations and remaining budget is clamped at zero. These quota values must not be combined with completed-run estimates as if they were the same population.
+
+The Reference quality suite is a separate fixed set of exactly 10 provider-neutral observations. The resource calculator is an illustrative scenario rather than measured savings. It converts only the confirmed average model cost into its SGD assumption at `US$1 = S$1.35` and trusts the server-supplied pricing date.
+
 ## Local setup
 
 Requirements: Node.js 20 or later and npm 11.3.0.
@@ -83,7 +93,7 @@ copy .env.example .env.local
 npm run dev
 ```
 
-Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally under test. Local keyless operation uses process-memory adapters when database and Blob variables are absent. Built-in samples then use deterministic results while custom processing is unavailable. Restarting the process clears local runs and workflow events. Simulated workflow preparation never requires an external connector.
+Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally under test. Local keyless operation uses process-memory adapters when database and Blob variables are absent. Built-in samples then use deterministic results while custom processing is unavailable. Restarting the process clears local runs and workflow events. No external connector exists for simulated workflow preparation.
 
 ## Verification commands
 

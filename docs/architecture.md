@@ -42,6 +42,25 @@ Connected mode uses Neon for runs, traces, workflow events, quota reservations, 
 
 The connected HTTP container also uses an atomic Neon minute-window limiter for submissions, active-document reads, metrics, public run lists and active run details. Every resource has a per-bucket limit and a deployment-wide global limit. The global row is locked before the caller bucket so rotated cookies and parallel serverless instances share one ceiling. Metrics reuse one 15-second in-process snapshot and coalesce concurrent aggregation while the Neon gate bounds total cross-instance work.
 
+## Operations metrics and population boundaries
+
+`GET /api/metrics` fills one allow-listed response from six sources. Concurrent fills are coalesced into the same 15-second cache snapshot.
+
+| Source                                         | Scope                                                                         | Public dashboard use                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Repository-wide anonymous run aggregate        | All retained anonymous summaries including tombstoned detail                  | Total, completion, review and failure counts                                |
+| Repository-wide confirmed model-cost aggregate | `providerDispatched=true` completed runs with trustworthy nonzero token usage | Completed-run costs, confirmed tokens and provider, model and family splits |
+| Quota snapshot                                 | Settled spend for today and month to date plus active reservations            | Settled API spend and daily budget position                                 |
+| Newest 100 public run summaries                | At most 100 current summaries with active detail where available              | Workflow status, workflow activity, performance and explorer rows           |
+| Repository-wide active-detail lifecycle        | Every unexpired detail record                                                 | Active documents, public uploads and expiry buckets                         |
+| Repository-wide cleanup backlog                | Every pending physical cleanup job                                            | Cleanup backlog                                                             |
+
+The newest-100 workflow population includes completed and failed terminal active runs. Its latest activity is the newest event by creation time then stable identifier. The metrics response exposes only the event status and timestamp. It does not expose an event ID, run ID or recipient role through that aggregate.
+
+Cost populations never use selected configuration as execution attribution. Completed model-cost estimates require a confirmed dispatched completed run with valid usage. A failed dispatched request may add conservative settled spend to the quota ledger but it cannot enter the completed estimate, average or confirmed-usage split. Settled spend and active reservations are separate values. Remaining budget is the configured daily budget minus both values clamped at zero.
+
+The Reference quality suite is computed independently from exactly 10 provider-neutral fixture observations. It does not enter provider usage. The resource calculator uses the confirmed average model cost only then applies an explicitly illustrative US$1 to S$1.35 conversion. Its savings output is not a measured operational result.
+
 ## Model catalogue and deterministic boundary
 
 The server-owned catalogue contains GPT-5.6 Luna and GPT-5.6 Terra for OpenAI plus Claude Haiku 4.5 and Claude Sonnet 5 for Anthropic. Each entry fixes the provider, context window and pricing date. Unknown models and provider-model mismatches fail closed. An enabled built-in run uses the selected model route. An unavailable built-in run uses only its deterministic result and carries no actual provider attribution.

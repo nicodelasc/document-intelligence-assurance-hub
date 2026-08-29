@@ -27,11 +27,11 @@ The reference totals are:
 
 Typed business evidence remains native PDF text. Reviewer and receiver comments are raster images so their handwriting is not available as selectable comment text. Unclear critical handwriting is represented as missing evidence and must resolve as Not found rather than a guessed value.
 
-This suite demonstrates fixture routing, schema conformance, deterministic field evaluation and action policy. It is a provider-neutral contract baseline. It does not measure provider accuracy, production reliability or financial impact.
+This suite demonstrates fixture routing, schema conformance, deterministic field evaluation and action policy. It is a provider-neutral contract baseline. Fallback observations make no provider claim. It does not measure provider accuracy, production reliability or financial impact.
 
 ## Recorded-adapter schema and configuration coverage
 
-A separate 10 by 2 contract matrix contains 20 recorded-adapter cases. Every reference is checked once through the OpenAI configuration and once through the Anthropic configuration against the shared structured-result schema.
+A separate 10 by 2 contract matrix contains 20 adapter contract cases. Every reference is checked once through the OpenAI configuration and once through the Anthropic configuration against the shared structured-result schema.
 
 | Configuration              | Cases | What the cases establish                                                               |
 | -------------------------- | ----: | -------------------------------------------------------------------------------------- |
@@ -40,6 +40,8 @@ A separate 10 by 2 contract matrix contains 20 recorded-adapter cases. Every ref
 | Total                      |    20 | Schema and configuration coverage only                                                 |
 
 These cases make no provider request, consume no provider tokens and carry no provider result attribution. They are not additional observations in the Reference quality suite. They cannot be doubled into 20 provider observations or treated as provider acceptance.
+
+Operations displays exactly 10 provider-neutral observations as one Reference quality suite. It reports the family, classification, outcome and unreadable-detection counts from those fixed references. Zero false clears is a deterministic fixture result rather than provider acceptance. The 20 adapter contract cases remain separate schema and configuration coverage.
 
 ## Processing-route behavior and acceptance
 
@@ -58,9 +60,9 @@ Configuration is not acceptance. All four processing routes remain pending until
 
 A deliberate provider failure and a connected retention simulation also remain pending. Real email and external business-system connectors are out of scope.
 
-## Task 6 verification — 2026-08-29
+## Dated Task 6 verification baseline — 2026-08-29
 
-The table below records only commands run after the ten-reference documentation and public-surface contract were implemented.
+The table below is a historical baseline, not the current final suite. It records only commands run after the ten-reference documentation and public-surface contract were implemented on 2026-08-29.
 
 | Gate                        | Result | Fresh evidence                                                                                                                                                                                                                                                                                           |
 | --------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
