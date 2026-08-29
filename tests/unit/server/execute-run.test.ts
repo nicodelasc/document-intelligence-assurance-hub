@@ -86,6 +86,12 @@ const groundedPage = [
   "Total due: 1250.00 SGD",
 ].join("\n");
 
+function findFixture(id: string) {
+  const fixture = syntheticFixtures.find((candidate) => candidate.id === id);
+  if (!fixture) throw new Error(`missing_fixture:${id}`);
+  return fixture;
+}
+
 function provider(
   input: {
     name?: Provider;
@@ -235,9 +241,7 @@ describe("executeRun", () => {
   });
 
   it("uses trusted synthetic fixture metadata for the final action", async () => {
-    const fixture = syntheticFixtures.find(
-      (candidate) => candidate.id === "warehouse-clean-receipt",
-    )!;
+    const fixture = findFixture("warehouse-clean-receipt");
     const syntheticInput = { ...input, fixture } as ExecuteRunInput;
     const { value, repository } = dependencies(provider());
 
@@ -1484,7 +1488,12 @@ describe("executeRun", () => {
     value.documentGrounder = undefined as never;
     const realPdf = new Uint8Array(
       await readFile(
-        join(process.cwd(), "public", "samples", "clean-match-invoice.pdf"),
+        join(
+          process.cwd(),
+          "public",
+          "samples",
+          findFixture("invoice-clean-match").filename,
+        ),
       ),
     );
 

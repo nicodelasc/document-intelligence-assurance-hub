@@ -6,6 +6,18 @@ describe("document workflow migration", () => {
   const migration = existsSync(migrationPath)
     ? readFileSync(migrationPath, "utf8")
     : "";
+  const permittedActions = [
+    "approve_and_stage",
+    "mark_for_later_review",
+    "assign_review",
+    "request_clarification",
+    "request_clearer_document",
+    "prepare_email",
+    "replace_document",
+    "retry_processing",
+    "download_summary",
+  ];
+  const permittedStatuses = ["prepared", "staged", "simulated"];
 
   it("reserves nullable fixture identity and idempotent workflow events", () => {
     expect(existsSync(migrationPath)).toBe(true);
@@ -16,9 +28,18 @@ describe("document workflow migration", () => {
     expect(migration).toMatch(
       /CREATE TABLE IF NOT EXISTS workflow_events \(\s+id text PRIMARY KEY,\s+run_id text NOT NULL REFERENCES runs\(id\) ON DELETE CASCADE,\s+action text NOT NULL CHECK \(action IN \([\s\S]+?\)\),\s+recipient_role text,\s+status text NOT NULL CHECK \(status IN \('prepared', 'staged', 'simulated'\)\),\s+created_at timestamptz NOT NULL\s+\);/,
     );
-    expect(migration).toMatch(/'approve_and_stage'/);
-    expect(migration).toMatch(/'download_summary'/);
-    expect(migration).toMatch(/'prepared', 'staged', 'simulated'/);
+    const actionValues = Array.from(
+      migration.match(/action text NOT NULL CHECK \(action IN \(([\s\S]*?)\)\)/)?.[1]
+        ?.matchAll(/'([^']+)'/g) ?? [],
+      (match) => match[1],
+    );
+    const statusValues = Array.from(
+      migration.match(/status text NOT NULL CHECK \(status IN \(([\s\S]*?)\)\)/)?.[1]
+        ?.matchAll(/'([^']+)'/g) ?? [],
+      (match) => match[1],
+    );
+    expect(actionValues).toEqual(permittedActions);
+    expect(statusValues).toEqual(permittedStatuses);
     expect(migration).toMatch(
       /CREATE UNIQUE INDEX IF NOT EXISTS workflow_events_idempotency_idx\s+ON workflow_events \(run_id, action, COALESCE\(recipient_role, ''\)\);/,
     );

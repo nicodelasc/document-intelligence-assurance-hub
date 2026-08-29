@@ -132,18 +132,43 @@ describe("public serializers", () => {
     });
   });
 
-  it("serializes active fixture identity without exposing it on expired or deleted detail", () => {
+  it("serializes active fixture identity in detail and list rows", () => {
     const active = serializePublicRunDetail(poisonedRun());
     expect(active).toMatchObject({
       documentFamily: "supplier_invoice",
       fixtureId: "invoice-clean-match",
     });
 
-    const expired = poisonedRun();
-    expired.status = "expired";
-    expect(serializePublicRunDetail(expired)).not.toHaveProperty("documentFamily");
-    expect(serializePublicRunDetail(expired)).not.toHaveProperty("fixtureId");
+    const listRun = poisonedRun();
+    const poisonedIdentity = listRun as unknown as {
+      documentFamily: string;
+      fixtureId: string;
+    };
+    poisonedIdentity.documentFamily = "supplier_invoice\r\n";
+    poisonedIdentity.fixtureId = "invoice-clean-match\u0000";
+    expect(serializePublicRunListRow(listRun)).toMatchObject({
+      documentFamily: "supplier_invoice",
+      fixtureId: "invoice-clean-match",
+      providerCalled: false,
+      provider: null,
+      model: null,
+    });
   });
+
+  it.each(["expired", "deleted"] as const)(
+    "returns only minimal metadata for %s records",
+    (status) => {
+      const run = poisonedRun();
+      run.status = status;
+
+      expect(serializePublicRunDetail(run)).toEqual({
+        id: "run-safe-1",
+        status,
+        expiresAt: "2026-08-27T23:55:00.000Z",
+        deletedAt: null,
+      });
+    },
+  );
 
   it("allow-lists active detail fields even when the source object is poisoned", () => {
     const serialized = JSON.stringify(serializePublicRunDetail(poisonedRun()));
@@ -190,19 +215,6 @@ describe("public serializers", () => {
     expect(serializePublicRunListRow(run)).not.toHaveProperty("filename");
     run.status = "deleted";
     expect(serializePublicRunListRow(run)).not.toHaveProperty("filename");
-  });
-
-  it("returns only minimal metadata for expired records", () => {
-    const run = poisonedRun();
-    run.status = "expired";
-    const serialized = serializePublicRunDetail(run);
-
-    expect(serialized).toEqual({
-      id: "run-safe-1",
-      status: "expired",
-      expiresAt: "2026-08-27T23:55:00.000Z",
-      deletedAt: null,
-    });
   });
 
   it("aborts the workflow iterator when the response stream is cancelled", async () => {
