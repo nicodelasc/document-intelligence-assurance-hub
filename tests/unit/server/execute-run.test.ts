@@ -4,9 +4,7 @@ import { join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import type { FieldResult, Provider } from "@/domain/types";
 import { syntheticFixtures } from "@/domain/fixtures";
-import {
-  DEFAULT_LIVE_MODEL_RESERVATION_USD as MAX_SUPPORTED_LIVE_RUN_COST_USD,
-} from "@/domain/pricing";
+import { DEFAULT_LIVE_MODEL_RESERVATION_USD as MAX_SUPPORTED_LIVE_RUN_COST_USD } from "@/domain/pricing";
 import {
   InMemoryRunRepository,
   type RunStepRecord,
@@ -166,6 +164,53 @@ async function collect(
 }
 
 describe("executeRun", () => {
+  it("blocks a custom run when one of two requested fields has no evidence", async () => {
+    const partialInput: ExecuteRunInput = {
+      ...input,
+      sourceType: "custom",
+      consent: true,
+      requestedFields: [
+        { key: "vendor_name", label: "Vendor name" },
+        { key: "approval_code", label: "Approval code" },
+      ],
+      referenceData: undefined,
+    };
+    const partialExtraction = structuredClone(extraction);
+    partialExtraction.extraction.fields = [
+      extraction.extraction.fields[0],
+      {
+        key: "approval_code",
+        label: "Approval code",
+        extractedValue: null,
+        normalizedValue: null,
+        evidence: null,
+        page: null,
+      },
+    ];
+    const { value, repository } = dependencies(
+      provider({ extract: async () => partialExtraction }),
+    );
+
+    const events = await collect(partialInput, value);
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      outcome: "not_found",
+    });
+    expect(
+      events.filter((event) => event.type === "completed"),
+    ).not.toContainEqual(
+      expect.objectContaining({ outcome: "evidence_consistent" }),
+    );
+    expect(
+      (
+        await repository.readPublicRun(
+          "run-123",
+          new Date("2026-08-27T01:00:00.000Z"),
+        )
+      )?.details?.result?.action.status,
+    ).toBe("blocked");
+  });
+
   it("overrides an unsafe model status for a custom document", async () => {
     const customInput: ExecuteRunInput = {
       ...input,
@@ -181,7 +226,7 @@ describe("executeRun", () => {
       new Date("2026-08-27T01:00:00.000Z"),
     );
     expect(run?.details?.result?.action).toMatchObject({
-      status: "needs_review",
+      status: "ready",
       reason: "Custom documents require review before staging.",
       stagedAt: null,
     });
@@ -189,7 +234,7 @@ describe("executeRun", () => {
 
   it("uses trusted synthetic fixture metadata for the final action", async () => {
     const fixture = syntheticFixtures.find(
-      (candidate) => candidate.id === "warehouse-receiving-sheet",
+      (candidate) => candidate.id === "warehouse-clean-receipt",
     )!;
     const syntheticInput = { ...input, fixture } as ExecuteRunInput;
     const { value, repository } = dependencies(provider());
@@ -751,7 +796,10 @@ describe("executeRun", () => {
         return false;
       }
     }
-    const quotas = new InMemoryQuotaRepository(3, () => "quota-attribution-failure");
+    const quotas = new InMemoryQuotaRepository(
+      3,
+      () => "quota-attribution-failure",
+    );
     const reservation = await quotas.reserve({
       bucket: "browser-a",
       sourceType: "synthetic",
@@ -778,7 +826,10 @@ describe("executeRun", () => {
 
     const events = await collect(input, value);
 
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "workflow_failed" });
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "workflow_failed",
+    });
     expect(providerCalls).toBe(0);
     await expect(
       quotas.snapshot(new Date("2026-08-27T00:01:00.000Z")),

@@ -9,7 +9,10 @@ function statusForVerifiedOutcome(
   outcome: Outcome,
   fixture: SyntheticFixture | null,
 ): ActionStatus {
-  if (outcome === "incomplete") return "blocked";
+  if (outcome === "incomplete" || outcome === "not_found") return "blocked";
+  if (outcome === "conflict" || outcome === "needs_review")
+    return "needs_review";
+  if (outcome === "evidence_consistent" && fixture === null) return "ready";
   if (!fixture || fixture.expectedOutcome !== outcome) return "needs_review";
   return fixture.action.status;
 }
@@ -25,9 +28,11 @@ export function applyActionPolicy(
       ...proposed,
       status,
       reason:
-        status === "blocked"
-          ? "Required evidence is incomplete."
-          : "Custom documents require review before staging.",
+        outcome === "not_found"
+          ? "Incomplete evidence - one or more requested fields were not found"
+          : status === "blocked"
+            ? "Required evidence is incomplete."
+            : "Custom documents require review before staging.",
     };
   }
 

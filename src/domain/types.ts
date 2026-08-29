@@ -29,6 +29,23 @@ export type ActionType =
 
 export type ActionStatus = "ready" | "needs_review" | "blocked";
 
+export type DocumentFamily = "supplier_invoice" | "warehouse_goods_receipt";
+
+export type VariantClassification = "correct" | "attention" | "incorrect";
+
+export type AttentionReason =
+  | "manual_instruction"
+  | "manual_correction"
+  | "unreadable_critical_evidence"
+  | "reference_conflict"
+  | "none";
+
+export type HandwrittenEvidence = {
+  fieldKey: "reviewer_comments" | "receiver_comments";
+  text: string;
+  legibility: "legible" | "unclear";
+};
+
 export interface ActionProposal {
   type: ActionType;
   title: string;
@@ -47,6 +64,12 @@ export interface SyntheticFixture {
   filename: string;
   title: string;
   description: string;
+  family: DocumentFamily;
+  classification: VariantClassification;
+  variantLabel: string;
+  differenceSummary: string[];
+  attentionReason: AttentionReason;
+  handwrittenEvidence: HandwrittenEvidence | null;
   requestedFields: Array<{ key: string; label: string }>;
   documentData: Record<string, string | null>;
   referenceData: Record<string, string | null>;

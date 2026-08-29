@@ -1,268 +1,530 @@
 import type {
+  ActionProposal,
   FieldResult,
   Outcome,
   SyntheticFixture,
 } from "./types";
 
-export const syntheticFixtures: readonly SyntheticFixture[] = [
-  {
-    id: "invoice-exception-packet",
-    filename: "invoice-exception-packet.pdf",
-    title: "Invoice exception packet",
-    description: "Supplier invoice with a handwritten payment hold instruction.",
-    requestedFields: [
-      { key: "vendor_name", label: "Vendor name" },
-      { key: "purchase_order_number", label: "Purchase-order number" },
-      { key: "invoice_total", label: "Invoice total" },
-    ],
-    documentData: {
-      vendor_name: "Northstar Paperworks",
-      purchase_order_number: "PO-NP-1001",
-      invoice_total: "1250.00 SGD",
-    },
-    referenceData: {
-      vendor_name: "Northstar Paperworks",
-      purchase_order_number: "PO-NP-1001",
-      invoice_total: "1200.00 SGD",
-    },
-    expectedOutcome: "needs_review",
-    action: {
-      type: "create_ap_exception_case",
-      title: "Create accounts-payable exception review",
-      summary: "Review the invoice total before payment processing continues.",
-      payload: [
-        { label: "Vendor", value: "Northstar Paperworks" },
-        { label: "Purchase-order number", value: "PO-NP-1001" },
-        { label: "Invoice total", value: "1250.00 SGD" },
-      ],
-      instructionEvidence: "Hold payment and contact the buyer.",
-      page: 1,
-      risk: "medium",
-      status: "needs_review",
-      reason: "The invoice total conflicts with the purchase-order register.",
-      stagedAt: null,
-    },
-  },
-  {
-    id: "warehouse-receiving-sheet",
-    filename: "warehouse-receiving-sheet.pdf",
-    title: "Warehouse receiving sheet",
-    description: "Receiving tally with a handwritten quantity correction.",
-    requestedFields: [
-      { key: "shipment_id", label: "Shipment ID" },
-      { key: "purchase_order_number", label: "Purchase-order number" },
-      { key: "received_quantity", label: "Received quantity" },
-    ],
-    documentData: {
-      shipment_id: "SHIP-4018",
-      purchase_order_number: "PO-WR-4018",
-      received_quantity: "48",
-    },
-    referenceData: {
-      shipment_id: "SHIP-4018",
-      purchase_order_number: "PO-WR-4018",
-      received_quantity: "48",
-    },
-    expectedOutcome: "clear",
-    action: {
-      type: "stage_inventory_receipt",
-      title: "Stage inventory receipt",
-      summary: "Stage the verified receipt for internal inventory posting.",
-      payload: [
-        { label: "Shipment ID", value: "SHIP-4018" },
-        { label: "Purchase-order number", value: "PO-WR-4018" },
-        { label: "Received quantity", value: "48" },
-      ],
-      instructionEvidence: "Corrected received quantity: 48.",
-      page: 1,
-      risk: "low",
-      status: "ready",
-      reason: "The corrected quantity matches the expected delivery.",
-      stagedAt: null,
-    },
-  },
-  {
-    id: "visitor-access-request",
-    filename: "visitor-access-request.pdf",
-    title: "Visitor access request",
-    description: "Access request without a valid sponsor approval code.",
-    requestedFields: [
-      { key: "visitor_name", label: "Visitor name" },
-      { key: "host", label: "Host" },
-      { key: "approval_code", label: "Approval code" },
-    ],
-    documentData: {
-      visitor_name: "Jordan Lee",
-      host: "Avery Tan",
-      approval_code: null,
-    },
-    referenceData: {
-      visitor_name: "Jordan Lee",
-      host: "Avery Tan",
-      approval_code: null,
-    },
-    expectedOutcome: "incomplete",
-    action: {
-      type: "create_security_review",
-      title: "Create security review",
-      summary: "Create a review item while badge preparation remains blocked.",
-      payload: [
-        { label: "Visitor name", value: "Jordan Lee" },
-        { label: "Host", value: "Avery Tan" },
-        { label: "Approval code", value: "Not provided" },
-      ],
-      instructionEvidence: "Prepare a visitor badge for arrival.",
-      page: 1,
-      risk: "high",
-      status: "blocked",
-      reason: "Required sponsor approval evidence is absent.",
-      stagedAt: null,
-    },
-  },
+const invoiceFields: SyntheticFixture["requestedFields"] = [
+  ["supplier", "Supplier"],
+  ["invoice_number", "Invoice number"],
+  ["purchase_order_number", "Purchase-order number"],
+  ["invoice_date", "Invoice date"],
+  ["currency", "Currency"],
+  ["invoice_total", "Invoice total"],
+  ["payment_terms", "Payment terms"],
+  ["reviewer_comments", "Reviewer comments"],
+].map(([key, label]) => ({ key, label }));
+const warehouseFields: SyntheticFixture["requestedFields"] = [
+  ["goods_receipt_number", "Goods receipt number"],
+  ["delivery_note_number", "Delivery note number"],
+  ["purchase_order_number", "Purchase-order number"],
+  ["item_code", "Item code"],
+  ["lot_number", "Lot number"],
+  ["expected_quantity", "Expected quantity"],
+  ["received_quantity", "Received quantity"],
+  ["damaged_quantity", "Damaged quantity"],
+  ["receiver_comments", "Receiver comments"],
+].map(([key, label]) => ({ key, label }));
+
+function record(
+  keys: SyntheticFixture["requestedFields"],
+  values: Array<string | null>,
+) {
+  return Object.fromEntries(
+    keys.map((field, index) => [field.key, values[index] ?? null]),
+  );
+}
+function action(
+  type: ActionProposal["type"],
+  status: ActionProposal["status"],
+  title: string,
+  instructionEvidence: string,
+  payload: ActionProposal["payload"],
+): ActionProposal {
+  return {
+    type,
+    title,
+    summary:
+      status === "ready"
+        ? "Stage the verified document for internal processing."
+        : "Keep the document out of staging pending review.",
+    payload,
+    instructionEvidence,
+    page: 1,
+    risk:
+      status === "blocked"
+        ? "high"
+        : status === "needs_review"
+          ? "medium"
+          : "low",
+    status,
+    reason:
+      status === "ready"
+        ? "Document evidence matches the trusted reference."
+        : status === "blocked"
+          ? "Required evidence cannot be read reliably."
+          : "Document evidence requires reviewer confirmation.",
+    stagedAt: null,
+  };
+}
+
+type InvoiceValues = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string | null,
 ];
+type WarehouseValues = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string | null,
+];
+function invoice(
+  id: string,
+  org: string,
+  classification: SyntheticFixture["classification"],
+  label: string,
+  attentionReason: SyntheticFixture["attentionReason"],
+  values: InvoiceValues,
+  reference: InvoiceValues,
+  outcome: Outcome,
+  note: string,
+  legibility: "legible" | "unclear",
+  differences: string[],
+): SyntheticFixture {
+  const status =
+    outcome === "clear"
+      ? "ready"
+      : outcome === "incomplete"
+        ? "blocked"
+        : "needs_review";
+  return {
+    id,
+    filename: id + ".pdf",
+    title: org + " invoice",
+    description: label,
+    family: "supplier_invoice",
+    classification,
+    variantLabel: label,
+    differenceSummary: differences,
+    attentionReason,
+    handwrittenEvidence: {
+      fieldKey: "reviewer_comments",
+      text: note,
+      legibility,
+    },
+    requestedFields: invoiceFields,
+    documentData: record(invoiceFields, values),
+    referenceData: record(invoiceFields, reference),
+    expectedOutcome: outcome,
+    action: action(
+      "create_ap_exception_case",
+      status,
+      outcome === "clear"
+        ? "Stage matched supplier invoice"
+        : outcome === "incomplete"
+          ? "Request readable invoice approval"
+          : "Review supplier invoice",
+      note,
+      [
+        { label: "Supplier", value: org },
+        { label: "Invoice number", value: values[1] },
+        { label: "Invoice total", value: values[5] },
+      ],
+    ),
+  };
+}
+function warehouse(
+  id: string,
+  org: string,
+  classification: SyntheticFixture["classification"],
+  label: string,
+  attentionReason: SyntheticFixture["attentionReason"],
+  values: WarehouseValues,
+  reference: WarehouseValues,
+  outcome: Outcome,
+  note: string,
+  legibility: "legible" | "unclear",
+  differences: string[],
+): SyntheticFixture {
+  const status =
+    outcome === "clear"
+      ? "ready"
+      : outcome === "incomplete"
+        ? "blocked"
+        : "needs_review";
+  return {
+    id,
+    filename: id + ".pdf",
+    title: org + " goods receipt",
+    description: label,
+    family: "warehouse_goods_receipt",
+    classification,
+    variantLabel: label,
+    differenceSummary: differences,
+    attentionReason,
+    handwrittenEvidence: {
+      fieldKey: "receiver_comments",
+      text: note,
+      legibility,
+    },
+    requestedFields: warehouseFields,
+    documentData: record(warehouseFields, values),
+    referenceData: record(warehouseFields, reference),
+    expectedOutcome: outcome,
+    action: action(
+      "stage_inventory_receipt",
+      status,
+      outcome === "clear"
+        ? "Stage matched goods receipt"
+        : outcome === "incomplete"
+          ? "Request readable damage evidence"
+          : "Review goods receipt",
+      note,
+      [
+        { label: "Goods receipt number", value: values[0] },
+        { label: "Item code", value: values[3] },
+        { label: "Received quantity", value: values[6] },
+      ],
+    ),
+  };
+}
 
-export const syntheticInvoices = [
-  { id: "clean-match", filename: "clean-match-invoice.pdf", vendor: "Northstar Paperworks" },
-  { id: "invoice-total-mismatch", filename: "invoice-total-mismatch.pdf", vendor: "Harborline Supplies" },
-  { id: "missing-purchase-order", filename: "missing-purchase-order.pdf", vendor: "Vireo Office Goods" },
-] as const;
-
-export const purchaseOrderReferences = {
-  "clean-match": {
-    vendorName: "Northstar Paperworks",
-    purchaseOrderNumber: "PO-NP-1001",
-    invoiceNumber: "INV-NP-1001",
-    invoiceTotal: "1250.00 SGD",
-  },
-  "invoice-total-mismatch": {
-    vendorName: "Harborline Supplies",
-    purchaseOrderNumber: "PO-HS-2001",
-    invoiceNumber: "INV-HS-2001",
-    invoiceTotal: "840.00 SGD",
-  },
-  "missing-purchase-order": {
-    vendorName: "Vireo Office Goods",
-    purchaseOrderNumber: "PO-VO-3001",
-    invoiceNumber: "INV-VO-3001",
-    invoiceTotal: "460.00 SGD",
-  },
-} as const;
-
-type RecordedRunResult = {
-  invoiceId: (typeof syntheticInvoices)[number]["id"];
-  outcome: Outcome;
-  fields: FieldResult[];
-};
-
-export const recordedRunResults: RecordedRunResult[] = [
-  {
-    invoiceId: "clean-match",
-    outcome: "clear",
-    fields: [
-      {
-        key: "vendor_name",
-        label: "Vendor name",
-        extractedValue: "Northstar Paperworks",
-        normalizedValue: "Northstar Paperworks",
-        evidence: "Supplier: Northstar Paperworks",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "purchase_order_number",
-        label: "Purchase-order number",
-        extractedValue: "PO-NP-1001",
-        normalizedValue: "PO-NP-1001",
-        evidence: "PO: PO-NP-1001",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "invoice_total",
-        label: "Invoice total",
-        extractedValue: "1250.00 SGD",
-        normalizedValue: "1250.00 SGD",
-        evidence: "Total due: 1250.00 SGD",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
+export const syntheticFixtures: readonly SyntheticFixture[] = [
+  invoice(
+    "invoice-clean-match",
+    "Northstar Office Supply",
+    "correct",
+    "Clean match",
+    "none",
+    [
+      "Northstar Office Supply",
+      "INV-NOS-1001",
+      "PO-NOS-1001",
+      "2026-08-12",
+      "SGD",
+      "1250.00 SGD",
+      "Net 30",
+      "Approved for standard payment.",
     ],
-  },
-  {
-    invoiceId: "invoice-total-mismatch",
-    outcome: "needs_review",
-    fields: [
-      {
-        key: "vendor_name",
-        label: "Vendor name",
-        extractedValue: "Harborline Supplies",
-        normalizedValue: "Harborline Supplies",
-        evidence: "Supplier: Harborline Supplies",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "purchase_order_number",
-        label: "Purchase-order number",
-        extractedValue: "PO-HS-2001",
-        normalizedValue: "PO-HS-2001",
-        evidence: "PO: PO-HS-2001",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "invoice_total",
-        label: "Invoice total",
-        extractedValue: "890.00 SGD",
-        normalizedValue: "890.00 SGD",
-        evidence: "Total due: 890.00 SGD",
-        page: 1,
-        evaluatorStatus: "conflict",
-        referenceMatch: false,
-      },
+    [
+      "Northstar Office Supply",
+      "INV-NOS-1001",
+      "PO-NOS-1001",
+      "2026-08-12",
+      "SGD",
+      "1250.00 SGD",
+      "Net 30",
+      "Approved for standard payment.",
     ],
-  },
-  {
-    invoiceId: "missing-purchase-order",
-    outcome: "incomplete",
-    fields: [
-      {
-        key: "vendor_name",
-        label: "Vendor name",
-        extractedValue: "Vireo Office Goods",
-        normalizedValue: "Vireo Office Goods",
-        evidence: "Supplier: Vireo Office Goods",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "purchase_order_number",
-        label: "Purchase-order number",
-        extractedValue: null,
-        normalizedValue: null,
-        evidence: null,
-        page: null,
-        evaluatorStatus: "not_found",
-        referenceMatch: null,
-      },
-      {
-        key: "invoice_total",
-        label: "Invoice total",
-        extractedValue: "460.00 SGD",
-        normalizedValue: "460.00 SGD",
-        evidence: "Total due: 460.00 SGD",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
+    "clear",
+    "Approved for standard payment.",
+    "legible",
+    ["All invoice values match the trusted reference."],
+  ),
+  invoice(
+    "invoice-buyer-hold",
+    "Harborline Components",
+    "attention",
+    "Buyer hold",
+    "manual_instruction",
+    [
+      "Harborline Components",
+      "INV-HC-2101",
+      "PO-HC-2101",
+      "2026-08-13",
+      "SGD",
+      "840.00 SGD",
+      "Net 45",
+      "Hold payment until buyer confirmation.",
     ],
-  },
+    [
+      "Harborline Components",
+      "INV-HC-2101",
+      "PO-HC-2101",
+      "2026-08-13",
+      "SGD",
+      "840.00 SGD",
+      "Net 45",
+      "Approved for payment.",
+    ],
+    "needs_review",
+    "Hold payment until buyer confirmation.",
+    "legible",
+    ["Handwritten payment hold differs from the reference note."],
+  ),
+  invoice(
+    "invoice-unreadable-approval",
+    "Vireo Industrial Goods",
+    "attention",
+    "Unreadable approval",
+    "unreadable_critical_evidence",
+    [
+      "Vireo Industrial Goods",
+      "INV-VIG-3101",
+      "PO-VIG-3101",
+      "2026-08-14",
+      "SGD",
+      "460.00 SGD",
+      "Net 30",
+      null,
+    ],
+    [
+      "Vireo Industrial Goods",
+      "INV-VIG-3101",
+      "PO-VIG-3101",
+      "2026-08-14",
+      "SGD",
+      "460.00 SGD",
+      "Net 30",
+      "Approved by procurement.",
+    ],
+    "incomplete",
+    "Unreadable handwritten approval note.",
+    "unclear",
+    ["Critical handwritten approval note is unreadable."],
+  ),
+  invoice(
+    "invoice-total-mismatch",
+    "Meridian Packaging",
+    "incorrect",
+    "Total mismatch",
+    "reference_conflict",
+    [
+      "Meridian Packaging",
+      "INV-MP-4101",
+      "PO-MP-4101",
+      "2026-08-15",
+      "SGD",
+      "1890.00 SGD",
+      "Net 30",
+      "Verify total against PO before release.",
+    ],
+    [
+      "Meridian Packaging",
+      "INV-MP-4101",
+      "PO-MP-4101",
+      "2026-08-15",
+      "SGD",
+      "1750.00 SGD",
+      "Net 30",
+      "Verify total against PO before release.",
+    ],
+    "needs_review",
+    "Verify total against PO before release.",
+    "legible",
+    ["Invoice total differs from the purchase-order reference."],
+  ),
+  invoice(
+    "invoice-po-currency-mismatch",
+    "Bluepeak Logistics",
+    "incorrect",
+    "PO and currency mismatch",
+    "reference_conflict",
+    [
+      "Bluepeak Logistics",
+      "INV-BL-5101",
+      "PO-BL-5104",
+      "2026-08-16",
+      "USD",
+      "720.00 USD",
+      "Net 15",
+      "Confirm PO and currency with sourcing.",
+    ],
+    [
+      "Bluepeak Logistics",
+      "INV-BL-5101",
+      "PO-BL-5103",
+      "2026-08-16",
+      "SGD",
+      "720.00 USD",
+      "Net 15",
+      "Confirm PO and currency with sourcing.",
+    ],
+    "needs_review",
+    "Confirm PO and currency with sourcing.",
+    "legible",
+    [
+      "Purchase order differs from reference.",
+      "Currency differs from reference.",
+    ],
+  ),
+  warehouse(
+    "warehouse-clean-receipt",
+    "Northstar Office Supply",
+    "correct",
+    "Clean receipt",
+    "none",
+    [
+      "GRN-NOS-6001",
+      "DN-NOS-6001",
+      "PO-NOS-1001",
+      "PAPER-A4-80",
+      "LOT-NOS-0812",
+      "50",
+      "50",
+      "0",
+      "Received in good condition.",
+    ],
+    [
+      "GRN-NOS-6001",
+      "DN-NOS-6001",
+      "PO-NOS-1001",
+      "PAPER-A4-80",
+      "LOT-NOS-0812",
+      "50",
+      "50",
+      "0",
+      "Received in good condition.",
+    ],
+    "clear",
+    "Received in good condition.",
+    "legible",
+    ["All receiving values match the trusted reference."],
+  ),
+  warehouse(
+    "warehouse-quantity-correction",
+    "Harborline Components",
+    "attention",
+    "Quantity correction",
+    "manual_correction",
+    [
+      "GRN-HC-6101",
+      "DN-HC-6101",
+      "PO-HC-6101",
+      "BOLT-M8-100",
+      "LOT-HC-0813",
+      "50",
+      "48",
+      "0",
+      "Correct received quantity to 48.",
+    ],
+    [
+      "GRN-HC-6101",
+      "DN-HC-6101",
+      "PO-HC-6101",
+      "BOLT-M8-100",
+      "LOT-HC-0813",
+      "50",
+      "50",
+      "0",
+      "Correct received quantity to 48.",
+    ],
+    "needs_review",
+    "Correct received quantity to 48.",
+    "legible",
+    ["Handwritten received quantity differs from the reference."],
+  ),
+  warehouse(
+    "warehouse-unreadable-damage-note",
+    "Vireo Industrial Goods",
+    "attention",
+    "Unreadable damage note",
+    "unreadable_critical_evidence",
+    [
+      "GRN-VIG-6201",
+      "DN-VIG-6201",
+      "PO-VIG-6201",
+      "GLOVE-NITRILE-M",
+      "LOT-VIG-0814",
+      "80",
+      "80",
+      "2",
+      null,
+    ],
+    [
+      "GRN-VIG-6201",
+      "DN-VIG-6201",
+      "PO-VIG-6201",
+      "GLOVE-NITRILE-M",
+      "LOT-VIG-0814",
+      "80",
+      "80",
+      "2",
+      "Two cartons damaged.",
+    ],
+    "incomplete",
+    "Unreadable handwritten damage note.",
+    "unclear",
+    ["Critical handwritten damage note is unreadable."],
+  ),
+  warehouse(
+    "warehouse-quantity-mismatch",
+    "Meridian Packaging",
+    "incorrect",
+    "Quantity mismatch",
+    "reference_conflict",
+    [
+      "GRN-MP-6301",
+      "DN-MP-6301",
+      "PO-MP-6301",
+      "CARTON-40X30",
+      "LOT-MP-0815",
+      "40",
+      "36",
+      "0",
+      "Count pallets before staging.",
+    ],
+    [
+      "GRN-MP-6301",
+      "DN-MP-6301",
+      "PO-MP-6301",
+      "CARTON-40X30",
+      "LOT-MP-0815",
+      "40",
+      "40",
+      "0",
+      "Count pallets before staging.",
+    ],
+    "needs_review",
+    "Count pallets before staging.",
+    "legible",
+    ["Received quantity differs from the delivery reference."],
+  ),
+  warehouse(
+    "warehouse-item-lot-mismatch",
+    "Bluepeak Logistics",
+    "incorrect",
+    "Item and lot mismatch",
+    "reference_conflict",
+    [
+      "GRN-BL-6401",
+      "DN-BL-6401",
+      "PO-BL-6401",
+      "FILTER-HEPA-H14",
+      "LOT-BL-0816-B",
+      "24",
+      "24",
+      "0",
+      "Quarantine until item and lot are confirmed.",
+    ],
+    [
+      "GRN-BL-6401",
+      "DN-BL-6401",
+      "PO-BL-6401",
+      "FILTER-HEPA-H13",
+      "LOT-BL-0816-A",
+      "24",
+      "24",
+      "0",
+      "Quarantine until item and lot are confirmed.",
+    ],
+    "needs_review",
+    "Quarantine until item and lot are confirmed.",
+    "legible",
+    ["Item code differs from reference.", "Lot number differs from reference."],
+  ),
 ];
 
 export type RecordedDocumentRunResult = {
@@ -270,114 +532,31 @@ export type RecordedDocumentRunResult = {
   outcome: Outcome;
   fields: FieldResult[];
 };
-
-export const recordedDocumentRunResults: RecordedDocumentRunResult[] = [
-  {
-    fixtureId: "invoice-exception-packet",
-    outcome: "needs_review",
-    fields: [
-      {
-        key: "vendor_name",
-        label: "Vendor name",
-        extractedValue: "Northstar Paperworks",
-        normalizedValue: "Northstar Paperworks",
-        evidence: "Vendor name: Northstar Paperworks",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "purchase_order_number",
-        label: "Purchase-order number",
-        extractedValue: "PO-NP-1001",
-        normalizedValue: "PO-NP-1001",
-        evidence: "Purchase-order number: PO-NP-1001",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "invoice_total",
-        label: "Invoice total",
-        extractedValue: "1250.00 SGD",
-        normalizedValue: "1250.00 SGD",
-        evidence: "Invoice total: 1250.00 SGD",
-        page: 1,
-        evaluatorStatus: "conflict",
-        referenceMatch: false,
-      },
-    ],
-  },
-  {
-    fixtureId: "warehouse-receiving-sheet",
-    outcome: "clear",
-    fields: [
-      {
-        key: "shipment_id",
-        label: "Shipment ID",
-        extractedValue: "SHIP-4018",
-        normalizedValue: "SHIP-4018",
-        evidence: "Shipment ID: SHIP-4018",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "purchase_order_number",
-        label: "Purchase-order number",
-        extractedValue: "PO-WR-4018",
-        normalizedValue: "PO-WR-4018",
-        evidence: "Purchase-order number: PO-WR-4018",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "received_quantity",
-        label: "Received quantity",
-        extractedValue: "48",
-        normalizedValue: "48",
-        evidence: "Received quantity: 48",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-    ],
-  },
-  {
-    fixtureId: "visitor-access-request",
-    outcome: "incomplete",
-    fields: [
-      {
-        key: "visitor_name",
-        label: "Visitor name",
-        extractedValue: "Jordan Lee",
-        normalizedValue: "Jordan Lee",
-        evidence: "Visitor name: Jordan Lee",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "host",
-        label: "Host",
-        extractedValue: "Avery Tan",
-        normalizedValue: "Avery Tan",
-        evidence: "Host: Avery Tan",
-        page: 1,
-        evaluatorStatus: "pass",
-        referenceMatch: true,
-      },
-      {
-        key: "approval_code",
-        label: "Approval code",
-        extractedValue: null,
-        normalizedValue: null,
-        evidence: null,
-        page: null,
-        evaluatorStatus: "not_found",
-        referenceMatch: null,
-      },
-    ],
-  },
-];
+export const recordedDocumentRunResults: RecordedDocumentRunResult[] =
+  syntheticFixtures.map((fixture) => ({
+    fixtureId: fixture.id,
+    outcome: fixture.expectedOutcome,
+    fields: fixture.requestedFields.map((requestedField) => {
+      const extractedValue = fixture.documentData[requestedField.key] ?? null;
+      const referenceValue = fixture.referenceData[requestedField.key] ?? null;
+      return {
+        key: requestedField.key,
+        label: requestedField.label,
+        extractedValue,
+        normalizedValue: extractedValue,
+        evidence:
+          extractedValue === null
+            ? null
+            : requestedField.label + ": " + extractedValue,
+        page: extractedValue === null ? null : 1,
+        evaluatorStatus:
+          extractedValue === null
+            ? "not_found"
+            : extractedValue === referenceValue
+              ? "pass"
+              : "conflict",
+        referenceMatch:
+          extractedValue === null ? null : extractedValue === referenceValue,
+      };
+    }),
+  }));

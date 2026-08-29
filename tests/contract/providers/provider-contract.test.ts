@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { syntheticFixtures } from "@/domain/fixtures";
+import {
+  recordedDocumentRunResults,
+  syntheticFixtures,
+} from "@/domain/fixtures";
 import { extractionResultSchema } from "@/server/workflow/provider";
 import { createRecordedExtractionProvider } from "@/server/workflow/recorded-provider";
 import {
@@ -82,65 +85,17 @@ describe("extraction provider contract", () => {
     expect(
       createRecordedExtractionProvider({
         provider: "openai",
-        fixtureId: "invoice-exception-packet",
+        fixtureId: "invoice-total-mismatch",
       }).model,
     ).toBe("gpt-5.6-luna");
     expect(() =>
       createRecordedExtractionProvider({
         provider: "openai",
-        fixtureId: "invoice-exception-packet",
+        fixtureId: "invoice-total-mismatch",
         model: "claude-haiku-4-5",
       }),
     ).toThrow("unsupported_live_model");
   });
-
-  it.each(["openai", "anthropic"] as const)(
-    "validates the %s recorded replay through the shared strict schema",
-    async (providerName) => {
-      const provider = createRecordedExtractionProvider({
-        provider: providerName,
-        fixtureId: "invoice-exception-packet",
-      });
-      const result = await provider.extract({ document, requestedFields });
-
-      expect(provider.executionMode).toBe("recorded");
-      expect(provider.promptVersion).toBe("recorded-fixture-2026-08-27.v1");
-      expect(extractionResultSchema.parse(result.extraction)).toEqual({
-        fields: [
-          {
-            ...validModelOutput.fields[0],
-            evidence: "Vendor name: Northstar Paperworks",
-          },
-          {
-            ...validModelOutput.fields[1],
-            evidence: "Purchase-order number: PO-NP-1001",
-          },
-          {
-            ...validModelOutput.fields[2],
-            evidence: "Invoice total: 1250.00 SGD",
-          },
-        ],
-        documentInstruction: "Hold payment and contact the buyer.",
-        action: {
-          type: "create_ap_exception_case",
-          title: "Create accounts-payable exception review",
-          summary: "Review the invoice total before payment processing continues.",
-          payload: [
-            { label: "Vendor", value: "Northstar Paperworks" },
-            { label: "Purchase-order number", value: "PO-NP-1001" },
-            { label: "Invoice total", value: "1250.00 SGD" },
-          ],
-          instructionEvidence: "Hold payment and contact the buyer.",
-          page: 1,
-          risk: "medium",
-          status: "needs_review",
-          reason: "The invoice total conflicts with the purchase-order register.",
-          stagedAt: null,
-        },
-      });
-      expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
-    },
-  );
 
   it.each(
     syntheticFixtures.flatMap((fixture) =>
@@ -162,6 +117,7 @@ describe("extraction provider contract", () => {
       });
 
       expect(provider.executionMode).toBe("recorded");
+      expect(provider.promptVersion).toBe("recorded-fixture-2026-08-27.v1");
       expect(extractionResultSchema.parse(result.extraction)).toEqual(
         result.extraction,
       );
@@ -169,6 +125,14 @@ describe("extraction provider contract", () => {
         fixture.requestedFields.map((field) => field.key),
       );
       expect(result.extraction.action).toEqual(fixture.action);
+      const recorded = recordedDocumentRunResults.find(
+        (candidate) => candidate.fixtureId === fixture.id,
+      );
+      expect(result.extraction.fields).toEqual(
+        recorded?.fields.map(
+          ({ evaluatorStatus, referenceMatch, ...field }) => field,
+        ),
+      );
       expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
     },
   );

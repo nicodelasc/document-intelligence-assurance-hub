@@ -19,36 +19,76 @@ function field(overrides: Partial<FieldResult> = {}): FieldResult {
 describe("decideOutcome", () => {
   it("marks a synthetic run incomplete when any field is missing", () => {
     expect(
-      decideOutcome({ sourceType: "synthetic", fields: [field({ extractedValue: null })] }),
+      decideOutcome({
+        sourceType: "synthetic",
+        fields: [field({ extractedValue: null })],
+      }),
     ).toBe("incomplete");
   });
 
   it("marks a synthetic conflict or reference mismatch for review", () => {
     expect(
-      decideOutcome({ sourceType: "synthetic", fields: [field({ evaluatorStatus: "conflict" })] }),
+      decideOutcome({
+        sourceType: "synthetic",
+        fields: [field({ evaluatorStatus: "conflict" })],
+      }),
     ).toBe("needs_review");
-    expect(decideOutcome({ sourceType: "synthetic", fields: [field({ referenceMatch: false })] })).toBe(
-      "needs_review",
-    );
+    expect(
+      decideOutcome({
+        sourceType: "synthetic",
+        fields: [field({ referenceMatch: false })],
+      }),
+    ).toBe("needs_review");
   });
 
   it("marks a fully supported synthetic run clear", () => {
-    expect(decideOutcome({ sourceType: "synthetic", fields: [field()] })).toBe("clear");
+    expect(decideOutcome({ sourceType: "synthetic", fields: [field()] })).toBe(
+      "clear",
+    );
   });
 
   it("marks a custom conflict as conflict", () => {
-    expect(decideOutcome({ sourceType: "custom", fields: [field({ evaluatorStatus: "conflict" })] })).toBe(
-      "conflict",
-    );
+    expect(
+      decideOutcome({
+        sourceType: "custom",
+        fields: [field({ evaluatorStatus: "conflict" })],
+      }),
+    ).toBe("conflict");
   });
 
   it("marks custom runs with every field not found as not found", () => {
     expect(
-      decideOutcome({ sourceType: "custom", fields: [field({ evaluatorStatus: "not_found" })] }),
+      decideOutcome({
+        sourceType: "custom",
+        fields: [field({ evaluatorStatus: "not_found" })],
+      }),
+    ).toBe("not_found");
+  });
+
+  it("marks partial custom evidence as not found before conflict evaluation", () => {
+    expect(
+      decideOutcome({
+        sourceType: "custom",
+        fields: [
+          field(),
+          field({ extractedValue: null, evaluatorStatus: "not_found" }),
+        ],
+      }),
+    ).toBe("not_found");
+    expect(
+      decideOutcome({
+        sourceType: "custom",
+        fields: [
+          field({ evaluatorStatus: "conflict" }),
+          field({ extractedValue: null, evaluatorStatus: "not_found" }),
+        ],
+      }),
     ).toBe("not_found");
   });
 
   it("marks other custom evidence as consistent", () => {
-    expect(decideOutcome({ sourceType: "custom", fields: [field()] })).toBe("evidence_consistent");
+    expect(decideOutcome({ sourceType: "custom", fields: [field()] })).toBe(
+      "evidence_consistent",
+    );
   });
 });
