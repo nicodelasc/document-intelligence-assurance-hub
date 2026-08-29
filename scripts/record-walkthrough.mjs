@@ -100,6 +100,25 @@ async function showChapter(
   await page.waitForTimeout(durationMs);
 }
 
+async function assertKeylessProviderAvailability(page) {
+  const response = await page.request.get(new URL("/api/models", origin).href);
+  if (!response.ok()) {
+    throw new Error("walkthrough_model_availability_unavailable");
+  }
+  const payload = await response.json();
+  const availability = payload?.providerAvailability;
+  if (
+    !availability ||
+    typeof availability.openai !== "boolean" ||
+    typeof availability.anthropic !== "boolean"
+  ) {
+    throw new Error("walkthrough_model_availability_invalid");
+  }
+  if (availability.openai || availability.anthropic) {
+    throw new Error("walkthrough_requires_keyless_provider_routes");
+  }
+}
+
 try {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -108,68 +127,117 @@ try {
   const page = await context.newPage();
   const video = page.video();
 
+  await assertKeylessProviderAvailability(page);
   await page.goto(new URL("/workbench", origin).href);
   await page.getByRole("heading", { name: "Review a document" }).waitFor();
+  await page.getByRole("tab", { name: "Supplier invoices" }).waitFor();
+  await page.getByRole("tab", { name: "Warehouse goods receipts" }).waitFor();
+  await page.getByLabel("Processing model").waitFor();
+  await page
+    .getByText("Sample results - no AI processing", { exact: true })
+    .waitFor();
   await showChapter(
     page,
     "Document Intelligence Assurance Hub",
-    "A public-safe document assurance prototype",
-    "Recorded mode demonstrates the complete workflow without sending a document to a model provider.",
+    "Supplier invoices and Warehouse goods receipts",
+    "The library contains 10 provider-neutral observations. The native Processing model selector changes configuration only until Process document is pressed.",
+    7_000,
+  );
+
+  await page.getByRole("tab", { name: "Warehouse goods receipts" }).click();
+  await page
+    .locator('[role="tabpanel"]:not([hidden])')
+    .getByTestId("fixture-variant")
+    .first()
+    .waitFor();
+  await showChapter(
+    page,
+    "Two document families",
+    "Five Warehouse goods receipts",
+    "The second family also contains Correct, Needs attention and Incorrect variants. Browsing does not start processing.",
     6_000,
   );
 
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("tab", { name: "Supplier invoices" }).click();
+  await page.getByRole("button", { name: /Clean match/i }).click();
+  await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
+  await page.getByRole("button", { name: "Process document" }).click();
   await page.getByRole("heading", { name: "Clear" }).waitFor();
   await page.getByRole("heading", { name: "Clear" }).scrollIntoViewIfNeeded();
+  for (const stage of [
+    "Understand document",
+    "Verify evidence",
+    "Resolve and prepare action",
+  ]) {
+    await page.getByText(stage, { exact: true }).waitFor();
+  }
   await showChapter(
     page,
-    "1 / 6 · Clean fixture",
-    "The invoice matches its purchase-order reference",
-    "The trace validates, stores, extracts, verifies each field, compares the reference and publishes telemetry. The deterministic decision is Clear.",
-    10_000,
+    "1 / 7 · Correct fixture",
+    "Clean match reaches a Clear outcome",
+    "Understand document, Verify evidence and Resolve and prepare action are the three visible stages. This fallback result has No AI processing attribution.",
+    14_000,
   );
 
-  await page.getByText("Invoice-total mismatch", { exact: true }).click();
+  await page.getByRole("button", { name: /Total mismatch/i }).click();
+  await page.getByLabel("Processing model").selectOption("claude-haiku-4-5");
   await showChapter(
     page,
-    "2 / 6 · Mismatch fixture",
-    "One field conflicts with reference data",
-    "The same requested fields are evaluated against the synthetic purchase-order register.",
-    4_000,
+    "2 / 7 · Discrepancy fixture",
+    "Total mismatch uses a second selected configuration",
+    "The selected model is visible before processing. A fallback result cannot establish a provider call or provider acceptance.",
+    5_000,
   );
-  await page.getByRole("button", { name: "Run assurance check" }).click();
+  await page.getByRole("button", { name: "Process document" }).click();
   await page.getByRole("heading", { name: "Needs review" }).waitFor();
   await page
     .getByRole("heading", { name: "Needs review" })
     .scrollIntoViewIfNeeded();
   await showChapter(
     page,
-    "2 / 6 · OpenAI selection",
+    "2 / 7 · Needs attention",
     "The invoice-total conflict is not cleared",
-    "The evidence remains visible and the deterministic evaluator returns Needs review. This is an assurance outcome rather than a payment approval.",
-    9_000,
+    "The evidence remains visible and the deterministic evaluator returns Needs review. This outcome does not approve payment or contact an external system.",
+    12_000,
   );
 
-  await page.getByRole("radio", { name: /Anthropic Claude Haiku 4.5/ }).check();
+  await page
+    .getByRole("button", { name: "Prepare email to the selected role" })
+    .click();
+  const prepareDialog = page.getByRole("dialog", {
+    name: "Prepare email copy",
+  });
+  await prepareDialog.getByLabel("Recipient role").waitFor();
+  await prepareDialog.getByRole("button", { name: "Prepare copy" }).waitFor();
   await showChapter(
     page,
-    "3 / 6 · Provider rerun",
-    "Rerun the same fixture with the Anthropic selection",
-    "Recorded mode preserves the provider-specific contract while making no external model request.",
+    "3 / 7 · Simulated workflow",
+    "A recipient role is required",
+    "The blank role keeps Prepare copy disabled. The role is a synthetic workflow label rather than an address or delivery destination.",
     4_000,
   );
-  await page.getByRole("button", { name: "Run assurance check" }).click();
-  await page.getByRole("heading", { name: "Needs review" }).waitFor();
+  await prepareDialog.getByLabel("Recipient role").selectOption("Buyer");
+  await prepareDialog.getByRole("button", { name: "Prepare copy" }).click();
+  const previewDialog = page.getByRole("dialog", {
+    name: "Prepared email copy",
+  });
+  await previewDialog
+    .getByText("Prepared only - not sent", { exact: true })
+    .waitFor();
   await showChapter(
     page,
-    "3 / 6 · Anthropic selection",
-    "The same conflict reaches the same safe outcome",
-    "The run history records provider, evaluator status, evidence, latency and outcome for comparison.",
-    7_000,
+    "3 / 7 · Prepared only - not sent",
+    "The copy remains inside the requesting browser",
+    "The application exposes no delivery control. Closing the preview leaves one prepared simulated Workflow activity event.",
+    12_000,
   );
+  await previewDialog.getByRole("button", { name: "Close preview" }).click();
+  await page
+    .getByText("Email copy prepared - not sent", { exact: true })
+    .waitFor();
 
-  await page.getByLabel("Run A").selectOption({ index: 3 });
-  await page.getByLabel("Run B").selectOption({ index: 1 });
+  await page.getByLabel("Run A").selectOption({ index: 1 });
+  await page.getByLabel("Run B").selectOption({ index: 2 });
   await page
     .getByRole("table", { name: /comparison of two assurance runs/i })
     .waitFor();
@@ -178,21 +246,26 @@ try {
     .scrollIntoViewIfNeeded();
   await showChapter(
     page,
-    "4 / 6 · Side-by-side evidence",
-    "Compare the clean run with the provider rerun",
-    "Requested fields, normalized values, evidence, execution mode, evaluator status, latency and outcome remain reviewable together.",
-    10_000,
+    "4 / 7 · Run A and Run B",
+    "Compare correct and discrepancy evidence",
+    "Requested fields, normalized values, evidence, selected configuration, No AI processing attribution and outcome remain reviewable together.",
+    12_000,
   );
 
   await page.getByRole("link", { name: "Operations" }).click();
   await page.getByRole("heading", { name: "Operations" }).waitFor();
-  await page.getByText("Benchmark coverage: OpenAI 3 · Anthropic 3").waitFor();
+  await page
+    .getByRole("heading", { name: "Operations workspace", level: 2 })
+    .scrollIntoViewIfNeeded();
+  await page
+    .getByRole("heading", { name: "Reference quality suite", level: 3 })
+    .waitFor();
   await showChapter(
     page,
-    "5 / 6 · Operations",
-    "Public-safe monitoring without hidden prompts",
-    "The console separates public run telemetry from the six recorded fixture-provider benchmark combinations.",
-    5_000,
+    "5 / 7 · Operations workspace",
+    "Workflow, performance and reference quality",
+    "Reference quality suite reports 10 provider-neutral observations: five Supplier invoices and five Warehouse goods receipts. It is not provider acceptance.",
+    13_000,
   );
 
   const firstRunSelector = page.locator('input[name="explorer-run"]').first();
@@ -204,21 +277,29 @@ try {
     .scrollIntoViewIfNeeded();
   await showChapter(
     page,
-    "5 / 6 · Run explorer",
-    "Inspect extraction, comparison and step telemetry",
-    "The active trace exposes evidence, safe errors, provider metadata and a prompt version identifier. API keys, hidden reasoning and full system prompts are never shown.",
-    14_000,
+    "5 / 7 · Run explorer",
+    "Confirmed attribution remains truthful",
+    "The selected fallback run reads No AI processing. A configured model is never promoted into confirmed dispatch attribution.",
+    9_000,
   );
 
   await page
-    .getByText("Illustrative scenario — not measured savings")
+    .getByRole("heading", { name: "Costs workspace", level: 2 })
+    .scrollIntoViewIfNeeded();
+  await page.getByText("US$0.00", { exact: true }).first().waitFor();
+  await page
+    .getByText("No confirmed model runs", { exact: true })
+    .first()
+    .waitFor();
+  await page
+    .getByRole("heading", { name: "Illustrative resource scenario", level: 3 })
     .scrollIntoViewIfNeeded();
   await showChapter(
     page,
-    "6 / 6 · Resource scenario",
-    "Edit transparent operating assumptions",
-    "Every result is labelled as illustrative so the portfolio does not claim measured Samsung or Kyndryl savings.",
-    4_000,
+    "6 / 7 · Costs workspace",
+    "US$0.00 and No confirmed model runs",
+    "The Illustrative resource scenario uses declared SGD inputs plus an illustrative exchange-rate assumption. It is not measured savings.",
+    13_000,
     "left",
   );
   await page.getByLabel("Documents each month").fill("400");
@@ -227,17 +308,17 @@ try {
     .scrollIntoViewIfNeeded();
   await showChapter(
     page,
-    "6 / 6 · Illustrative result",
+    "6 / 7 · Illustrative result",
     "The calculator updates from the declared inputs",
-    "Documents, fields, manual minutes, assisted minutes, loaded hourly cost and average model cost remain editable.",
-    10_000,
+    "Documents, fields, manual minutes, assisted minutes, loaded hourly cost and confirmed average model cost remain editable. Every SGD result stays illustrative.",
+    8_000,
     "left",
   );
   await showChapter(
     page,
-    "Release disclosure",
-    "Keyless recorded deployment",
-    "This walkthrough made no OpenAI or Anthropic model request. Live acceptance remains gated on explicit key authorization and production verification.",
+    "7 / 7 · Release disclosure",
+    "Provider acceptance is not established",
+    "This walkthrough made no model request. Prepared workflow activity cannot deliver email or execute an external action because no external connector is present.",
     10_000,
   );
 
