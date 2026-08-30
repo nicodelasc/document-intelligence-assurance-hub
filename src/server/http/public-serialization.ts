@@ -65,14 +65,17 @@ export function serializeActionProposal(action: ActionProposal): ActionProposal 
 
 function serializeResult(result: SaveRunResultsInput) {
   const legacyCompatible = result as SaveRunResultsInput & {
-    documentClassification?: SaveRunResultsInput["documentClassification"];
+    documentClassification?:
+      | SaveRunResultsInput["documentClassification"]
+      | null;
     documentInstruction?: string | null;
     action?: ActionProposal;
   };
   return {
     fields: result.fields.map(serializeField),
     outcome: result.outcome,
-    ...(legacyCompatible.documentClassification === undefined
+    ...(legacyCompatible.documentClassification === undefined ||
+    legacyCompatible.documentClassification === null
       ? {}
       : { documentClassification: legacyCompatible.documentClassification }),
     ...(legacyCompatible.documentInstruction === undefined

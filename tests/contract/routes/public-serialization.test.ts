@@ -266,6 +266,22 @@ describe("public serializers", () => {
     );
   });
 
+  it("omits a legacy null classification from active public detail", () => {
+    const run = poisonedRun();
+    const result = run.details?.result as Record<string, unknown> | null;
+    if (result === null || result === undefined) {
+      throw new Error("active result is required");
+    }
+    result.documentClassification = null;
+
+    const serialized = serializePublicRunDetail(run) as {
+      details: { result: Record<string, unknown> };
+    };
+    expect(serialized.details.result).not.toHaveProperty(
+      "documentClassification",
+    );
+  });
+
   it("keeps list rows anonymous while exposing only the active safe filename", () => {
     const serialized = JSON.stringify(serializePublicRunListRow(poisonedRun()));
 

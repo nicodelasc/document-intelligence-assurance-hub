@@ -360,6 +360,25 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     },
   );
 
+  it.each(["irrelevant", "uncertain"] as const)(
+    "denies retry processing for a failed guarded %s document",
+    async (documentClassification) => {
+      const container = createTestContainer({ clock: () => now });
+      await seedRun({
+        container,
+        status: "failed",
+        documentClassification,
+      });
+
+      const response = await postWorkflow(container, {
+        body: { action: "retry_processing", recipientRole: null },
+      });
+
+      expect(response.status).toBe(409);
+      expect(await errorCode(response)).toBe("workflow_action_not_allowed");
+    },
+  );
+
   it.each([
     ["unknown role", "prepare_email", "Unknown Role"],
     ["missing role", "prepare_email", null],

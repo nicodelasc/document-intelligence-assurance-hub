@@ -71,7 +71,7 @@ export type StoredRunRecord = {
 export type SaveRunResultsInput = {
   fields: FieldResult[];
   outcome: Outcome;
-  documentClassification?: DocumentClassification | null;
+  documentClassification?: DocumentClassification;
   documentInstruction: string | null;
   action: ActionProposal;
   usage: TokenUsage;

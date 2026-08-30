@@ -105,17 +105,17 @@ export function allowedWorkflowActionsForRun(input: {
   outcome: Outcome | null;
   documentClassification?: DocumentClassification | null;
 }): readonly WorkflowActionType[] {
-  if (input.status === "failed") {
-    return failedRunActions;
-  }
-  if (input.status !== "completed" || input.outcome === null) {
-    return noWorkflowActions;
-  }
   if (
     input.documentClassification === "irrelevant" ||
     input.documentClassification === "uncertain"
   ) {
     return guardedDocumentActions;
+  }
+  if (input.status === "failed") {
+    return failedRunActions;
+  }
+  if (input.status !== "completed" || input.outcome === null) {
+    return noWorkflowActions;
   }
   return actionsByOutcomeGroup[outcomeGroup[input.outcome]];
 }

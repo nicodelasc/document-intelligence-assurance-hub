@@ -39,3 +39,32 @@ Each production behavior was preceded by a focused failing test and a focused gr
 - Existing detailed results without a classification still serialize without the new field, so no persistence migration is required for the JSON result payload.
 - No live provider credentials were read or used.
 - Concerns: none.
+
+## Fix round 1: Review findings
+
+### Finding 1: Active public classification must have only four values
+
+- Changed `SaveRunResultsInput.documentClassification` to allow only the four-value classification union when present. Legacy result payloads are still treated as untrusted at serialization and a `null` value is omitted rather than exposed.
+- Added public contract coverage for a legacy detailed result containing `documentClassification: null`.
+- RED command: `npx vitest run tests/contract/routes/public-serialization.test.ts -t "omits a legacy null classification"`.
+- RED result: expected the serialized detail not to have `documentClassification` but received `null`.
+
+### Finding 2: Guarded classification must override failed-run recovery actions
+
+- Moved the guarded `irrelevant` and `uncertain` classification policy ahead of the failed-run action branch.
+- Added unit coverage for guarded failed runs and route coverage proving `retry_processing` is denied even when a persisted detailed result has guarded classification.
+- RED command: `npx vitest run tests/unit/domain/workflow-actions.test.ts -t "limits a failed guarded"`.
+- RED result: received `retry_processing` and `download_summary` instead of `replace_document` and `download_summary`.
+- RED command: `npx vitest run tests/contract/routes/workflow-actions-route.test.ts -t "denies retry processing for a failed guarded"`.
+- RED result: route returned HTTP 200 instead of HTTP 409.
+
+### Green verification
+
+- Green command: `npx vitest run tests/contract/routes/public-serialization.test.ts tests/unit/domain/workflow-actions.test.ts tests/contract/routes/workflow-actions-route.test.ts`.
+- Green result: 3 test files and 74 tests passed.
+- Files changed: `src/server/repositories/run-repository.ts`, `src/server/http/public-serialization.ts`, `src/domain/workflow-actions.ts`, `tests/contract/routes/public-serialization.test.ts`, `tests/unit/domain/workflow-actions.test.ts` and `tests/contract/routes/workflow-actions-route.test.ts`.
+- Concerns: none. The serializer safely omits invalid legacy `null` while the persisted current contract permits only valid classifications.
+- Typecheck command: `npm run typecheck`.
+- Typecheck result: passed.
+- Full Vitest command: `npm test`.
+- Full Vitest result: 46 test files and 541 tests passed.
