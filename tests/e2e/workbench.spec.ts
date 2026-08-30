@@ -81,7 +81,8 @@ test("browses document families without processing then runs the selected fixtur
   await expect(page.getByRole("button", { name: "Download discrepancy summary" })).toBeVisible();
 
   const sectionHeadings = await page
-    .locator(".assurance-rail > .rule-panel > .rule-panel__header > h2")
+    .locator(".assurance-rail")
+    .getByRole("heading", { level: 2 })
     .allTextContents();
   expect(sectionHeadings).toEqual([
     "Assurance trace",
