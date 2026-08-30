@@ -65,19 +65,25 @@ export function StatusMark({ status }: { status: "idle" | "active" | "pass" | "w
 
 export function ProcessingStatus({
   available,
+  availabilityStatus,
   source,
 }: {
   available: boolean;
+  availabilityStatus: "loading" | "resolved" | "failed";
   source: "synthetic" | "custom";
 }) {
-  if (available) return null;
+  if (availabilityStatus === "resolved" && available) return null;
   return (
     <div className="processing-status" role="note">
       <StatusMark status="active" />
       <span>
-        {source === "synthetic"
-          ? "Sample results - no AI processing"
-          : "Processing unavailable for this model"}
+        {availabilityStatus === "loading"
+          ? "Checking processing availability"
+          : availabilityStatus === "failed"
+            ? "Processing availability unavailable"
+            : source === "synthetic"
+              ? "Sample results - no AI processing"
+              : "Processing unavailable for this model"}
       </span>
     </div>
   );

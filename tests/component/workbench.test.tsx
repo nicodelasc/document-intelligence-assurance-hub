@@ -916,11 +916,9 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
-  it("applies delayed availability after the active run unlocks", async () => {
+  it("keeps processing unavailable until model availability resolves", async () => {
     const user = userEvent.setup();
     let resolveModels!: (response: Response) => void;
-    let resolveFirstRun!: (response: Response) => void;
-    let postCount = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/models") {
@@ -929,24 +927,7 @@ describe("Workbench request lifecycle", () => {
         });
       }
       if (url === "/api/runs?limit=12") return emptyHistory();
-      if (url === "/api/runs/run_delayed_models") {
-        return new Response(JSON.stringify({
-          run: {
-            id: "run_delayed_models",
-            providerCalled: false,
-            provider: null,
-            model: null,
-            details: { result: { action: readyAction } },
-          },
-        }), { status: 200, headers: { "content-type": "application/json" } });
-      }
       if (init?.method === "POST") {
-        postCount += 1;
-        if (postCount === 1) {
-          return new Promise<Response>((resolve) => {
-            resolveFirstRun = resolve;
-          });
-        }
         return ndjson([{
           type: "failed",
           code: "test_terminal",
@@ -959,10 +940,10 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
-    await waitFor(() => expect(postCount).toBe(1));
-    const firstPost = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
-    expect((firstPost?.[1]?.body as FormData).get("executionMode")).toBe("recorded");
+    const processButton = screen.getByRole("button", { name: "Process document" });
+    expect(processButton).toBeDisabled();
+    await user.click(processButton);
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
 
     await act(async () => {
       resolveModels(
@@ -970,45 +951,34 @@ describe("Workbench request lifecycle", () => {
       );
       await Promise.resolve();
     });
-    expect(screen.getByText("Sample results - no AI processing")).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-luna");
-
-    await act(async () => {
-      resolveFirstRun(ndjson([{
-        type: "completed",
-        outcome: "clear",
-        runId: "run_delayed_models",
-        executionMode: "recorded",
-        deletionToken: "delayed_models_token",
-        timestamp: "2026-08-29T00:00:01.000Z",
-      }]));
-    });
-    await waitFor(() =>
-      expect(
-        screen.queryByText("Sample results - no AI processing"),
-      ).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(processButton).toBeEnabled());
     expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-terra");
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
-    await waitFor(() => expect(postCount).toBe(2));
-    const secondPost = fetchMock.mock.calls.filter((call) => call[1]?.method === "POST")[1];
-    expect((secondPost?.[1]?.body as FormData).get("executionMode")).toBe("live");
-    expect((secondPost?.[1]?.body as FormData).get("model")).toBe("gpt-5.6-terra");
-    expect(new Headers(secondPost?.[1]?.headers).get("x-run-execution-mode")).toBe("live");
-
-    await user.click(screen.getByRole("button", { name: "+ Add your document" }));
-    await user.upload(
-      screen.getByLabelText("Document file"),
-      new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "safe.png", { type: "image/png" }),
+    await user.click(processButton);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(true),
     );
-    await user.type(screen.getByLabelText("Review field 1"), "Vendor");
-    await user.type(screen.getByLabelText("Review field 2"), "Total");
-    await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+    expect((post?.[1]?.body as FormData).get("executionMode")).toBe("live");
+    expect((post?.[1]?.body as FormData).get("model")).toBe("gpt-5.6-terra");
+    expect(new Headers(post?.[1]?.headers).get("x-run-execution-mode")).toBe("live");
+  });
 
-    await waitFor(() => expect(postCount).toBe(3));
-    expect(screen.queryByText("Processing unavailable for this model")).not.toBeInTheDocument();
+  it("keeps processing unavailable when model availability fails to load", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/models"
+        ? new Response(null, { status: 503 })
+        : emptyHistory(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    expect(await screen.findByText("Processing availability unavailable")).toBeVisible();
+    const processButton = screen.getByRole("button", { name: "Process document" });
+    expect(processButton).toBeDisabled();
+    await user.click(processButton);
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
   });
 
   it.each([
@@ -1043,7 +1013,9 @@ describe("Workbench request lifecycle", () => {
         "/api/models",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ));
-      await user.click(screen.getByRole("button", { name: "Process document" }));
+      const processButton = screen.getByRole("button", { name: "Process document" });
+      await waitFor(() => expect(processButton).toBeEnabled());
+      await user.click(processButton);
 
       await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(true));
       const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
@@ -1064,10 +1036,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/models",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    ));
+    expect(await screen.findByText("Sample results - no AI processing")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "+ Add your document" }));
     await user.upload(
       screen.getByLabelText("Document file"),
@@ -1156,13 +1125,10 @@ describe("Workbench request lifecycle", () => {
   it("locks run configuration from validation through execution", async () => {
     const user = userEvent.setup();
     let resolveRun!: (response: Response) => void;
-    let resolveModels!: (response: Response) => void;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/models") {
-        return new Promise<Response>((resolve) => {
-          resolveModels = resolve;
-        });
+        return modelCatalogue({ openai: false, anthropic: false });
       }
       if (init?.method === "POST") {
         return new Promise<Response>((resolve) => {
@@ -1180,6 +1146,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
+    await screen.findByText("Sample results - no AI processing");
     const selectedFixture = screen.getByRole("button", { name: /Northstar Office Supply invoice/i });
     await user.click(screen.getByRole("button", { name: "Process document" }));
 
@@ -1191,22 +1158,6 @@ describe("Workbench request lifecycle", () => {
       screen.getByRole("tab", { name: "Warehouse goods receipts" }),
     ).toBeDisabled();
     expect(selectedFixture).toHaveAttribute("aria-pressed", "true");
-    await act(async () => {
-      resolveModels(
-        new Response(
-          JSON.stringify({
-            models: [
-              { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
-              { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
-            ],
-            defaults: { openai: "claude-haiku-4-5" },
-            providerAvailability: { openai: false, anthropic: false },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      );
-      await Promise.resolve();
-    });
     expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-luna");
 
     resolveRun(ndjson([
@@ -1221,6 +1172,9 @@ describe("Workbench request lifecycle", () => {
     let resolveFirstDetail!: (response: Response) => void;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url === "/api/models") {
+        return modelCatalogue({ openai: false, anthropic: false });
+      }
       if (init?.method === "POST") {
         return ndjson([
           { type: "completed", outcome: "clear", runId: "run_detail_recovery", executionMode: "recorded", deletionToken: "detail_capability", timestamp: "2026-08-28T00:00:00.100Z" },
@@ -1268,6 +1222,9 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/models") {
+          return modelCatalogue({ openai: false, anthropic: false });
+        }
         if (String(input) === "/api/runs/run_group_failure") {
           return new Response(JSON.stringify({
             run: {
@@ -1323,7 +1280,10 @@ describe("Workbench request lifecycle", () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/models") {
+          return modelCatalogue({ openai: false, anthropic: false });
+        }
         if (!init?.method) return emptyHistory();
         return ndjson([
           { type: "stage", stage: "validating", timestamp: "2026-08-28T00:00:00.000Z" },
@@ -1841,7 +1801,10 @@ describe("Workbench request lifecycle", () => {
     const hostileEvidence = '<script data-private-payload="evidence">alert(1)</script>';
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/models") {
+          return modelCatalogue({ openai: false, anthropic: false });
+        }
         if (!init?.method) return emptyHistory();
         return ndjson([
           {
@@ -2049,6 +2012,11 @@ describe("Workbench request lifecycle", () => {
     const user = userEvent.setup();
     let activeSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/models") {
+        return Promise.resolve(
+          modelCatalogue({ openai: false, anthropic: false }),
+        );
+      }
       if (!init?.method) return Promise.resolve(emptyHistory());
       activeSignal = init.signal as AbortSignal;
       return new Promise<Response>(() => undefined);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { syntheticFixtures } from "@/domain/fixtures";
 import { runEventSchema } from "@/domain/run-schema";
 import type { RunEvent } from "@/domain/types";
@@ -296,62 +296,6 @@ describe("POST /api/runs", () => {
     expect(bodyReads).toBe(0);
   });
 
-  it("rejects a disabled live preflight without consuming multipart bytes", async () => {
-    let formDataReads = 0;
-    const request = new Request("http://local.test/api/runs", {
-      method: "POST",
-      headers: {
-        "content-type": "multipart/form-data; boundary=unused",
-        "idempotency-key": "test-disabled-live-preflight",
-        "x-run-source-type": "custom",
-        "x-run-execution-mode": "live",
-      },
-      body: "--unused--",
-    });
-    Object.defineProperty(request, "formData", {
-      value: async () => {
-        formDataReads += 1;
-        throw new Error("multipart_body_must_not_be_consumed");
-      },
-    });
-
-    const response = await handleRunsPost(request, createTestContainer());
-
-    expect(response.status).toBe(503);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("live_disabled");
-    expect(formDataReads).toBe(0);
-  });
-
-  it("rejects a recorded custom preflight without consuming multipart bytes", async () => {
-    let formDataReads = 0;
-    const request = new Request("http://local.test/api/runs", {
-      method: "POST",
-      headers: {
-        "content-type": "multipart/form-data; boundary=unused",
-        "idempotency-key": "test-recorded-custom-preflight",
-        "x-run-source-type": "custom",
-        "x-run-execution-mode": "recorded",
-      },
-      body: "--unused--",
-    });
-    Object.defineProperty(request, "formData", {
-      value: async () => {
-        formDataReads += 1;
-        throw new Error("multipart_body_must_not_be_consumed");
-      },
-    });
-
-    const response = await handleRunsPost(request, createTestContainer());
-
-    expect(response.status).toBe(409);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("recorded_custom_unavailable");
-    expect(formDataReads).toBe(0);
-  });
-
   it("keeps multipart values authoritative when preflight metadata disagrees", async () => {
     const base = syntheticRequest();
     const request = new Request(base, {
@@ -520,21 +464,56 @@ describe("POST /api/runs", () => {
     ).toBe(0);
   });
 
-  it("rejects live mode without silently falling back to recorded mode", async () => {
-    const container = createTestContainer();
+  it("uses live execution for an available built-in provider despite a recorded client mode", async () => {
+    const selected: Array<{ provider: string; mode: string }> = [];
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      providerAvailability: { openai: true, anthropic: false },
+      async createProvider(input) {
+        selected.push({ provider: input.provider, mode: input.executionMode });
+        return {
+          provider: "openai",
+          model: input.model,
+          promptVersion: "server-owned-admission.v1",
+          executionMode: "live",
+          async extract(request) {
+            await request.onDispatch?.();
+            return {
+              extraction: {
+                fields: request.requestedFields.map((field) => ({
+                  key: field.key,
+                  label: field.label,
+                  extractedValue: null,
+                  normalizedValue: null,
+                  evidence: null,
+                  page: null,
+                })),
+                documentInstruction: null,
+                action: structuredClone(syntheticFixtures[0].action),
+              },
+              usage: { inputTokens: 100, outputTokens: 20 },
+              latencyMs: 5,
+            };
+          },
+        };
+      },
+    });
     const request = formRequest([
       ["sourceType", "synthetic"],
       ["provider", "openai"],
       ["sampleId", "warehouse-clean-receipt"],
-      ["executionMode", "live"],
+      ["executionMode", "recorded"],
     ]);
 
     const response = await handleRunsPost(request, container);
+    const events = await readLines(response);
 
-    expect(response.status).toBe(503);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("live_disabled");
+    expect(response.status).toBe(200);
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      executionMode: "live",
+    });
+    expect(selected).toEqual([{ provider: "openai", mode: "live" }]);
   });
 
   it("defaults custom uploads to live mode and rejects them before storage when disabled", async () => {
@@ -572,8 +551,40 @@ describe("POST /api/runs", () => {
     ).toBe(0);
   });
 
-  it("rejects explicit recorded mode for custom uploads without fabricating extraction", async () => {
-    const container = createTestContainer({ liveModeEnabled: true });
+  it("uses live execution for an available custom provider despite a recorded client mode", async () => {
+    const selected: Array<{ provider: string; mode: string }> = [];
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      providerAvailability: { openai: false, anthropic: true },
+      async createProvider(input) {
+        selected.push({ provider: input.provider, mode: input.executionMode });
+        return {
+          provider: "anthropic",
+          model: input.model,
+          promptVersion: "server-owned-custom-admission.v1",
+          executionMode: "live",
+          async extract(request) {
+            await request.onDispatch?.();
+            return {
+              extraction: {
+                fields: request.requestedFields.map((field) => ({
+                  key: field.key,
+                  label: field.label,
+                  extractedValue: null,
+                  normalizedValue: null,
+                  evidence: null,
+                  page: null,
+                })),
+                documentInstruction: null,
+                action: structuredClone(syntheticFixtures[0].action),
+              },
+              usage: { inputTokens: 100, outputTokens: 20 },
+              latencyMs: 5,
+            };
+          },
+        };
+      },
+    });
     const request = formRequest([
       ["sourceType", "custom"],
       ["provider", "anthropic"],
@@ -589,16 +600,14 @@ describe("POST /api/runs", () => {
     ]);
 
     const response = await handleRunsPost(request, container);
+    const events = await readLines(response);
 
-    expect(response.status).toBe(409);
-    const body = await readJson<{ error: { code: string; message: string } }>(
-      response,
-    );
-    expect(body.error.code).toBe("recorded_custom_unavailable");
-    expect(body.error.message).toContain("synthetic sample");
-    expect(
-      (await container.repository.aggregateAnonymousUsage()).totalRuns,
-    ).toBe(0);
+    expect(response.status).toBe(200);
+    expect(events.at(-1)).toMatchObject({
+      type: "completed",
+      executionMode: "live",
+    });
+    expect(selected).toEqual([{ provider: "anthropic", mode: "live" }]);
   });
 
   it("passes an enabled custom live run through the selected injected provider and quota reservation", async () => {
@@ -692,22 +701,23 @@ describe("POST /api/runs", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("returns a post-create deletion receipt when live mode is enabled without a provider key", async () => {
-    const { createOpenAIExtractionProvider } = await import(
-      "@/server/workflow/live-provider"
-    );
+  it("rejects an unavailable custom provider before claim, quota or document storage", async () => {
+    const documentStore = new InMemoryDocumentStore();
     const container = createTestContainer({
       liveModeEnabled: true,
+      providerAvailability: { openai: false, anthropic: true },
+      documentStore,
       async createProvider() {
-        return createOpenAIExtractionProvider({
-          liveEnabled: true,
-          apiKey: undefined,
-        });
+        throw new Error("provider_must_not_be_created");
       },
     });
+    const claimRunRequest = vi.spyOn(container.repository, "claimRunRequest");
+    const reserveQuota = vi.spyOn(container.quotaRepository, "reserve");
+    const storePrivateDocument = vi.spyOn(documentStore, "storePrivateDocument");
     const request = formRequest([
       ["sourceType", "custom"],
       ["provider", "openai"],
+      ["executionMode", "live"],
       ["requestedField", "Vendor name"],
       ["requestedField", "Invoice total"],
       ["consent", "true"],
@@ -719,45 +729,19 @@ describe("POST /api/runs", () => {
     ]);
 
     const response = await handleRunsPost(request, container);
-    const events = await readLines(response);
+    const body = await readJson<{ error: { code: string; message: string } }>(
+      response,
+    );
 
-    expect(events.at(-1)).toMatchObject({
-      type: "failed",
-      code: "live_provider_key_missing",
-      runId: expect.any(String),
-      deletionToken: expect.any(String),
-    });
-    const failed = events.at(-1) as { runId: string };
-    const listResponse = await handleRunsGet(
-      new Request("http://local.test/api/runs"),
-      container,
-    );
-    expect(await listResponse.json()).toMatchObject({
-      runs: [{
-        id: failed.runId,
-        executionMode: "live",
-        providerCalled: false,
-        provider: null,
-        model: null,
-        configuredProvider: "openai",
-        configuredModel: "gpt-5.6-luna",
-      }],
-    });
-    const detailResponse = await handleRunGet(
-      new Request(`http://local.test/api/runs/${failed.runId}`),
-      { id: failed.runId },
-      container,
-    );
-    expect(await detailResponse.json()).toMatchObject({
-      run: {
-        id: failed.runId,
-        providerCalled: false,
-        provider: null,
-        model: null,
-        configuredProvider: "openai",
-        configuredModel: "gpt-5.6-luna",
-      },
-    });
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("live_disabled");
+    expect(body.error.message).toContain("synthetic sample");
+    expect(claimRunRequest).not.toHaveBeenCalled();
+    expect(reserveQuota).not.toHaveBeenCalled();
+    expect(storePrivateDocument).not.toHaveBeenCalled();
+    expect(
+      (await container.repository.aggregateAnonymousUsage()).totalRuns,
+    ).toBe(0);
   });
 
   it("keeps public attribution uncalled when document storage fails before dispatch", async () => {

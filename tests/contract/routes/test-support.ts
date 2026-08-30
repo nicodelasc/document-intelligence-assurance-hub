@@ -15,6 +15,11 @@ let idempotencySequence = 0;
 export function createTestContainer(
   overrides: Partial<HttpContainer> = {},
 ): HttpContainer {
+  const liveModeEnabled = overrides.liveModeEnabled ?? false;
+  const providerAvailability = overrides.providerAvailability ?? {
+    openai: liveModeEnabled,
+    anthropic: liveModeEnabled,
+  };
   return {
     repository: new InMemoryRunRepository(),
     quotaRepository: new InMemoryQuotaRepository(),
@@ -24,8 +29,8 @@ export function createTestContainer(
     requestIdSource: () => "request-test-1",
     bucketTokenSource: () => "test-browser-bucket-token-with-enough-entropy-1234567890",
     replayStageDelayMs: 0,
-    liveModeEnabled: false,
-    providerAvailability: { openai: false, anthropic: false },
+    liveModeEnabled,
+    providerAvailability,
     cronSecret: "test-cron-secret",
     execute: executeRun,
     async createProvider(input) {

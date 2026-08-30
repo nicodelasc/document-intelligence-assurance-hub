@@ -93,6 +93,7 @@ type ModelConfiguration = {
   selectedModel: string;
   providerAvailability: ProviderAvailability;
 };
+type ModelAvailabilityStatus = "loading" | "resolved" | "failed";
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
 
@@ -341,20 +342,22 @@ function modelConfigurationFromPayload(payload: unknown): ModelConfiguration | n
     },
   );
   if (!approvedModels.length) return null;
+  if (
+    typeof record.providerAvailability?.openai !== "boolean" ||
+    typeof record.providerAvailability.anthropic !== "boolean"
+  ) {
+    return null;
+  }
   const serverDefault = record.defaults?.openai;
   return {
     models: approvedModels,
     selectedModel: approvedModels.some((model) => model.id === serverDefault)
       ? serverDefault!
       : approvedModels[0].id,
-    providerAvailability:
-      typeof record.providerAvailability?.openai === "boolean" &&
-      typeof record.providerAvailability.anthropic === "boolean"
-        ? {
-            openai: record.providerAvailability.openai,
-            anthropic: record.providerAvailability.anthropic,
-          }
-        : { openai: false, anthropic: false },
+    providerAvailability: {
+      openai: record.providerAvailability.openai,
+      anthropic: record.providerAvailability.anthropic,
+    },
   };
 }
 
@@ -367,6 +370,8 @@ export function WorkbenchView() {
     openai: false,
     anthropic: false,
   });
+  const [modelAvailabilityStatus, setModelAvailabilityStatus] =
+    useState<ModelAvailabilityStatus>("loading");
   const [custom, setCustom] = useState<CustomUploadState>({ file: null, fields: ["", ""], consent: false, valid: false });
   const [previewUrl, setPreviewUrl] = useState("");
   const [running, setRunning] = useState(false);
@@ -417,6 +422,7 @@ export function WorkbenchView() {
     setModels(configuration.models);
     setSelectedModel(configuration.selectedModel);
     setProviderAvailability(configuration.providerAvailability);
+    setModelAvailabilityStatus("resolved");
   }, []);
 
   const unlockConfiguration = useCallback(() => {
@@ -440,16 +446,17 @@ export function WorkbenchView() {
     async function hydrateModels() {
       try {
         const response = await fetch("/api/models", { signal: controller.signal });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error("model_configuration_unavailable");
         const configuration = modelConfigurationFromPayload(await response.json());
-        if (!configuration || controller.signal.aborted) return;
+        if (!configuration) throw new Error("model_configuration_invalid");
+        if (controller.signal.aborted) return;
         if (configurationLockedRef.current) {
           pendingModelConfigurationRef.current = configuration;
           return;
         }
         applyModelConfiguration(configuration);
       } catch {
-        // The bundled approved catalogue keeps the selector usable if metadata refresh fails.
+        if (!controller.signal.aborted) setModelAvailabilityStatus("failed");
       }
     }
     async function hydrateHistory() {
@@ -682,6 +689,10 @@ export function WorkbenchView() {
 
   async function runAssurance(snapshotOverride?: RunSubmissionSnapshot) {
     if (running || cancellableRef.current) return;
+    if (modelAvailabilityStatus !== "resolved") {
+      setError("Processing availability has not been confirmed.");
+      return;
+    }
     const snapshot = snapshotOverride ?? captureRunSnapshot();
     if (snapshot.source === "custom" && snapshot.executionMode !== "live") {
       setError("Processing unavailable for this model");
@@ -925,12 +936,19 @@ export function WorkbenchView() {
             <div className="run-controls">
               <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
               <div className="run-actions">
-                <ProcessingStatus available={providerAvailability[provider]} source={source} />
+                <ProcessingStatus
+                  available={providerAvailability[provider]}
+                  availabilityStatus={modelAvailabilityStatus}
+                  source={source}
+                />
                 <Button
                   ref={runButtonRef}
                   type="submit"
                   busy={running}
-                  disabled={source === "custom" && !providerAvailability[provider]}
+                  disabled={
+                    modelAvailabilityStatus !== "resolved" ||
+                    (source === "custom" && !providerAvailability[provider])
+                  }
                 >
                   Process document
                 </Button>

@@ -132,22 +132,6 @@ export async function handleRunsPost(
         bucket,
       );
     }
-    if (preflight?.sourceType === "custom" && preflight.executionMode === "recorded") {
-      return attachBucketCookie(
-        safeErrorResponse({
-          code: "recorded_custom_unavailable",
-          message:
-            "Demo mode cannot extract a custom document. Choose a synthetic sample or enable live processing.",
-          requestId,
-          status: 409,
-          headers: noIndexHeaders,
-        }),
-        bucket,
-      );
-    }
-    if (preflight?.executionMode === "live" && !container.liveModeEnabled) {
-      return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
-    }
     const input = await parseRunMultipart(request, container);
     if (
       preflight &&
@@ -165,20 +149,9 @@ export async function handleRunsPost(
         bucket,
       );
     }
-    if (input.sourceType === "custom" && input.executionMode === "recorded") {
-      return attachBucketCookie(
-        safeErrorResponse({
-          code: "recorded_custom_unavailable",
-          message:
-            "Demo mode cannot extract a custom document. Choose a synthetic sample or enable live processing.",
-          requestId,
-          status: 409,
-          headers: noIndexHeaders,
-        }),
-        bucket,
-      );
-    }
-    if (input.executionMode === "live" && !container.liveModeEnabled) {
+    const providerAvailable = container.providerAvailability[input.provider];
+    const executionMode = providerAvailable ? "live" : "recorded";
+    if (input.sourceType === "custom" && !providerAvailable) {
       return attachBucketCookie(quotaError("live_disabled", requestId), bucket);
     }
 
@@ -207,7 +180,7 @@ export async function handleRunsPost(
       provider = await container.createProvider({
         provider: input.provider,
         model: input.model,
-        executionMode: input.executionMode,
+        executionMode,
         sampleId: input.fixture?.id ?? null,
       });
     } catch {
@@ -218,12 +191,12 @@ export async function handleRunsPost(
     const quota = await container.quotaRepository.reserve({
       bucket: bucket.protectedBucket,
       sourceType: input.sourceType,
-      executionMode: input.executionMode,
+      executionMode,
       estimatedCostUsd:
-        input.executionMode === "live"
+        executionMode === "live"
           ? estimateMaximumLiveRunCost(provider.provider, provider.model)
           : 0,
-      liveEnabled: container.liveModeEnabled,
+      liveEnabled: providerAvailable,
       now: container.clock(),
     });
     if (!quota.allowed) {

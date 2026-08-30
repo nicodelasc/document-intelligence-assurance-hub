@@ -5,13 +5,15 @@ Interpret ten synthetic supplier invoice and warehouse goods receipt variants th
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
 
-The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Built-in OpenAI processing, built-in Anthropic processing, custom OpenAI processing and custom Anthropic processing each remain pending until that exact route passes its own connected production smoke test. No API key was used and no provider call was made for this documentation update.
+The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. All four visible live model routes remain a post-key rollout gate. Built-in OpenAI processing, built-in Anthropic processing, custom OpenAI processing and custom Anthropic processing each remain pending until that exact path passes its own connected production smoke test. No API key was used and no provider call was made for this documentation update.
 
 This is a public-safe portfolio application. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
 ## Processing routes
 
 `GET /api/models` returns the server-owned catalogue, provider defaults and availability booleans. It never returns a credential. OpenAI and Anthropic keys remain server-side.
+
+`POST /api/runs` derives execution mode from the validated model provider and current server-owned provider availability. The multipart execution mode and matching preflight header are request-consistency metadata only. They cannot force fallback, force live processing or switch providers.
 
 For a built-in sample the selected model controls the route. When its provider is available `Process document` sends the sample through that selected model adapter. When the provider is unavailable the same button uses the checked-in deterministic result and the interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
 
@@ -157,18 +159,18 @@ The application does not provide user accounts or private per-user run visibilit
 
 ## API routes
 
-| Method   | Route                            | Purpose                                                                                                                   |
-| -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/runs`                      | Validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
-| `GET`    | `/api/models`                    | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                       |
-| `GET`    | `/api/runs`                      | List bounded active public run summaries.                                                                                 |
-| `GET`    | `/api/runs/:id`                  | Read one public-safe active run.                                                                                          |
-| `POST`   | `/api/runs/:id/workflow-actions` | Persist one capability-protected simulated workflow event under outcome and recipient-role policy.                        |
-| `POST`   | `/api/runs/:id/stage-action`     | Compatibility mapping that persists the same idempotent `approve_and_stage` event.                                        |
-| `DELETE` | `/api/runs/:id`                  | Tombstone details with the one-time deletion token.                                                                       |
-| `GET`    | `/api/runs/:id/document`         | Serve one active document through a no-store same-origin response.                                                        |
-| `GET`    | `/api/metrics`                   | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                  |
-| `GET`    | `/api/cron/purge-expired`        | Tombstone expired details and retry physical cleanup.                                                                     |
+| Method   | Route                            | Purpose                                                                                                                                                  |
+| -------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/runs`                      | Derive server-owned admission, validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
+| `GET`    | `/api/models`                    | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                                                      |
+| `GET`    | `/api/runs`                      | List bounded active public run summaries.                                                                                                                |
+| `GET`    | `/api/runs/:id`                  | Read one public-safe active run.                                                                                                                         |
+| `POST`   | `/api/runs/:id/workflow-actions` | Persist one capability-protected simulated workflow event under outcome and recipient-role policy.                                                       |
+| `POST`   | `/api/runs/:id/stage-action`     | Compatibility mapping that persists the same idempotent `approve_and_stage` event.                                                                       |
+| `DELETE` | `/api/runs/:id`                  | Tombstone details with the one-time deletion token.                                                                                                      |
+| `GET`    | `/api/runs/:id/document`         | Serve one active document through a no-store same-origin response.                                                                                       |
+| `GET`    | `/api/metrics`                   | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                                                 |
+| `GET`    | `/api/cron/purge-expired`        | Tombstone expired details and retry physical cleanup.                                                                                                    |
 
 ## Deployment readiness
 
@@ -180,7 +182,16 @@ Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The stable 
 
 This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its workflow capability persists simulated internal state only. Prepared email copy is response-only and no route can send email or contact an external business system.
 
-All four processing routes remain pending:
+All four visible live model routes remain a post-key rollout gate:
+
+| Model            | Status  | Production evidence required                                                  |
+| ---------------- | ------- | ----------------------------------------------------------------------------- |
+| GPT-5.6 Luna     | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
+| GPT-5.6 Terra    | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
+| Claude Haiku 4.5 | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
+| Claude Sonnet 5  | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
+
+Source-path acceptance also remains pending:
 
 | Route                             | Status  | Production evidence required                                                                                              |
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -189,6 +200,6 @@ All four processing routes remain pending:
 | Custom upload through OpenAI      | Pending | One consented public upload using the selected OpenAI model with confirmed dispatch and no fallback                       |
 | Custom upload through Anthropic   | Pending | One consented public upload using the selected Anthropic model with confirmed dispatch and no fallback                    |
 
-Acceptance also requires one deliberate provider failure and one production retention simulation. Each check must preserve safe errors, durable quotas and logical denial before cleanup. Passing one route does not accept any other route.
+After keys are introduced the rollout gate must exercise built-in and custom source paths for both providers. Acceptance requires one deliberate provider failure and one production retention simulation. Each check must preserve safe errors, durable quotas and logical denial before cleanup. Passing one model or source path does not accept any other model or path.
 
 The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.
