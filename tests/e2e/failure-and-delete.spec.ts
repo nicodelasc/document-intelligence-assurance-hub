@@ -34,7 +34,46 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
     }
     return route.continue();
   });
-  await page.route("**/api/runs/run_mock_delete", async (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ deletion: { status: "accepted", runId: "run_mock_delete" } }) }));
+  await page.route("**/api/runs/run_mock_delete", async (route) => {
+    if (route.request().method() === "DELETE") {
+      return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ deletion: { status: "accepted", runId: "run_mock_delete" } }) });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ run: {
+        id: "run_mock_delete",
+        status: "completed",
+        outcome: "not_found",
+        documentFamily: "supplier_invoice",
+        providerCalled: false,
+        provider: null,
+        model: null,
+        details: {
+          result: {
+            documentClassification: "supplier_invoice",
+            action: {
+              type: "stage_inventory_receipt",
+              title: "Stage inventory receipt",
+              summary: "Stage the verified receipt for internal inventory posting.",
+              payload: [
+                { label: "Shipment ID", value: "SHIP-4018" },
+                { label: "Received quantity", value: "48" },
+              ],
+              instructionEvidence: "Corrected received quantity: 48.",
+              page: 1,
+              risk: "low",
+              status: "ready",
+              reason: "The corrected quantity matches the expected delivery.",
+              stagedAt: null,
+            },
+            fields: [],
+          },
+          workflowEvents: [],
+        },
+      } }),
+    });
+  });
   await page.goto("/workbench");
   const chooserPromise = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "+ Add your document" }).click();

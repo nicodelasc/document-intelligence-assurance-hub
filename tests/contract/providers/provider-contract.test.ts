@@ -142,7 +142,11 @@ describe("extraction provider contract", () => {
       );
       expect(result.extraction.fields).toEqual(
         recorded?.fields.map(
-          ({ evaluatorStatus, referenceMatch, ...field }) => field,
+          (record) => Object.fromEntries(
+            Object.entries(record).filter(
+              ([key]) => key !== "evaluatorStatus" && key !== "referenceMatch",
+            ),
+          ),
         ),
       );
       expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });

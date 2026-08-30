@@ -1066,8 +1066,9 @@ export function WorkbenchView() {
                       documentFamily={activeRunFamily}
                       documentClassification={documentClassification}
                       controlsAvailable={
-                        actionDetailStatus === "ready" &&
-                        documentClassification !== null
+                        actionDetailStatus !== "loading" &&
+                        (activeRunStatus === "failed" ||
+                          documentClassification !== null)
                       }
                       fields={fields}
                       safeDiagnosticCodes={safeDiagnosticCodes}

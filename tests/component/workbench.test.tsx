@@ -1275,10 +1275,64 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByText("In progress")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Processing failed" })).toBeVisible();
     expect(screen.getByText("provider unavailable")).toBeVisible();
-    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
+    expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Retry processing",
+      "Download error summary",
+    ]);
     expect(screen.getByText("Summary prepared")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Approve and stage" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps failed recovery controls hidden while detail loading then shows the policy pair after detail failure", async () => {
+    const user = userEvent.setup();
+    let resolveDetail!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/models") {
+          return modelCatalogue({ openai: false, anthropic: false });
+        }
+        if (url === "/api/runs/run_failed_recovery_details") {
+          return new Promise<Response>((resolve) => {
+            resolveDetail = resolve;
+          });
+        }
+        if (url === "/api/runs" && init?.method === "POST") {
+          return ndjson([{
+            type: "failed",
+            code: "provider_unavailable",
+            message: "The run stopped safely.",
+            runId: "run_failed_recovery_details",
+            deletionToken: "failed_recovery_token",
+            timestamp: "2026-08-30T00:00:00.000Z",
+          }]);
+        }
+        if (!init?.method) return emptyHistory();
+        return new Response(null, { status: 404 });
+      }),
+    );
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+
+    expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
+
+    await act(async () => {
+      resolveDetail(new Response(JSON.stringify({ error: {
+        message: "The failed run detail is unavailable.",
+      } }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }));
+    });
+
+    expect((await screen.findAllByRole("button", { name: /Retry processing|Download error summary/ })).map((button) => button.textContent)).toEqual([
+      "Retry processing",
+      "Download error summary",
+    ]);
   });
 
   it("projects a failure during publishing onto the final visible group", async () => {
@@ -1825,7 +1879,10 @@ describe("Workbench request lifecycle", () => {
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
     expect(screen.getByRole("alert")).toHaveTextContent("temporarily unavailable");
     expect(screen.getByRole("heading", { name: "Processing failed" })).toBeVisible();
-    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
+    expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Retry processing",
+      "Download error summary",
+    ]);
     const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
     expect(new Headers(postCall?.[1]?.headers).get("idempotency-key")).toMatch(
       /^[A-Za-z0-9_-]{16,128}$/,
