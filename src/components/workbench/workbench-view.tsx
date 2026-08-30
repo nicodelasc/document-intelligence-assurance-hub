@@ -1162,6 +1162,17 @@ function DecisionBrief({
   proposal: ActionProposal | null;
   documentClassification: DocumentClassification | null;
 }) {
+  const guarded =
+    documentClassification === "irrelevant" ||
+    documentClassification === "uncertain";
+  if (guarded) {
+    return (
+      <div className="decision-brief">
+        <h3>Decision brief</h3>
+        <p>{guardedDocumentBrief}</p>
+      </div>
+    );
+  }
   if (status === "failed") {
     if (actionDetailStatus === "error") {
       return (
@@ -1180,18 +1191,10 @@ function DecisionBrief({
       );
     }
   }
-  const guarded =
-    documentClassification === "irrelevant" ||
-    documentClassification === "uncertain";
   return (
     <div className="decision-brief">
       <h3>Decision brief</h3>
-      <p>
-        {guarded
-          ? guardedDocumentBrief
-          : proposal?.summary ??
-          "The prepared decision brief is unavailable while the run detail is loading."}
-      </p>
+      <p>{proposal?.summary ?? "The prepared decision brief is unavailable while the run detail is loading."}</p>
     </div>
   );
 }

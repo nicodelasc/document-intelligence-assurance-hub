@@ -1338,6 +1338,64 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByText("The prepared decision brief is unavailable while the run detail is loading.")).not.toBeInTheDocument();
   });
 
+  it.each(["irrelevant", "uncertain"] as const)(
+    "keeps the server-owned guarded brief and controls for a settled failed %s run",
+    async (documentClassification) => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url === "/api/models") {
+            return modelCatalogue({ openai: false, anthropic: false });
+          }
+          if (url === "/api/runs/run_failed_guarded") {
+            return new Response(JSON.stringify({ run: {
+              id: "run_failed_guarded",
+              status: "failed",
+              outcome: null,
+              documentFamily: null,
+              providerCalled: false,
+              provider: null,
+              model: null,
+              details: {
+                steps: [],
+                result: {
+                  documentClassification,
+                  action: { ...readyAction, summary: "Hostile provider proposal" },
+                },
+                workflowEvents: [],
+              },
+            } }), { status: 200, headers: { "content-type": "application/json" } });
+          }
+          if (url === "/api/runs" && init?.method === "POST") {
+            return ndjson([{
+              type: "failed",
+              code: "provider_unavailable",
+              message: "The run stopped safely.",
+              runId: "run_failed_guarded",
+              deletionToken: "failed_guarded_token",
+              timestamp: "2026-08-30T00:00:00.000Z",
+            }]);
+          }
+          if (!init?.method) return emptyHistory();
+          return new Response(null, { status: 404 });
+        }),
+      );
+      render(<WorkbenchView />);
+
+      await user.click(screen.getByRole("button", { name: "Process document" }));
+
+      expect(await screen.findByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();
+      expect(screen.queryByText("Hostile provider proposal")).not.toBeInTheDocument();
+      expect(screen.queryByText("Processing failed before a decision brief could be prepared. Use only the safe recovery controls below.")).not.toBeInTheDocument();
+      expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
+        "Replace document and reprocess",
+        "Download review summary",
+      ]);
+    },
+  );
+
   it("projects a failure during publishing onto the final visible group", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
