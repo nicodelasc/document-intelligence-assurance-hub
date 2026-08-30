@@ -60,6 +60,9 @@ test("browses document families without processing then runs the selected fixtur
     timeout: connectedRunTimeout,
   });
   expect(runPosts).toHaveLength(1);
+  const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
+  await expect(traceToggle).toHaveAttribute("aria-expanded", "false");
+  await traceToggle.click();
   for (const stage of [
     "Understand document",
     "Verify evidence",
@@ -82,9 +85,7 @@ test("browses document families without processing then runs the selected fixtur
     .allTextContents();
   expect(sectionHeadings).toEqual([
     "Assurance trace",
-    "Business outcome",
-    "Differences",
-    "Workflow controls",
+    "Decision and next steps",
     "Evidence ledger",
     "Activity timeline",
   ]);
@@ -142,6 +143,7 @@ test("prepares a role-scoped email without sending and records the workflow acti
             steps: [],
             workflowEvents: [],
             result: {
+              documentClassification: "supplier_invoice",
               fields: [{
                 key: "invoice_total",
                 label: "Invoice total",
@@ -153,7 +155,7 @@ test("prepares a role-scoped email without sending and records the workflow acti
                 referenceMatch: false,
               }],
               action: {
-                type: "create_invoice_exception_task",
+                type: "create_ap_exception_case",
                 title: "Review invoice mismatch",
                 summary: "Keep the invoice in review until the discrepancy is resolved.",
                 payload: [{ label: "Invoice total", value: "S$1,250.00" }],
@@ -245,7 +247,7 @@ test("prepares a role-scoped email without sending and records the workflow acti
   expect(workflowRequests).toBe(1);
 });
 
-test("retries a failed run before delayed diagnostics are released", async ({ page }) => {
+test("retries a failed run after delayed diagnostics establish safe controls", async ({ page }) => {
   const order: string[] = [];
   let runPosts = 0;
   let detailReleased = false;
@@ -293,7 +295,11 @@ test("retries a failed run before delayed diagnostics are released", async ({ pa
             providerCalled: false,
             provider: null,
             model: null,
-            details: { steps: [], result: null, workflowEvents: [] },
+            details: {
+              steps: [],
+              workflowEvents: [],
+              result: { documentClassification: "supplier_invoice", fields: [] },
+            },
           },
         }),
       });
@@ -352,12 +358,14 @@ test("retries a failed run before delayed diagnostics are released", async ({ pa
   await page.goto("/workbench");
   await page.getByRole("button", { name: "Process document" }).click();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
+  expect(detailReleased).toBe(false);
+  releaseDetail();
+  await expect(page.getByRole("button", { name: "Retry processing" })).toBeVisible();
   await page.getByRole("button", { name: "Retry processing" }).click();
 
   await expect.poll(() => runPosts).toBe(2);
   expect(order).toEqual(["workflow persisted", "second run posted"]);
-  expect(detailReleased).toBe(false);
-  releaseDetail();
+  expect(detailReleased).toBe(true);
   await expect(page.getByText("The retry stopped safely.", { exact: true })).toBeVisible();
 });
 

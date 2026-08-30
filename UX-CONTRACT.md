@@ -43,6 +43,9 @@
 | Scrollbar       | Global application stylesheet                            | `DESIGN.md`                     | stable-gutter geometry                         | computed style                    |
 | Toast           | Shared polite status region                              | This contract                   | success, warning, info and error               | live-region test                  |
 | CRUD            | Run routes and deletion dialog                           | API contract and this file      | create, read and delete                        | full-flow E2E                     |
+| Guidance modal  | `WorkbenchView` trigger and shared `Dialog`              | This contract                   | five ordered steps                             | keyboard and browser              |
+| Trace disclosure | `AssuranceTrace`                                        | This contract                   | expanded while active or failed                | terminal-state browser            |
+| Decision panel  | `WorkbenchView` and `WorkflowPanel`                      | Server result and this contract | outcome, brief, differences and controls       | ordered browser                   |
 
 ## Component behavior
 
@@ -84,8 +87,9 @@
 | Needs review or Conflict     | `Assign for review`, `Request clarification`, `Prepare email to the selected role`, `Replace document and reprocess` and `Download discrepancy summary` |
 | Incomplete or Not found      | `Request a clearer document`, `Prepare replacement-request email`, `Assign manual review`, `Upload replacement` and `Reprocess`                         |
 | Failed                       | `Retry processing` and `Download error summary`                                                                                                         |
+| Irrelevant or uncertain custom document | `Replace document and reprocess` and `Download review summary`                                                                                         |
 
-Every control is a simulated preparation action. Recipient-based controls accept only a server-approved synthetic business role. Prepared email copy is labelled `Prepared only - not sent` and no control contacts an external system.
+Every control is a simulated preparation action. Recipient-based controls accept only a server-approved synthetic business role. Prepared email copy is labelled `Prepared only - not sent` and no control contacts an external system. The server owns document classification as `supplier_invoice`, `warehouse_goods_receipt`, `irrelevant` or `uncertain`. Provider-authored document content is untrusted: it cannot choose the outcome, safety wording, action status or available controls. `irrelevant` and `uncertain` force `not_found`, use the server-owned safe brief and expose only the two restricted controls.
 
 ## Navigation and responsive behavior
 
@@ -98,7 +102,7 @@ Every control is a simulated preparation action. Recipient-based controls accept
 
 ## Overlays and feedback
 
-- Dialog primitive: Shared accessible dialog with inert backdrop, Escape close and focus restoration.
+- Dialog primitive: Shared accessible dialog with inert backdrop, Escape close and focus restoration to the invoking trigger. The Workbench `How it works` trigger owns the five-step guidance modal and its Close button uses the same close path.
 - Destructive confirmation levels: Early deletion is irreversible for detailed public data and uses danger intent with explicit consequence.
 - Toast placement/duration/deduplication: One top-right polite region. Critical corrections remain inline.
 - Alert/banner scope and persistence: Upload consent is persistent for custom documents. `Checking processing availability` appears while server metadata is loading and `Processing availability unavailable` appears if metadata cannot be resolved. `Sample results - no AI processing` appears only for a built-in fixture after the selected provider resolves as unavailable. An unavailable custom route instead shows `Processing unavailable for this model`.
@@ -111,7 +115,8 @@ Every control is a simulated preparation action. Recipient-based controls accept
 - Idempotency and duplicate-submit policy: Client run identifier and server guard prevent duplicate run submissions. Workflow action preparation is pessimistic and ignores duplicate clicks while the server operation is pending. The server enforces outcome-specific action policy. A repeated authorized action request returns the existing simulated event.
 - Offline/read-stale/write behavior: Built-in deterministic fallback remains usable only after provider metadata resolves as unavailable. Custom input stays local while metadata is loading or failed and when the selected provider is unavailable. Connectivity failures preserve inputs.
 - Retry/backoff/timeout behavior: One retry only for provider 429 or 5xx errors and no silent provider switch.
-- Long-running progress and return path: Named stages stream to the active Workbench. Live announcements use only the three grouped stage names and suppress duplicates. Terminal failure settles the active visible group.
+- Long-running progress and return path: Named stages stream to the active Workbench. Live announcements use only the three grouped stage names and suppress duplicates. The trace starts expanded and resets to expanded for a new run. A successful terminal run collapses to a summary with stage count and duration when available. The reviewer can reopen its named detail region with the disclosure button. A failed terminal trace remains expanded and settling the active visible group leaves safe diagnostics available.
+- Decision information order: A terminal Workbench result renders one `Decision and next steps` panel in this order: verified outcome, decision brief, evidence differences and workflow controls. Evidence ledger and activity timeline follow as separate panels.
 - Stale-request policy: Abort or request identifiers stop old responses from replacing current state. Source controls and model selection remain disabled during validation and execution. Completion ends cancellation before prepared-action detail loading starts.
 - Dialog/form preservation: Errors preserve safe values and selected files until removal or retry.
 
@@ -127,7 +132,7 @@ Every control is a simulated preparation action. Recipient-based controls accept
 ## Verification
 
 - Required static commands: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e`, `pnpm verify:premium` and `pnpm build`.
-- Browser matrix: Chromium desktop 1440x1000 and mobile 390x844 with reduced motion.
+- Browser matrix: Chromium desktop 1440x1000 and mobile 390x844 with reduced motion. Workbench browser coverage includes guidance-modal keyboard close, terminal trace disclosure, failed-trace persistence and ordered decision-panel content.
 - Accessibility checks: axe scan, keyboard route and form use plus live-region status.
 - Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, rendered built-in preview with full-document PDF link, custom PDF iframe, direct native file picker, grouped model selection, loading and failed availability states, conditional unavailable-provider feedback, custom incomplete-evidence wording, three-stage trace, outcome-specific workflow actions, errors, empty history, run selection, comparison, deletion dialog, four Operations summary cards, 2:1 Operations and Costs workspaces, deterministic-only cost empties, model and outcome filters, URL Back and Forward restoration, fixture differences, comments evidence, workflow activity and safe diagnostics.
 - Canonical sibling flow used for comparison: Workbench run ledger compared with Operations run explorer.
