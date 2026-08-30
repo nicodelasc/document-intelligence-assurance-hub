@@ -1279,6 +1279,7 @@ describe("Workbench request lifecycle", () => {
       "Retry processing",
       "Download error summary",
     ]);
+    expect(screen.getByText("Processing failed before a decision brief could be prepared. Use only the safe recovery controls below.")).toBeVisible();
     expect(screen.getByText("Summary prepared")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Approve and stage" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
@@ -1333,6 +1334,8 @@ describe("Workbench request lifecycle", () => {
       "Retry processing",
       "Download error summary",
     ]);
+    expect(screen.getByText("Processing failed and the run detail could not be loaded. No decision brief is available.")).toBeVisible();
+    expect(screen.queryByText("The prepared decision brief is unavailable while the run detail is loading.")).not.toBeInTheDocument();
   });
 
   it("projects a failure during publishing onto the final visible group", async () => {

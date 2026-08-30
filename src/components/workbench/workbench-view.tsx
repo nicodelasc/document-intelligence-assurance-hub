@@ -1035,6 +1035,8 @@ export function WorkbenchView() {
                   </section>
                   <section className="decision-panel__section">
                     <DecisionBrief
+                      status={activeRunStatus!}
+                      actionDetailStatus={actionDetailStatus}
                       proposal={guardedDocument ? null : preparedAction}
                       documentClassification={documentClassification}
                     />
@@ -1150,12 +1152,34 @@ function OutcomeSummary({
 }
 
 function DecisionBrief({
+  status,
+  actionDetailStatus,
   proposal,
   documentClassification,
 }: {
+  status: RunStatus;
+  actionDetailStatus: ActionDetailStatus;
   proposal: ActionProposal | null;
   documentClassification: DocumentClassification | null;
 }) {
+  if (status === "failed") {
+    if (actionDetailStatus === "error") {
+      return (
+        <div className="decision-brief">
+          <h3>Decision brief</h3>
+          <p>Processing failed and the run detail could not be loaded. No decision brief is available.</p>
+        </div>
+      );
+    }
+    if (actionDetailStatus !== "loading") {
+      return (
+        <div className="decision-brief">
+          <h3>Decision brief</h3>
+          <p>Processing failed before a decision brief could be prepared. Use only the safe recovery controls below.</p>
+        </div>
+      );
+    }
+  }
   const guarded =
     documentClassification === "irrelevant" ||
     documentClassification === "uncertain";

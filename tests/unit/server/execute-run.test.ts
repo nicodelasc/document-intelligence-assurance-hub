@@ -1406,6 +1406,7 @@ describe("executeRun", () => {
     ];
     const response: ProviderExtractionResponse = {
       extraction: {
+        classification: extraction.extraction.classification,
         fields: [
           extraction.extraction.fields[0],
           {
@@ -1417,6 +1418,8 @@ describe("executeRun", () => {
             page: 1,
           },
         ],
+        documentInstruction: extraction.extraction.documentInstruction,
+        action: extraction.extraction.action,
       },
       usage: extraction.usage,
       latencyMs: 10,
@@ -1473,10 +1476,13 @@ describe("executeRun", () => {
     ];
     const response: ProviderExtractionResponse = {
       extraction: {
+        classification: extraction.extraction.classification,
         fields: [
           extraction.extraction.fields[0],
           extraction.extraction.fields[2],
         ],
+        documentInstruction: extraction.extraction.documentInstruction,
+        action: extraction.extraction.action,
       },
       usage: extraction.usage,
       latencyMs: 10,
@@ -1564,6 +1570,7 @@ describe("executeRun", () => {
     ];
     const response: ProviderExtractionResponse = {
       extraction: {
+        classification: extraction.extraction.classification,
         fields: [
           {
             key: "vendor_name",
@@ -1582,6 +1589,8 @@ describe("executeRun", () => {
             page: 1,
           },
         ],
+        documentInstruction: extraction.extraction.documentInstruction,
+        action: extraction.extraction.action,
       },
       usage: extraction.usage,
       latencyMs: 10,
