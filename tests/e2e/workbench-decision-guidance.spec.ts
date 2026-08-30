@@ -232,6 +232,46 @@ test("keeps the intermediate header and first spotlight collision-free", async (
   expect(overlaps).toBe(false);
 });
 
+test("keeps completed assurance and decision spotlights collision-free at 768 px", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await interceptWorkbenchApi(page, "success");
+  await page.goto("/workbench");
+  await page.getByRole("button", { name: "Process document" }).click();
+  await expect(page.getByRole("heading", { name: "Decision and next steps" })).toBeVisible();
+  await page.getByRole("button", { name: "How it works" }).click();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+  }
+
+  for (const step of [
+    { title: "Assurance trace", targetId: "workbench-tour-assurance-trace" },
+    { title: "Decision and next steps", targetId: "workbench-tour-decision" },
+  ]) {
+    const spotlight = page.locator(".guided-tour__spotlight");
+    await expect(spotlight).toHaveCSS("opacity", "1");
+    const [calloutBox, spotlightBox, targetBox] = await Promise.all([
+      page.getByRole("dialog", { name: step.title }).boundingBox(),
+      spotlight.boundingBox(),
+      page.locator(`#${step.targetId}`).boundingBox(),
+    ]);
+    expect(calloutBox).not.toBeNull();
+    expect(spotlightBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    expect(targetBox!.height).toBeLessThan(80);
+    const overlaps =
+      calloutBox!.x < spotlightBox!.x + spotlightBox!.width &&
+      calloutBox!.x + calloutBox!.width > spotlightBox!.x &&
+      calloutBox!.y < spotlightBox!.y + spotlightBox!.height &&
+      calloutBox!.y + calloutBox!.height > spotlightBox!.y;
+    expect(overlaps).toBe(false);
+    if (step.title === "Assurance trace") {
+      await page.getByRole("button", { name: "Next", exact: true }).click();
+    }
+  }
+});
+
 test("keeps the spotlight and arrow visible in forced colors", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active" });
   await interceptWorkbenchApi(page, "success");

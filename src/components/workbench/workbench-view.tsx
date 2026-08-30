@@ -1014,7 +1014,11 @@ export function WorkbenchView() {
           </section>
 
           <aside className="assurance-rail">
-            <RulePanel id={workbenchTourTargetIds.assuranceTrace} className="tour-target" title="Assurance trace">
+            <RulePanel
+              headerId={workbenchTourTargetIds.assuranceTrace}
+              headerClassName="tour-target"
+              title="Assurance trace"
+            >
               <AssuranceTrace
                 displayTrace={displayTrace}
                 terminalStatus={traceTerminalStatus}
@@ -1023,13 +1027,16 @@ export function WorkbenchView() {
                 onExpandedChange={setTraceExpanded}
               />
             </RulePanel>
-            <div id={workbenchTourTargetIds.decision} className="tour-target">
+            <RulePanel
+              className={hasTerminalRun ? "decision-panel" : ""}
+              headerId={workbenchTourTargetIds.decision}
+              headerClassName="tour-target"
+              title={hasTerminalRun ? "Decision and next steps" : "Business outcome"}
+            >
               {!hasTerminalRun ? (
-                <RulePanel title="Business outcome">
-                  <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
-                </RulePanel>
+                <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
               ) : (
-                <RulePanel title="Decision and next steps" className="decision-panel">
+                <>
                   <section className="decision-panel__section">
                     <OutcomeSummary
                       status={activeRunStatus!}
@@ -1083,9 +1090,9 @@ export function WorkbenchView() {
                       onRequestReplacement={() => requestReplacement()}
                     />
                   </section>
-                </RulePanel>
+                </>
               )}
-            </div>
+            </RulePanel>
             {hasTerminalRun ? (
               <>
                 <RulePanel title="Evidence ledger">

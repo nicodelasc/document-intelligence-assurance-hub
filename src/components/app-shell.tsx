@@ -1,11 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { CircleHelp } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/primitives";
-import { HowItWorksDialog } from "@/components/workbench/how-it-works-dialog";
+import type { ReactNode } from "react";
+
+const WorkbenchGuidanceControl = dynamic(
+  () => import("@/components/workbench/workbench-guidance-control")
+    .then((module) => module.WorkbenchGuidanceControl),
+  {
+    ssr: false,
+    loading: () => <span className="workbench-guidance-placeholder" aria-hidden="true" />,
+  },
+);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -24,27 +31,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         {children}
       </div>
-    </>
-  );
-}
-
-function WorkbenchGuidanceControl() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <Button
-        type="button"
-        intent="primary"
-        className="workbench-guidance-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen(true)}
-      >
-        <CircleHelp size={18} strokeWidth={1.75} aria-hidden="true" />
-        How it works
-      </Button>
-      {open ? <HowItWorksDialog onClose={() => setOpen(false)} /> : null}
     </>
   );
 }

@@ -1753,7 +1753,8 @@ describe("Workbench request lifecycle", () => {
     const decisionPanel = screen.getByRole("heading", { name: "Decision and next steps" }).closest("section");
     expect(decisionPanel).not.toBeNull();
     expect(document.getElementById("workbench-tour-decision")).toBe(decisionTarget);
-    expect(decisionPanel!.parentElement).toBe(decisionTarget);
+    expect(decisionTarget).toHaveClass("rule-panel__header");
+    expect(decisionTarget!.parentElement).toBe(decisionPanel);
     const decisionSections = within(decisionPanel!).getAllByRole("heading", { level: 3 });
     expect(decisionSections.map((heading) => heading.textContent).slice(0, 4)).toEqual([
       "Clear",

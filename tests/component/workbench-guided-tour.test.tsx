@@ -91,6 +91,10 @@ function renderWorkbench() {
   return fetchMock;
 }
 
+function findGuidanceTrigger() {
+  return screen.findByRole("button", { name: "How it works" });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -104,7 +108,7 @@ describe("Workbench guided tour", () => {
 
     const appHeader = document.querySelector<HTMLElement>(".app-header");
     expect(appHeader).not.toBeNull();
-    const trigger = within(appHeader!).getByRole("button", { name: "How it works" });
+    const trigger = await within(appHeader!).findByRole("button", { name: "How it works" });
     expect(trigger).toHaveClass("workbench-guidance-trigger");
     expect(trigger).toHaveTextContent("How it works");
     expect(screen.getByRole("heading", { name: "Review a document" }).closest("header")).not.toContainElement(trigger);
@@ -120,7 +124,7 @@ describe("Workbench guided tour", () => {
     const processButton = await screen.findByRole("button", { name: "Process document" });
     await waitFor(() => expect(processButton).toBeEnabled());
 
-    await user.click(screen.getByRole("button", { name: "How it works" }));
+    await user.click(await findGuidanceTrigger());
     const overview = screen.getByRole("dialog", { name: "What this workbench does" });
     expect(overview).toHaveTextContent(/checks document evidence/i);
     expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeVisible();
@@ -148,7 +152,7 @@ describe("Workbench guided tour", () => {
     installMatchMedia();
     const user = userEvent.setup();
     renderWorkbench();
-    const trigger = screen.getByRole("button", { name: "How it works" });
+    const trigger = await findGuidanceTrigger();
     await user.click(trigger);
     await user.click(screen.getByRole("button", { name: "Start guided tour" }));
 
@@ -194,7 +198,7 @@ describe("Workbench guided tour", () => {
     installMatchMedia();
     const user = userEvent.setup();
     renderWorkbench();
-    const trigger = screen.getByRole("button", { name: "How it works" });
+    const trigger = await findGuidanceTrigger();
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "What this workbench does" });
     const start = within(dialog).getByRole("button", { name: "Start guided tour" });
@@ -216,7 +220,7 @@ describe("Workbench guided tour", () => {
     installMatchMedia();
     const user = userEvent.setup();
     renderWorkbench();
-    const trigger = screen.getByRole("button", { name: "How it works" });
+    const trigger = await findGuidanceTrigger();
     await user.click(trigger);
     await user.click(screen.getByRole("button", { name: "Start guided tour" }));
     await user.click(screen.getByRole("button", { name: "Exit guided tour" }));
@@ -231,7 +235,7 @@ describe("Workbench guided tour", () => {
     const { rerender } = render(
       <AppShell><main>Workbench route</main></AppShell>,
     );
-    await user.click(screen.getByRole("button", { name: "How it works" }));
+    await user.click(await findGuidanceTrigger());
     expect(screen.getByRole("dialog", { name: "What this workbench does" })).toBeVisible();
 
     navigationState.pathname = "/operations";
@@ -241,7 +245,7 @@ describe("Workbench guided tour", () => {
 
     navigationState.pathname = "/workbench";
     rerender(<AppShell><main>Workbench route</main></AppShell>);
-    expect(screen.getByRole("button", { name: "How it works" })).toBeVisible();
+    expect(await findGuidanceTrigger()).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -256,7 +260,7 @@ describe("Workbench guided tour", () => {
     try {
       const user = userEvent.setup();
       renderWorkbench();
-      await user.click(screen.getByRole("button", { name: "How it works" }));
+      await user.click(await findGuidanceTrigger());
       await user.click(screen.getByRole("button", { name: "Start guided tour" }));
 
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({
@@ -290,7 +294,7 @@ describe("Workbench guided tour", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     const user = userEvent.setup();
     renderWorkbench();
-    await user.click(screen.getByRole("button", { name: "How it works" }));
+    await user.click(await findGuidanceTrigger());
     await user.click(screen.getByRole("button", { name: "Start guided tour" }));
 
     const target = document.getElementById(targetIds[0])!;
@@ -302,5 +306,31 @@ describe("Workbench guided tour", () => {
 
     await user.keyboard("{Escape}");
     expect(disconnect).toHaveBeenCalled();
+  });
+
+  it("positions every new tour step before the next animation frame", async () => {
+    installMatchMedia();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => {
+      frameId += 1;
+      return frameId;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const user = userEvent.setup();
+    renderWorkbench();
+    await user.click(await findGuidanceTrigger());
+    await user.click(screen.getByRole("button", { name: "Start guided tour" }));
+
+    const expectPositioned = (name: string) => {
+      const callout = screen.getByRole("dialog", { name });
+      expect(callout.style.left).toMatch(/px$/);
+      expect(callout.style.top).toMatch(/px$/);
+    };
+
+    expectPositioned("Document library");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expectPositioned("Processing model");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expectPositioned("Document library");
   });
 });

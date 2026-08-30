@@ -70,6 +70,7 @@ h4 { font-size: 0.78rem; }
 .app-header nav a[aria-current="page"]::after { position: absolute; inset: auto 0 -1px; height: 3px; content: ""; background: var(--primary); }
 .workbench-guidance-trigger { align-self: center; min-height: 42px; margin-left: auto; font-size: 1rem; font-weight: 750; }
 .workbench-guidance-trigger .button__label { display: inline-flex; align-items: center; gap: 0.45rem; }
+.workbench-guidance-placeholder { align-self: center; width: 145px; min-height: 42px; margin-left: auto; }
 .page { width: min(100%, var(--page-max)); margin-inline: auto; padding: 1.25rem var(--page-gutter) 3rem; }
 .page-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem; margin-bottom: 1rem; }
 .page-intro p { max-width: 800px; margin-bottom: 0; color: var(--muted); }
@@ -404,7 +405,9 @@ tbody th { font-weight: 600; }
 @media (max-width: 900px) {
   .app-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 0.55rem; padding: 0.55rem var(--page-gutter) 0; }
   .product-name { grid-column: 1; grid-row: 1; min-width: 0; min-height: 40px; font-size: 1.05rem; line-height: 1.15; white-space: normal; }
-  .workbench-guidance-trigger { grid-column: 2; grid-row: 1; min-height: 38px; margin-left: 0; padding: 0.45rem 0.65rem; font-size: 0.95rem; }
+  .workbench-guidance-trigger, .workbench-guidance-placeholder { grid-column: 2; grid-row: 1; min-height: 38px; margin-left: 0; }
+  .workbench-guidance-trigger { padding: 0.45rem 0.65rem; font-size: 0.95rem; }
+  .workbench-guidance-placeholder { width: 136px; }
   .app-header nav { grid-column: 1 / -1; grid-row: 2; width: 100%; }
   .app-header nav a { min-width: 0; flex: 1; min-height: 40px; }
 }

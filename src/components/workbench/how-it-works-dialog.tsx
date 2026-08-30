@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -194,6 +195,13 @@ export function HowItWorksDialog({ onClose }: { onClose: () => void }) {
     });
   }, [currentStep.targetId, mode]);
 
+  useLayoutEffect(() => {
+    if (mode !== "tour") return;
+    // The measured overlay must settle before paint to avoid a visible position jump.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    updateGeometry();
+  }, [currentStep.targetId, mode, updateGeometry]);
+
   useEffect(() => {
     if (mode !== "tour") return;
     const target = document.getElementById(currentStep.targetId);
@@ -227,7 +235,6 @@ export function HowItWorksDialog({ onClose }: { onClose: () => void }) {
     window.addEventListener("scroll", scheduleUpdate, { capture: true, passive: true });
     viewport?.addEventListener("resize", scheduleUpdate);
     viewport?.addEventListener("scroll", scheduleUpdate, { passive: true });
-    scheduleUpdate();
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", scheduleUpdate);
