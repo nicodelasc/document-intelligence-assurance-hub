@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { syntheticFixtures } from "@/domain/fixtures";
 
 const projectRoot = process.cwd();
 
@@ -12,6 +13,7 @@ function readProjectFile(path: string) {
 const deployment = readProjectFile("docs/deployment-checklist.md");
 const walkthrough = readProjectFile("docs/walkthrough-script.md");
 const recorder = readProjectFile("scripts/record-walkthrough.mjs");
+const readme = readProjectFile("README.md");
 
 describe("Release artifact hardening", () => {
   it("documents exact-once idempotent application and schema checks for migrations 0008 and 0009", () => {
@@ -105,10 +107,59 @@ describe("Release artifact hardening", () => {
     expect(walkthrough).toMatch(
       /node scripts\/record-walkthrough\.mjs --base-url/,
     );
+    expect(recorder).not.toContain(
+      "Total mismatch uses a second selected configuration",
+    );
+    expect(recorder).toMatch(
+      /waitForTimeout\(durationMs\);[\s\S]*caption\?\.remove\(\)/,
+    );
+    expect(recorder).toMatch(
+      /getByRole\("heading", \{ name: "Operations", exact: true \}\)/,
+    );
+  });
+
+  it("publishes the current keyless artifact in the README", () => {
+    expect(readme).toMatch(/current keyless walkthrough/i);
+    expect(readme).toContain("artifacts/walkthrough.webm");
+    expect(readme).not.toMatch(/A replacement walkthrough must show/i);
+  });
+
+  it("tracks a nonempty WebM plus exactly 10 PDF sources and rendered previews", () => {
+    const artifact = readFileSync(
+      join(projectRoot, "artifacts/walkthrough.webm"),
+    );
+    expect(artifact.byteLength).toBeGreaterThan(1_000_000);
+    expect([...artifact.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3]);
+
+    const sampleDirectory = join(projectRoot, "public/samples");
+    const sampleFiles = readdirSync(sampleDirectory);
+    expect(syntheticFixtures).toHaveLength(10);
+    expect(
+      sampleFiles.filter((filename) => filename.endsWith(".pdf")),
+    ).toHaveLength(10);
+    expect(
+      sampleFiles.filter((filename) => filename.endsWith(".png")),
+    ).toHaveLength(11);
+
+    for (const fixture of syntheticFixtures) {
+      const previewFilename = fixture.filename.replace(/\.pdf$/i, ".png");
+      expect(sampleFiles).toContain(fixture.filename);
+      expect(sampleFiles).toContain(previewFilename);
+      expect(
+        statSync(join(sampleDirectory, fixture.filename)).size,
+      ).toBeGreaterThan(0);
+      const preview = readFileSync(join(sampleDirectory, previewFilename));
+      expect(preview.byteLength).toBeGreaterThan(10_000);
+      expect([...preview.subarray(0, 8)]).toEqual([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
+    }
   });
 
   it("removes retired release wording and preserves non-execution boundaries", () => {
-    const releaseArtifacts = [deployment, walkthrough, recorder].join("\n");
+    const releaseArtifacts = [deployment, walkthrough, recorder, readme].join(
+      "\n",
+    );
     const retiredPatterns = [
       /Demo data — no provider call/i,
       /Not called \(demo\)/i,

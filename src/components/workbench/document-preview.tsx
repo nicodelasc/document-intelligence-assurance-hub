@@ -74,6 +74,7 @@ export function DocumentPreview(props: {
   }
 
   const fixtureUrl = `/samples/${fixture.filename}`;
+  const renderedPreviewUrl = fixtureUrl.replace(/\.pdf$/i, ".png");
   return (
     <RulePanel
       className="document-preview"
@@ -86,13 +87,16 @@ export function DocumentPreview(props: {
     >
       <div className="document-preview__layout">
         <div className="document-preview__frame">
-          <iframe
-            className="document-preview__iframe"
-            src={fixtureUrl}
-            title={`Document preview for ${fixture.title}`}
+          <img
+            className="document-preview__image"
+            src={renderedPreviewUrl}
+            alt={`Rendered preview of ${fixture.title}`}
           />
         </div>
-        <aside className="difference-panel" aria-labelledby="difference-panel-title">
+        <aside
+          className="difference-panel"
+          aria-labelledby="difference-panel-title"
+        >
           <h3 id="difference-panel-title">What changed</h3>
           <ul>
             {fixture.differenceSummary.map((difference) => (

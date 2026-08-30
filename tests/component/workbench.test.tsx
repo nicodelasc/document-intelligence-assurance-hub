@@ -324,10 +324,11 @@ describe("Workbench controls", () => {
     ).not.toBeInTheDocument();
 
     const initialFixture = syntheticFixtures[0];
-    expect(screen.getByTitle(`Document preview for ${initialFixture.title}`)).toHaveAttribute(
+    expect(screen.getByRole("img", { name: `Rendered preview of ${initialFixture.title}` })).toHaveAttribute(
       "src",
-      `/samples/${initialFixture.filename}`,
+      `/samples/${initialFixture.filename.replace(/\.pdf$/i, ".png")}`,
     );
+    expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", `/samples/${initialFixture.filename}`);
     expect(screen.getByText(initialFixture.differenceSummary[0])).toBeVisible();
 
     await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
@@ -342,9 +343,9 @@ describe("Workbench controls", () => {
         name: new RegExp(warehouseFixture.variantLabel, "i"),
       }),
     );
-    expect(screen.getByTitle(`Document preview for ${warehouseFixture.title}`)).toHaveAttribute(
+    expect(screen.getByRole("img", { name: `Rendered preview of ${warehouseFixture.title}` })).toHaveAttribute(
       "src",
-      `/samples/${warehouseFixture.filename}`,
+      `/samples/${warehouseFixture.filename.replace(/\.pdf$/i, ".png")}`,
     );
     expect(screen.getByText(warehouseFixture.differenceSummary[0])).toBeVisible();
     expect(

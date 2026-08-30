@@ -208,7 +208,8 @@ describe("Run explorer", () => {
     expect(within(runTable).getByText("Supplier invoice")).toBeVisible();
     expect(within(runTable).getByText("Total mismatch")).toBeVisible();
     expect(within(runTable).getByText("Email copy prepared - not sent")).toBeVisible();
-    expect(await screen.findByTitle("Active document preview for fixture-1.pdf")).toHaveAttribute("src", "/api/runs/run_1/document");
+    expect(await screen.findByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
+    expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/run_1/document");
     for (const heading of ["Prepared action", "What differed", "Comments evidence", "Structured extraction", "Reference comparison", "Processing diagnostics", "Safe diagnostics", "Workflow activity", "Metadata"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeVisible();
     }
@@ -235,6 +236,28 @@ describe("Run explorer", () => {
     expect(within(metadata).getAllByText("No AI processing")).toHaveLength(2);
     expect(within(metadata).queryByText("gpt-5-mini")).not.toBeInTheDocument();
     expect(document.querySelector(".run-inspector")).not.toHaveAttribute("aria-live");
+  });
+
+  it("keeps a custom PDF in the active iframe when its run carries a known fixture ID", async () => {
+    const user = userEvent.setup();
+    const custom = { ...runs[1], fixtureId: "invoice-total-mismatch", filename: "customer-upload.pdf" };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ run: {
+      ...custom,
+      promptVersion: "document-extraction-2026-08-27.v1",
+      file: { filename: custom.filename, mediaType: "application/pdf", sizeBytes: 1024, pageCount: 1 },
+      requestedFields: [],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stepDurations: {},
+      documentUrl: "/api/runs/run_2/document",
+      details: { steps: [], result: null, workflowEvents: [] },
+    } }), { status: 200 })));
+    render(<RunExplorer runs={[custom]} onSelect={() => undefined} />);
+
+    await user.click(screen.getByRole("radio", { name: "Select run_2" }));
+
+    expect(await screen.findByTitle("Active document preview for customer-upload.pdf")).toHaveAttribute("src", "/api/runs/run_2/document");
+    expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/run_2/document");
+    expect(screen.queryByRole("img", { name: "Rendered preview of customer-upload.pdf" })).not.toBeInTheDocument();
   });
 });
 

@@ -42,9 +42,9 @@ test("browses document families without processing then runs the selected fixtur
   ).toHaveCount(5);
 
   await page.getByRole("button", { name: /Quantity correction/i }).click();
-  await expect(page.getByTitle(/Document preview for Harborline Components goods receipt/i)).toHaveAttribute(
+  await expect(page.getByRole("img", { name: /Rendered preview of Harborline Components goods receipt/i })).toHaveAttribute(
     "src",
-    "/samples/warehouse-quantity-correction.pdf",
+    "/samples/warehouse-quantity-correction.png",
   );
   await expect(
     page.getByText("Handwritten received quantity differs from the reference.", {

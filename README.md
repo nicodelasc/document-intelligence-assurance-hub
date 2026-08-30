@@ -112,7 +112,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. A replacement walkthrough must show both document families, current Workbench and Operations labels plus explicit fallback or confirmed-dispatch attribution. Rerun the dependency audit for every rollout.
+The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows both document families, current Workbench and Operations labels plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
 
 ## Connected persistence
 

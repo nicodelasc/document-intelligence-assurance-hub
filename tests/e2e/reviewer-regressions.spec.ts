@@ -341,7 +341,8 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await expect(page.getByText("No matching runs")).toBeVisible();
   await page.getByLabel("Processing model filter").selectOption("all");
   await page.getByRole("radio", { name: "Select ops_1" }).check();
-  await expect(page.getByTitle("Active document preview for fixture-1.pdf")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
+  await expect(page.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/ops_1/document");
   await expect(page.getByRole("heading", { name: "Reference comparison" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Processing diagnostics" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Safe diagnostics" })).toBeVisible();

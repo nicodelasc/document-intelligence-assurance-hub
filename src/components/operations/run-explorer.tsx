@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- static previews retain a direct PDF link */
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -303,13 +304,16 @@ function Inspector({ run }: { run: ExplorerRun }) {
   const differences = Array.from(new Set([...(fixture?.differenceSummary ?? []), ...evaluatorDifferences]));
   const expectedDocumentUrl = `/api/runs/${encodeURIComponent(run.id)}/document`;
   const documentUrl = detail?.documentUrl === expectedDocumentUrl ? expectedDocumentUrl : null;
+  const syntheticPreviewUrl = detail?.sourceType === "synthetic" && fixture
+    ? `/samples/${fixture.filename.replace(/\.pdf$/i, ".png")}`
+    : null;
 
   return (
     <div>
       <header className="inspector-title"><div><span className="mono">{run.id}</span><h3>Run detail</h3></div><button type="button" className="copy-button" onClick={() => navigator.clipboard?.writeText(run.id)}>Copy run ID</button></header>
       {error ? <p className="inline-error" role="alert">{error}</p> : !detail ? <p className="loading-region">Loading run detail…</p> : (
         <div className="inspector-sections">
-          <section className="inspector-preview"><h4>Document preview</h4>{documentUrl ? <iframe src={documentUrl} title={`Active document preview for ${detail.file.filename}`} /> : <p>The active document preview is unavailable.</p>}</section>
+          <section className="inspector-preview"><h4>Document preview</h4>{documentUrl ? <><a href={documentUrl} target="_blank" rel="noreferrer">Open full document</a>{syntheticPreviewUrl ? <img src={syntheticPreviewUrl} alt={`Rendered preview of ${detail.file.filename}`} /> : <iframe src={documentUrl} title={`Active document preview for ${detail.file.filename}`} />}</> : <p>The active document preview is unavailable.</p>}</section>
           <section className="inspector-action"><h4>Prepared action</h4>{action ? <><strong>{action.title}</strong><p>{action.summary}</p><dl><div><dt>Type</dt><dd>{action.type.replaceAll("_", " ")}</dd></div><div><dt>Policy status</dt><dd>{action.status.replaceAll("_", " ")}</dd></div><div><dt>Staged preparation</dt><dd>{action.stagedAt ? `Staged ${formatSingaporeTime(action.stagedAt)}` : "Not staged"}</dd></div><div><dt>Risk</dt><dd>{action.risk}</dd></div></dl><dl className="action-payload">{action.payload.map((entry) => <div key={`${entry.label}-${entry.value}`}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}</dl>{action.instructionEvidence ? <blockquote><span>Document instruction{action.page ? ` · Page ${action.page}` : ""}</span>{action.instructionEvidence}</blockquote> : null}<p>{action.reason}</p><small>Prepared inside this demonstration. No external connector was called.</small></> : <p>No prepared action is available.</p>}</section>
           <section><h4>What differed</h4>{differences.length ? <ul className="difference-list">{differences.map((difference, index) => <li key={`${difference}-${index}`}>{difference}</li>)}</ul> : <p>No differences were recorded.</p>}</section>
           <section><h4>Comments evidence</h4>{commentFields.length ? <dl>{commentFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd><span>{field.extractedValue ?? "Not found"}</span><small>{field.evidence ?? "No evidence found"}</small><small>{field.evaluatorStatus.replaceAll("_", " ")}</small></dd></div>)}</dl> : <p>No comments evidence is available.</p>}</section>

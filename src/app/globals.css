@@ -337,7 +337,8 @@ tbody th { font-weight: 600; }
 .inspector-action > small { display: block; color: var(--muted); }
 .inspector-sections dl.action-payload { margin-top: 0.45rem; }
 .inspector-sections section.inspector-preview { grid-column: 1 / -1; border-right: 0; }
-.inspector-preview iframe { width: 100%; min-height: 300px; border: 1px solid var(--rule); background: #F2F4F7; }
+.inspector-preview iframe, .inspector-preview img { width: 100%; min-height: 300px; margin-top: 0.4rem; border: 1px solid var(--rule); background: #F2F4F7; }
+.inspector-preview img { display: block; max-height: 620px; object-fit: contain; }
 .inspector-steps, .safe-error-list, .difference-list, .workflow-event-list { display: grid; gap: 0.25rem; margin: 0.6rem 0 0; padding: 0; list-style: none; }
 .inspector-steps li, .safe-error-list li, .difference-list li, .workflow-event-list li { min-width: 0; padding: 0.4rem; background: #F7F9FC; }
 .inspector-steps li, .safe-error-list li { display: flex; justify-content: space-between; gap: 0.5rem; }

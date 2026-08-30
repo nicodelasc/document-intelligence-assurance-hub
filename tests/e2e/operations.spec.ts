@@ -141,7 +141,10 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   expect(widths.operations / widths.costs).toBeLessThan(2.2);
 
   await page.getByRole("radio", { name: `Select ${run.id}` }).check();
-  await expect(page.getByTitle(`Active document preview for ${run.filename}`)).toHaveAttribute("src", `/api/runs/${run.id}/document`);
+  const renderedPreview = page.getByRole("img", { name: `Rendered preview of ${run.filename}` });
+  await expect(renderedPreview).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
+  await expect.poll(() => renderedPreview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", `/api/runs/${run.id}/document`);
   await expect(page.getByRole("heading", { name: "What differed", level: 4 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Comments evidence", level: 4 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Workflow activity", level: 4 })).toBeVisible();
