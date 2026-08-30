@@ -1,6 +1,9 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import ffmpegPath from "ffmpeg-static";
 import { describe, expect, it } from "vitest";
 import { syntheticFixtures } from "@/domain/fixtures";
 
@@ -14,6 +17,41 @@ const deployment = readProjectFile("docs/deployment-checklist.md");
 const walkthrough = readProjectFile("docs/walkthrough-script.md");
 const recorder = readProjectFile("scripts/record-walkthrough.mjs");
 const readme = readProjectFile("README.md");
+// The committed previews measure above 350. A white or texture-only page stays far below 100.
+const minimumPreviewLuminanceVariance = 100;
+
+function durationSeconds(timestamp: string): number {
+  const [hours, minutes, seconds] = timestamp.split(":").map(Number);
+  return hours * 3_600 + minutes * 60 + seconds;
+}
+
+async function previewLuminanceVariance(path: string) {
+  const image = await loadImage(path);
+  const canvas = createCanvas(image.width, image.height);
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, image.width, image.height).data;
+  let count = 0;
+  let sum = 0;
+  let sumOfSquares = 0;
+
+  for (let index = 0; index < pixels.length; index += 64) {
+    const luminance =
+      0.2126 * pixels[index] +
+      0.7152 * pixels[index + 1] +
+      0.0722 * pixels[index + 2];
+    count += 1;
+    sum += luminance;
+    sumOfSquares += luminance * luminance;
+  }
+
+  const mean = sum / count;
+  return {
+    width: image.width,
+    height: image.height,
+    variance: sumOfSquares / count - mean * mean,
+  };
+}
 
 describe("Release artifact hardening", () => {
   it("documents exact-once idempotent application and schema checks for migrations 0008 and 0009", () => {
@@ -118,6 +156,35 @@ describe("Release artifact hardening", () => {
     );
   });
 
+  it("starts the Total mismatch chapter only after processing reaches Needs review", () => {
+    const mismatchSelection = recorder.indexOf("name: /Total mismatch/i");
+    const nextWorkflowAction = recorder.indexOf(
+      'name: "Prepare email to the selected role"',
+      mismatchSelection,
+    );
+    const mismatchFlow = recorder.slice(mismatchSelection, nextWorkflowAction);
+    const processClick = mismatchFlow.indexOf(
+      'await page.getByRole("button", { name: "Process document"',
+    );
+    const needsReviewWait = mismatchFlow.indexOf(
+      'await page.getByRole("heading", { name: "Needs review"',
+      processClick,
+    );
+    const mismatchChapter = mismatchFlow.indexOf("await showChapter(");
+
+    expect(mismatchSelection).toBeGreaterThanOrEqual(0);
+    expect(nextWorkflowAction).toBeGreaterThan(mismatchSelection);
+    expect(processClick).toBeGreaterThanOrEqual(0);
+    expect(needsReviewWait).toBeGreaterThan(processClick);
+    expect(mismatchChapter).toBeGreaterThan(needsReviewWait);
+    expect(mismatchFlow.slice(processClick, needsReviewWait)).toMatch(
+      /await page[\s\S]*\.click\(\);/,
+    );
+    expect(mismatchFlow.slice(needsReviewWait, mismatchChapter)).toMatch(
+      /\.waitFor\(\);/,
+    );
+  });
+
   it("publishes the current keyless artifact in the README", () => {
     expect(readme).toMatch(/current keyless walkthrough/i);
     expect(readme).toContain("artifacts/walkthrough.webm");
@@ -153,6 +220,69 @@ describe("Release artifact hardening", () => {
       expect([...preview.subarray(0, 8)]).toEqual([
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
       ]);
+    }
+  });
+
+  it("fully decodes one 1440x900 VP8 stream within half a second of 2:08", () => {
+    const artifactPath = join(projectRoot, "artifacts/walkthrough.webm");
+    if (!ffmpegPath) {
+      throw new Error("ffmpeg_static_binary_unavailable");
+    }
+    const decode = spawnSync(
+      ffmpegPath,
+      [
+        "-hide_banner",
+        "-nostdin",
+        "-xerror",
+        "-i",
+        artifactPath,
+        "-map",
+        "0:v",
+        "-f",
+        "null",
+        "-",
+      ],
+      { encoding: "utf8", timeout: 60_000 },
+    );
+
+    expect(decode.error).toBeUndefined();
+    expect(decode.status, decode.stderr).toBe(0);
+    const inputMetadata = decode.stderr.split("Stream mapping:")[0];
+    const videoStreams = [
+      ...inputMetadata.matchAll(
+        /Stream #\d+:\d+[^:]*: Video: ([^,\s]+)[^\r\n]*?\b(\d{2,5})x(\d{2,5})\b/g,
+      ),
+    ];
+    expect(videoStreams).toHaveLength(1);
+    expect(videoStreams[0]?.[1]).toBe("vp8");
+    expect(videoStreams[0]?.[2]).toBe("1440");
+    expect(videoStreams[0]?.[3]).toBe("900");
+
+    const duration = inputMetadata.match(
+      /Duration: (\d{2}:\d{2}:\d{2}\.\d{2})/,
+    );
+    expect(duration).not.toBeNull();
+    expect(
+      Math.abs(durationSeconds(duration?.[1] ?? "00:00:00") - 128),
+    ).toBeLessThanOrEqual(0.5);
+    expect(walkthrough).toMatch(/measured duration is 2:07\.64/i);
+    expect(walkthrough).toContain("## 1:58–2:08 — Disclosure and gate");
+  }, 60_000);
+
+  it("decodes every fixture preview at 1191x1684 with visible content", async () => {
+    const sampleDirectory = join(projectRoot, "public/samples");
+
+    for (const fixture of syntheticFixtures) {
+      const previewPath = join(
+        sampleDirectory,
+        fixture.filename.replace(/\.pdf$/i, ".png"),
+      );
+      const preview = await previewLuminanceVariance(previewPath);
+      expect(preview.width, fixture.id).toBe(1191);
+      expect(preview.height, fixture.id).toBe(1684);
+      expect(preview.variance, fixture.id).toBeGreaterThan(
+        minimumPreviewLuminanceVariance,
+      );
     }
   });
 
