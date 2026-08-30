@@ -1,5 +1,6 @@
 import { RulePanel } from "@/components/ui/primitives";
 import type { ConfirmedUsageMetrics, CostMetrics } from "./operations-dashboard";
+import { operationsTourTargetIds } from "./guided-tour-config";
 import { ResourceCalculator } from "./resource-calculator";
 
 const usd = new Intl.NumberFormat("en-SG", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -20,7 +21,10 @@ export function CostsWorkspace({ costs, usage, usdToSgd }: {
 
   return (
     <aside className="workspace-column costs-column" aria-labelledby="costs-workspace-heading">
-      <header className="workspace-heading">
+      <header
+        id={operationsTourTargetIds.costGovernance}
+        className="workspace-heading tour-target"
+      >
         <p>Estimated model economics</p>
         <h2 id="costs-workspace-heading">Costs workspace</h2>
       </header>

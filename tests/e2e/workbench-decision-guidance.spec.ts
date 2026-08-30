@@ -158,7 +158,8 @@ test("opens the Workbench purpose overview from the app header then restores foc
   await trigger.click();
   const overview = page.getByRole("dialog", { name: "What this workbench does" });
   await expect(overview).toBeVisible();
-  await expect(overview).toContainText("checks document evidence");
+  await expect(overview).toContainText("agentic document-assurance workflow");
+  await expect(overview).toContainText("Built-in documents and reference records are synthetic");
   await expect(overview.getByRole("button", { name: "Start guided tour" })).toBeVisible();
 
   await overview.getByRole("button", { name: "Close" }).click();

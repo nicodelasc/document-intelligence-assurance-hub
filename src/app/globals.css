@@ -61,16 +61,16 @@ h4 { font-size: 0.78rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .skip-link { position: fixed; top: 0.5rem; left: 0.5rem; z-index: var(--z-toast); padding: 0.7rem 1rem; background: var(--ink); color: white; transform: translateY(-180%); }
 .skip-link:focus { transform: translateY(0); }
-.app-header { position: sticky; top: 0; z-index: var(--z-sticky); min-height: 58px; display: flex; align-items: stretch; gap: 2rem; padding-inline: var(--page-gutter); border-bottom: 1px solid var(--rule); background: rgba(255,255,255,0.97); }
+.app-header { position: sticky; top: 0; z-index: var(--z-sticky); min-height: 58px; display: flex; align-items: stretch; gap: 1rem; padding-inline: var(--page-gutter); border-bottom: 1px solid var(--rule); background: rgba(255,255,255,0.97); }
 .product-name { display: flex; align-items: center; color: var(--ink); font-size: 1.15rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
 .app-header nav { display: flex; align-items: stretch; gap: 0.5rem; }
 .app-header nav a { position: relative; display: flex; align-items: center; min-width: 92px; justify-content: center; padding: 0 1rem; color: var(--ink); text-decoration: none; }
 .app-header nav a:hover { background: var(--primary-soft); color: var(--primary); }
 .app-header nav a[aria-current="page"] { color: var(--primary); font-weight: 600; }
 .app-header nav a[aria-current="page"]::after { position: absolute; inset: auto 0 -1px; height: 3px; content: ""; background: var(--primary); }
-.workbench-guidance-trigger { align-self: center; min-height: 42px; margin-left: auto; font-size: 1rem; font-weight: 750; }
-.workbench-guidance-trigger .button__label { display: inline-flex; align-items: center; gap: 0.45rem; }
-.workbench-guidance-placeholder { align-self: center; width: 145px; min-height: 42px; margin-left: auto; }
+.guidance-trigger { align-self: center; min-height: 42px; font-size: 1rem; font-weight: 750; }
+.guidance-trigger .button__label { display: inline-flex; align-items: center; gap: 0.45rem; }
+.guidance-placeholder { flex: 0 0 145px; align-self: center; width: 145px; min-height: 42px; }
 .page { width: min(100%, var(--page-max)); margin-inline: auto; padding: 1.25rem var(--page-gutter) 3rem; }
 .page-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem; margin-bottom: 1rem; }
 .page-intro p { max-width: 800px; margin-bottom: 0; color: var(--muted); }
@@ -256,6 +256,7 @@ tbody th { font-weight: 600; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1rem; }
 .guidance-overview__purpose { margin: 0; font-size: 0.92rem; line-height: 1.6; }
 .guidance-overview__boundary { margin: 0.8rem 0 0; padding: 0.7rem; border-left: 3px solid var(--primary); background: var(--primary-soft); color: #24436F; font-size: 0.75rem; }
+.guidance-overview__availability { margin: 0.8rem 0 0; color: var(--muted); font-size: 0.75rem; }
 .guided-tour-layer .dialog-backdrop { background: transparent; }
 .guided-tour__spotlight { position: fixed; z-index: var(--z-spotlight); border: 3px solid var(--primary); border-radius: var(--radius-lg); box-shadow: 0 0 0 9999px rgba(16,24,40,0.64); pointer-events: none; transition: opacity 180ms ease; }
 .guided-tour__arrow { position: fixed; z-index: var(--z-spotlight); height: 3px; border-radius: 2px; background: var(--primary); box-shadow: 0 0 0 1px rgba(255,255,255,0.92); pointer-events: none; transform-origin: left center; }
@@ -405,9 +406,9 @@ tbody th { font-weight: 600; }
 @media (max-width: 900px) {
   .app-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 0.55rem; padding: 0.55rem var(--page-gutter) 0; }
   .product-name { grid-column: 1; grid-row: 1; min-width: 0; min-height: 40px; font-size: 1.05rem; line-height: 1.15; white-space: normal; }
-  .workbench-guidance-trigger, .workbench-guidance-placeholder { grid-column: 2; grid-row: 1; min-height: 38px; margin-left: 0; }
-  .workbench-guidance-trigger { padding: 0.45rem 0.65rem; font-size: 0.95rem; }
-  .workbench-guidance-placeholder { width: 136px; }
+  .guidance-trigger, .guidance-placeholder { grid-column: 2; grid-row: 1; min-height: 38px; margin-left: 0; }
+  .guidance-trigger { padding: 0.45rem 0.65rem; font-size: 0.95rem; }
+  .guidance-placeholder { width: 136px; }
   .app-header nav { grid-column: 1 / -1; grid-row: 2; width: 100%; }
   .app-header nav a { min-width: 0; flex: 1; min-height: 40px; }
 }
@@ -454,7 +455,7 @@ tbody th { font-weight: 600; }
   .page { padding-inline: 0.65rem; }
   .workbench-page, .workbench-desk, .source-rail, .document-work-area, .assurance-rail, .operations-page, .operations-costs-layout, .workspace-column, .explorer-layout, .run-explorer, .run-inspector { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
   .app-header { padding-inline: 0.65rem; }
-  .workbench-guidance-trigger { padding-inline: 0.55rem; font-size: 0.9rem; }
+  .guidance-trigger { padding-inline: 0.55rem; font-size: 0.9rem; }
   .rule-panel__header { padding-inline: 0.65rem; }
   .document-preview__frame { min-height: 460px; }
   .document-preview__iframe, .document-preview__image { height: 460px; }

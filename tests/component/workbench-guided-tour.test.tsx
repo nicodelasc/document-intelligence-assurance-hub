@@ -109,8 +109,14 @@ describe("Workbench guided tour", () => {
     const appHeader = document.querySelector<HTMLElement>(".app-header");
     expect(appHeader).not.toBeNull();
     const trigger = await within(appHeader!).findByRole("button", { name: "How it works" });
-    expect(trigger).toHaveClass("workbench-guidance-trigger");
+    expect(trigger).toHaveClass("guidance-trigger");
     expect(trigger).toHaveTextContent("How it works");
+    const productName = within(appHeader!).getByRole("link", {
+      name: "Document Intelligence Assurance Hub",
+    });
+    const navigation = within(appHeader!).getByRole("navigation", { name: "Primary navigation" });
+    expect(productName.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(trigger.compareDocumentPosition(navigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Review a document" }).closest("header")).not.toContainElement(trigger);
     for (const targetId of targetIds) {
       expect(document.getElementById(targetId)).toBeInTheDocument();
@@ -126,7 +132,12 @@ describe("Workbench guided tour", () => {
 
     await user.click(await findGuidanceTrigger());
     const overview = screen.getByRole("dialog", { name: "What this workbench does" });
-    expect(overview).toHaveTextContent(/checks document evidence/i);
+    expect(overview).toHaveTextContent(/agentic document-assurance workflow/i);
+    expect(overview).toHaveTextContent(/multimodal document understanding/i);
+    expect(overview).toHaveTextContent(/evidence-grounded evaluator checks/i);
+    expect(overview).toHaveTextContent(/orchestration, validation and telemetry are implemented/i);
+    expect(overview).toHaveTextContent(/synthetic/i);
+    expect(overview).toHaveTextContent(/do not update external systems/i);
     expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeVisible();
     expect(within(overview).getByRole("button", { name: "Close" })).toBeVisible();
     await waitFor(() => expect(
@@ -163,9 +174,17 @@ describe("Workbench guided tour", () => {
       "Assurance trace",
       "Decision and next steps",
     ] as const;
+    const truthfulStepCopy = [
+      /synthetic fixtures.*OCR-style reading.*handwritten comments/i,
+      /explicit provider dispatch/i,
+      /untrusted document text.*no tool execution/i,
+      /observable orchestration.*evaluator checks/i,
+      /human-in-the-loop.*staged actions/i,
+    ] as const;
     for (let index = 0; index < expectedSteps.length; index += 1) {
       const dialog = screen.getByRole("dialog", { name: expectedSteps[index] });
       expect(within(dialog).getByText(`Step ${index + 1} of 5`)).toBeVisible();
+      expect(dialog).toHaveTextContent(truthfulStepCopy[index]);
       await waitFor(() => expect(within(dialog).getByRole("heading", {
         name: expectedSteps[index],
       })).toHaveFocus());

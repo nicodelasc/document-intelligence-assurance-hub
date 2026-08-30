@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/primitives";
 import type { DocumentFamily, Provider, VariantClassification, WorkflowEventStatus } from "@/domain/types";
 import { CostsWorkspace } from "./costs-workspace";
+import { operationsTourTargetIds } from "./guided-tour-config";
 import { OperationsWorkspace } from "./operations-workspace";
 import type { ExplorerRun } from "./run-explorer";
 
@@ -217,7 +218,11 @@ export function OperationsDashboard() {
         </div>
       </header>
       {loading ? <div className="loading-band" role="status">Loading operational ledger…</div> : null}
-      <section className="metric-band" aria-label="Run summary metrics">
+      <section
+        id={operationsTourTargetIds.runOverview}
+        className="metric-band tour-target"
+        aria-label="Run summary metrics"
+      >
         <Metric label="Total runs" value={String(summary.totalRuns)} detail="Anonymous run summaries" />
         <Metric label="Completion rate" value={percent.format(summary.completionRate)} detail="Completed runs" />
         <Metric label="Review rate" value={percent.format(summary.reviewRate)} detail="Completed runs needing attention" />

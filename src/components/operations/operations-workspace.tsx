@@ -1,5 +1,6 @@
 import { RulePanel, StatusMark } from "@/components/ui/primitives";
 import type { MetricsSummary, OperationsMetrics, ReferenceQualityMetrics } from "./operations-dashboard";
+import { operationsTourTargetIds } from "./guided-tour-config";
 import { RunExplorer, type ExplorerRun } from "./run-explorer";
 
 const percent = new Intl.NumberFormat("en-SG", { style: "percent", maximumFractionDigits: 1 });
@@ -26,7 +27,12 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
         <h2 id="operations-workspace-heading">Operations workspace</h2>
       </header>
 
-      <RulePanel title="Workflow status" headingLevel={3}>
+      <RulePanel
+        title="Workflow status"
+        headingLevel={3}
+        headerId={operationsTourTargetIds.workflowHealth}
+        headerClassName="tour-target"
+      >
         <dl className="workspace-stat-grid">
           <div><dt>Ready</dt><dd>{operations.workflowStatus.ready}</dd></div>
           <div><dt>Needs attention</dt><dd>{operations.workflowStatus.needsAttention}</dd></div>
@@ -66,7 +72,12 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
         ) : <p className="empty-copy">No completed step durations are available.</p>}
       </RulePanel>
 
-      <RulePanel title="Reference quality suite" headingLevel={3}>
+      <RulePanel
+        title="Reference quality suite"
+        headingLevel={3}
+        headerId={operationsTourTargetIds.assuranceSafeguards}
+        headerClassName="tour-target"
+      >
         <p className="claim-label">Provider-neutral contract baseline</p>
         <dl className="quality-detail-list">
           <QualityRate label="Exact-match rate" value={referenceQuality.exactMatchRate} showProgress={referenceQuality.observationCount > 0} />

@@ -2,9 +2,16 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppShell } from "@/components/app-shell";
 import { OperationsDashboard } from "@/components/operations/operations-dashboard";
 import { ResourceCalculator } from "@/components/operations/resource-calculator";
 import { RunExplorer } from "@/components/operations/run-explorer";
+
+const navigationState = vi.hoisted(() => ({ pathname: "/operations" }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigationState.pathname,
+}));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -327,6 +334,94 @@ describe("Operations metric claims", () => {
     runExplorer: [],
     resourceScenario: { modelCostAssumption: { averageModelCostPerRunUsd: 0.1, usdToSgd: 1.35 } },
   };
+
+  it("offers an honest Operations overview then the exact five stable tour steps", async () => {
+    const user = userEvent.setup();
+    let resolveMetrics: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+      resolveMetrics = resolve;
+    })));
+    render(
+      <AppShell>
+        <OperationsDashboard />
+      </AppShell>,
+    );
+
+    const header = document.querySelector<HTMLElement>(".app-header")!;
+    const trigger = await within(header).findByRole("button", { name: "How it works" });
+    const productName = within(header).getByRole("link", {
+      name: "Document Intelligence Assurance Hub",
+    });
+    const navigation = within(header).getByRole("navigation", { name: "Primary navigation" });
+    expect(productName.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(trigger.compareDocumentPosition(navigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(trigger);
+    const loadingOverview = screen.getByRole("dialog", { name: "What Operations shows" });
+    expect(loadingOverview).toHaveTextContent(/agentic document workflow observable/i);
+    expect(loadingOverview).toHaveTextContent(/deterministic assurance signals/i);
+    expect(loadingOverview).toHaveTextContent(/estimated model economics/i);
+    expect(loadingOverview).toHaveTextContent(/synthetic/i);
+    expect(loadingOverview).toHaveTextContent(/no ERP, email or payment connector is called/i);
+    expect(within(loadingOverview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
+    expect(loadingOverview).toHaveTextContent(/metrics.*loading/i);
+    await waitFor(() => expect(
+      within(loadingOverview).getByRole("button", { name: "Close" }),
+    ).toHaveFocus());
+
+    resolveMetrics!(new Response(JSON.stringify(populatedMetrics), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    await waitFor(() => expect(
+      within(loadingOverview).getByRole("button", { name: "Start guided tour" }),
+    ).toBeEnabled());
+    await user.click(within(loadingOverview).getByRole("button", { name: "Start guided tour" }));
+
+    const expectedSteps = [
+      ["Run overview", /anonymous demo telemetry.*not production SLAs/i],
+      ["Workflow health", /human-in-the-loop queues.*simulated events/i],
+      ["Assurance safeguards", /provider-neutral synthetic contract baseline.*not model accuracy/i],
+      ["Evidence explorer", /retained evidence.*safe diagnostics.*confirmed dispatch attribution/i],
+      ["Cost governance", /dated cost estimates.*illustrative savings/i],
+    ] as const;
+    const expectedTargets = [
+      "operations-tour-run-overview",
+      "operations-tour-workflow-health",
+      "operations-tour-assurance-safeguards",
+      "operations-tour-evidence-explorer",
+      "operations-tour-cost-governance",
+    ] as const;
+    for (let index = 0; index < expectedSteps.length; index += 1) {
+      const dialog = screen.getByRole("dialog", { name: expectedSteps[index][0] });
+      expect(dialog).toHaveTextContent(`Step ${index + 1} of 5`);
+      expect(dialog).toHaveTextContent(expectedSteps[index][1]);
+      expect(document.getElementById(expectedTargets[index])).toBeInTheDocument();
+      if (index < expectedSteps.length - 1) {
+        await user.click(within(dialog).getByRole("button", { name: "Next" }));
+      }
+    }
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("keeps the Operations tour unavailable after a route-level metrics error", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+    render(
+      <AppShell>
+        <OperationsDashboard />
+      </AppShell>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "How it works" }));
+    const overview = screen.getByRole("dialog", { name: "What Operations shows" });
+    expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
+    expect(overview).toHaveTextContent(/metrics.*unavailable/i);
+    expect(screen.queryByRole("dialog", { name: "Run overview" })).not.toBeInTheDocument();
+  });
 
   it("renders the populated Operations and Costs workspaces", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(populatedMetrics), { status: 200 })));

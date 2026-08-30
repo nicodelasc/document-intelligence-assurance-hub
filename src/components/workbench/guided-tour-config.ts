@@ -3,31 +3,31 @@ export const workbenchTourSteps = [
     targetId: "workbench-tour-document-library",
     title: "Document library",
     description:
-      "Choose a built-in supplier invoice or goods receipt. You can also add your own non-sensitive test document.",
+      "Built-in documents are synthetic fixtures designed for OCR-style reading, including handwritten comments. Custom uploads should use non-sensitive test content.",
   },
   {
     targetId: "workbench-tour-processing-model",
     title: "Processing model",
     description:
-      "Choose which available AI model reads the document. Recommended labels balance capability and estimated cost.",
+      "Choose an available model. Live processing records explicit provider dispatch; a configured provider alone never counts as a provider call.",
   },
   {
     targetId: "workbench-tour-process-document",
     title: "Process document",
     description:
-      "Start the review. The workbench extracts requested details then checks them against reference evidence.",
+      "Start the agentic workflow. Untrusted document text is treated as input and no tool execution is allowed. Evaluator checks use approved references.",
   },
   {
     targetId: "workbench-tour-assurance-trace",
     title: "Assurance trace",
     description:
-      "Follow the three assurance stages to see the document being understood, verified and prepared for a safe decision.",
+      "Follow observable orchestration across document understanding, evidence-grounded evaluator checks and guardrails. The trace reports what ran without claiming an autonomous platform.",
   },
   {
     targetId: "workbench-tour-decision",
     title: "Decision and next steps",
     description:
-      "Review the result, evidence differences and prepared actions. Nothing is sent or posted automatically.",
+      "A human-in-the-loop reviewer sees differences and staged actions. Actions only prepare or simulate next steps and do not update external systems.",
   },
 ] as const;
 

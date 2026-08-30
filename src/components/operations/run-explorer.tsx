@@ -15,6 +15,7 @@ import type {
   WorkflowEvent,
   WorkflowEventStatus,
 } from "@/domain/types";
+import { operationsTourTargetIds } from "./guided-tour-config";
 
 export const workflowActionLabels: Readonly<Record<WorkflowActionType, string>> = {
   approve_and_stage: "Approved and staged",
@@ -219,7 +220,10 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
   return (
     <div className="explorer-layout">
       <section className="run-explorer" aria-labelledby="run-explorer-heading">
-        <header className="explorer-toolbar">
+        <header
+          id={operationsTourTargetIds.evidenceExplorer}
+          className="explorer-toolbar tour-target"
+        >
           <div><h3 id="run-explorer-heading">Run explorer</h3><span>{filtered.length} matching runs</span></div>
           <label>Processing model filter<select value={provider} onChange={(event) => changeFilter("provider", event.target.value)}><option value="all">All processing</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
           <label>Outcome filter<select value={outcome} onChange={(event) => changeFilter("outcome", event.target.value)}><option value="all">All outcomes</option>{outcomeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
