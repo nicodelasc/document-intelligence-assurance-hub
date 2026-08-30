@@ -248,6 +248,43 @@ describe("Workbench guided tour", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("moves focus to Close when a ready overview becomes unavailable", async () => {
+    installMatchMedia();
+    const user = userEvent.setup();
+    renderWorkbench();
+    await user.click(await findGuidanceTrigger());
+    const overview = screen.getByRole("dialog", { name: "What this workbench does" });
+    await waitFor(() => expect(
+      within(overview).getByRole("button", { name: "Start guided tour" }),
+    ).toHaveFocus());
+
+    document.getElementById(targetIds[0])!.remove();
+
+    await waitFor(() => expect(
+      within(overview).getByRole("button", { name: "Start guided tour" }),
+    ).toBeDisabled());
+    expect(within(overview).getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+
+  it("returns focus to Close when the active tour target disappears", async () => {
+    installMatchMedia();
+    const user = userEvent.setup();
+    renderWorkbench();
+    await user.click(await findGuidanceTrigger());
+    await user.click(screen.getByRole("button", { name: "Start guided tour" }));
+    await waitFor(() => expect(
+      screen.getByRole("heading", { name: "Document library" }),
+    ).toHaveFocus());
+
+    document.getElementById(targetIds[0])!.remove();
+
+    const overview = await screen.findByRole("dialog", { name: "What this workbench does" });
+    expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
+    await waitFor(() => expect(
+      within(overview).getByRole("button", { name: "Close" }),
+    ).toHaveFocus());
+  });
+
   it("does not reopen guidance after leaving and returning to the Workbench route", async () => {
     installMatchMedia();
     const user = userEvent.setup();

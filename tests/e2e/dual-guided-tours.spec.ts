@@ -101,6 +101,50 @@ async function interceptOperationsMetrics(page: Page) {
   }));
 }
 
+const operationsTourSteps = [
+  ["Run overview", "operations-tour-run-overview"],
+  ["Workflow health", "operations-tour-workflow-health"],
+  ["Assurance safeguards", "operations-tour-assurance-safeguards"],
+  ["Evidence explorer", "operations-tour-evidence-explorer"],
+  ["Cost governance", "operations-tour-cost-governance"],
+] as const;
+
+async function expectAlignedNonOverlappingGeometry(
+  page: Page,
+  title: string,
+  targetId: string,
+  viewport: { width: number; height: number },
+) {
+  await expect.poll(async () => {
+    const [callout, spotlight, target] = await Promise.all([
+      page.getByRole("dialog", { name: title }).boundingBox(),
+      page.locator(".guided-tour__spotlight").boundingBox(),
+      page.locator(`#${targetId}`).boundingBox(),
+    ]);
+    if (!callout || !spotlight || !target) return { aligned: false, overlaps: true };
+    const expectedLeft = Math.max(16, target.x - 6);
+    const expectedTop = Math.max(16, target.y - 6);
+    const expectedRight = Math.min(viewport.width - 16, target.x + target.width + 6);
+    const expectedBottom = Math.min(viewport.height - 16, target.y + target.height + 6);
+    const aligned = Math.abs(spotlight.x - expectedLeft) <= 2
+      && Math.abs(spotlight.y - expectedTop) <= 2
+      && Math.abs(spotlight.x + spotlight.width - expectedRight) <= 2
+      && Math.abs(spotlight.y + spotlight.height - expectedBottom) <= 2;
+    const overlaps = callout.x < spotlight.x + spotlight.width
+      && callout.x + callout.width > spotlight.x
+      && callout.y < spotlight.y + spotlight.height
+      && callout.y + callout.height > spotlight.y;
+    return { aligned, overlaps };
+  }).toEqual({ aligned: true, overlaps: false });
+}
+
+async function openOperationsTour(page: Page) {
+  await page.goto("/operations");
+  await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+  await page.getByRole("button", { name: "How it works" }).click();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+}
+
 test("places route guidance before navigation and walks the Operations tour", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await interceptOperationsMetrics(page);
@@ -124,23 +168,17 @@ test("places route guidance before navigation and walks the Operations tour", as
   await expect(overview).toContainText("no ERP, email or payment connector is called");
   await overview.getByRole("button", { name: "Start guided tour" }).click();
 
-  const steps = [
-    ["Run overview", "operations-tour-run-overview"],
-    ["Workflow health", "operations-tour-workflow-health"],
-    ["Assurance safeguards", "operations-tour-assurance-safeguards"],
-    ["Evidence explorer", "operations-tour-evidence-explorer"],
-    ["Cost governance", "operations-tour-cost-governance"],
-  ] as const;
-  for (let index = 0; index < steps.length; index += 1) {
-    const dialog = page.getByRole("dialog", { name: steps[index][0] });
+  for (let index = 0; index < operationsTourSteps.length; index += 1) {
+    const dialog = page.getByRole("dialog", { name: operationsTourSteps[index][0] });
     await expect(dialog).toContainText(`Step ${index + 1} of 5`);
-    await expect(page.locator(`#${steps[index][1]}`)).toBeVisible();
-    const spotlightBox = await page.locator(".guided-tour__spotlight").boundingBox();
-    const targetBox = await page.locator(`#${steps[index][1]}`).boundingBox();
-    expect(spotlightBox).not.toBeNull();
-    expect(targetBox).not.toBeNull();
-    expect(targetBox!.height).toBeLessThan(180);
-    if (index < steps.length - 1) {
+    await expect(page.locator(`#${operationsTourSteps[index][1]}`)).toBeVisible();
+    await expectAlignedNonOverlappingGeometry(
+      page,
+      operationsTourSteps[index][0],
+      operationsTourSteps[index][1],
+      { width: 1440, height: 1000 },
+    );
+    if (index < operationsTourSteps.length - 1) {
       await dialog.getByRole("button", { name: "Next" }).click();
     }
   }
@@ -160,6 +198,25 @@ test("places route guidance before navigation and walks the Operations tour", as
   expect(mobileBox!.x).toBeGreaterThanOrEqual(16);
   expect(mobileBox!.x + mobileBox!.width).toBeLessThanOrEqual(374);
 });
+
+for (const viewport of [
+  { width: 721, height: 480 },
+  { width: 720, height: 480 },
+] as const) {
+  test(`keeps every Operations spotlight aligned and separate at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await interceptOperationsMetrics(page);
+    await openOperationsTour(page);
+
+    for (let index = 0; index < operationsTourSteps.length; index += 1) {
+      const [title, targetId] = operationsTourSteps[index];
+      await expectAlignedNonOverlappingGeometry(page, title, targetId, viewport);
+      if (index < operationsTourSteps.length - 1) {
+        await page.getByRole("dialog", { name: title }).getByRole("button", { name: "Next" }).click();
+      }
+    }
+  });
+}
 
 test("does not fetch Workbench tour code on cold Operations", async ({ page }) => {
   await interceptOperationsMetrics(page);

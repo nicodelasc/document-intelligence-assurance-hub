@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/primitives";
 const VIEWPORT_CLEARANCE = 16;
 const CALLOUT_GAP = 24;
 const MOBILE_BREAKPOINT = 720;
+const COMPACT_CALLOUT_HEIGHT_RATIO = 0.44;
+const COMPACT_CALLOUT_MAX_HEIGHT = 370;
 
 export type GuidedTourStep = {
   targetId: string;
@@ -109,6 +111,9 @@ export function GuidedTourDialog({
   const primaryActionRef = useRef<HTMLButtonElement>(null);
   const closeActionRef = useRef<HTMLButtonElement>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const blockedCompactScrollRef = useRef<string | null>(null);
+  const compactGeometryRef = useRef<string | null>(null);
+  const overviewUnavailableRef = useRef(mode === "overview" && Boolean(unavailableMessage));
   const currentStep = steps[stepIndex];
 
   useEffect(() => {
@@ -120,6 +125,12 @@ export function GuidedTourDialog({
     return () => observer.disconnect();
   }, [getUnavailableMessage, mode, steps]);
 
+  useLayoutEffect(() => {
+    const overviewUnavailable = mode === "overview" && Boolean(unavailableMessage);
+    if (overviewUnavailable && !overviewUnavailableRef.current) closeActionRef.current?.focus();
+    overviewUnavailableRef.current = overviewUnavailable;
+  }, [mode, unavailableMessage]);
+
   const updateGeometry = useCallback(() => {
     if (mode !== "tour") return;
     const target = document.getElementById(currentStep.targetId);
@@ -129,8 +140,40 @@ export function GuidedTourDialog({
       return;
     }
     const viewport = viewportBounds();
-    const targetRect = target.getBoundingClientRect();
+    let targetRect = target.getBoundingClientRect();
     const mobile = viewport.width <= MOBILE_BREAKPOINT;
+    const surface = document.getElementById("guided-tour-callout");
+    const measured = surface?.getBoundingClientRect();
+    const calloutWidth = measured?.width || Math.min(360, viewport.width - VIEWPORT_CLEARANCE * 2);
+    const calloutHeight = measured?.height || 250;
+    const fitsRight = targetRect.right + CALLOUT_GAP + calloutWidth <= viewport.right - VIEWPORT_CLEARANCE;
+    const fitsLeft = targetRect.left - CALLOUT_GAP - calloutWidth >= viewport.left + VIEWPORT_CLEARANCE;
+    const fitsBelow = targetRect.bottom + CALLOUT_GAP + calloutHeight <= viewport.bottom - VIEWPORT_CLEARANCE;
+    const fitsAbove = targetRect.top - CALLOUT_GAP - calloutHeight >= viewport.top + VIEWPORT_CLEARANCE;
+    const geometryKey = `${currentStep.targetId}:${viewport.width}:${viewport.height}`;
+    const hasDesktopFit = fitsRight || fitsLeft || fitsBelow || fitsAbove;
+    const compact = mobile || compactGeometryRef.current === geometryKey || !hasDesktopFit;
+
+    if (compact) {
+      compactGeometryRef.current = geometryKey;
+      const reservedCalloutHeight = Math.min(
+        viewport.height * COMPACT_CALLOUT_HEIGHT_RATIO,
+        COMPACT_CALLOUT_MAX_HEIGHT,
+      );
+      const targetBottomLimit = viewport.bottom
+        - VIEWPORT_CLEARANCE
+        - reservedCalloutHeight
+        - CALLOUT_GAP;
+      const scrollDelta = Math.max(0, targetRect.bottom - targetBottomLimit);
+      const scrollKey = geometryKey;
+      if (scrollDelta > 1 && blockedCompactScrollRef.current !== scrollKey) {
+        const scrollY = window.scrollY;
+        window.scrollBy({ top: scrollDelta, behavior: "auto" });
+        targetRect = target.getBoundingClientRect();
+        if (window.scrollY === scrollY) blockedCompactScrollRef.current = scrollKey;
+      }
+    }
+
     const padding = 6;
     const left = clamp(targetRect.left - padding, viewport.left + VIEWPORT_CLEARANCE, viewport.right - VIEWPORT_CLEARANCE);
     const top = clamp(targetRect.top - padding, viewport.top + VIEWPORT_CLEARANCE, viewport.bottom - VIEWPORT_CLEARANCE);
@@ -144,18 +187,11 @@ export function GuidedTourDialog({
       opacity: 1,
     };
 
-    if (mobile) {
+    if (compact) {
       setGeometry({ mobile: true, spotlightStyle, calloutStyle: {}, arrowStyle: { opacity: 0 } });
       return;
     }
 
-    const surface = document.getElementById("guided-tour-callout");
-    const measured = surface?.getBoundingClientRect();
-    const calloutWidth = measured?.width || Math.min(360, viewport.width - VIEWPORT_CLEARANCE * 2);
-    const calloutHeight = measured?.height || 250;
-    const fitsRight = targetRect.right + CALLOUT_GAP + calloutWidth <= viewport.right - VIEWPORT_CLEARANCE;
-    const fitsLeft = targetRect.left - CALLOUT_GAP - calloutWidth >= viewport.left + VIEWPORT_CLEARANCE;
-    const fitsBelow = targetRect.bottom + CALLOUT_GAP + calloutHeight <= viewport.bottom - VIEWPORT_CLEARANCE;
     const placement = fitsRight ? "right" : fitsLeft ? "left" : fitsBelow ? "below" : "above";
     let calloutLeft = targetRect.right + CALLOUT_GAP;
     let calloutTop = targetRect.top + targetRect.height / 2 - calloutHeight / 2;
@@ -180,6 +216,7 @@ export function GuidedTourDialog({
 
   useLayoutEffect(() => {
     if (mode !== "tour") return;
+    blockedCompactScrollRef.current = null;
     const target = document.getElementById(currentStep.targetId);
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     target?.scrollIntoView?.({
@@ -205,8 +242,10 @@ export function GuidedTourDialog({
     const target = document.getElementById(currentStep.targetId);
     const callout = document.getElementById("guided-tour-callout");
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleUpdate);
+    const mutationObserver = new MutationObserver(scheduleUpdate);
     if (target) resizeObserver?.observe(target);
     if (callout) resizeObserver?.observe(callout);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleUpdate);
     window.addEventListener("scroll", scheduleUpdate, { capture: true, passive: true });
     viewport?.addEventListener("resize", scheduleUpdate);
@@ -218,6 +257,7 @@ export function GuidedTourDialog({
       viewport?.removeEventListener("resize", scheduleUpdate);
       viewport?.removeEventListener("scroll", scheduleUpdate);
       resizeObserver?.disconnect();
+      mutationObserver.disconnect();
     };
   }, [currentStep.targetId, mode, updateGeometry]);
 
