@@ -149,13 +149,28 @@ async function interceptWorkbenchApi(page: Page, terminal: "success" | "failure"
   });
 }
 
-test("opens How it works then restores focus after Escape", async ({ page }) => {
+test("closes How it works with its visible Close button and restores focus", async ({ page }) => {
+  await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
   const trigger = page.getByRole("button", { name: "How it works" });
   await trigger.focus();
   await trigger.click();
   await expect(page.getByRole("dialog", { name: "How it works" })).toBeVisible();
   await expect(page.getByRole("dialog")).toContainText("Choose a prepared action");
+
+  await page.getByRole("dialog", { name: "How it works" }).getByRole("button", { name: "Close" }).click();
+
+  await expect(page.getByRole("dialog", { name: "How it works" })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test("closes How it works with Escape and restores focus", async ({ page }) => {
+  await interceptWorkbenchApi(page, "success");
+  await page.goto("/workbench");
+  const trigger = page.getByRole("button", { name: "How it works" });
+  await trigger.focus();
+  await trigger.click();
+  await expect(page.getByRole("dialog", { name: "How it works" })).toBeVisible();
 
   await page.keyboard.press("Escape");
 
@@ -211,22 +226,67 @@ test("keeps a failed trace expanded for safe diagnostics", async ({ page }) => {
 test("keeps the first 390 px viewport usable with reduced motion", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   const heading = page.getByRole("heading", { name: "Review a document" });
+  const description = page.getByText(
+    "Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.",
+    { exact: true },
+  );
   const trigger = page.getByRole("button", { name: "How it works" });
   await expect(heading).toBeVisible();
+  await expect(description).toBeVisible();
   await expect(trigger).toBeVisible();
-  const [headingBox, triggerBox] = await Promise.all([heading.boundingBox(), trigger.boundingBox()]);
+  const [headingBox, descriptionBox, triggerBox] = await Promise.all([
+    heading.boundingBox(),
+    description.boundingBox(),
+    trigger.boundingBox(),
+  ]);
   expect(headingBox).not.toBeNull();
+  expect(descriptionBox).not.toBeNull();
   expect(triggerBox).not.toBeNull();
-  expect(triggerBox!.x).toBeGreaterThanOrEqual(0);
-  expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(390);
-  expect(
-    headingBox!.y + headingBox!.height <= triggerBox!.y ||
-      triggerBox!.x + triggerBox!.width <= headingBox!.x,
-  ).toBe(true);
-  expect(await heading.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
-  await expect(page.getByRole("button", { name: "Process document" })).toBeVisible();
+  const initialViewport = { width: 390, height: 844 };
+  for (const box of [headingBox!, descriptionBox!, triggerBox!]) {
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(initialViewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(initialViewport.height);
+  }
+  for (const [first, second] of [
+    [headingBox!, descriptionBox!],
+    [headingBox!, triggerBox!],
+    [descriptionBox!, triggerBox!],
+  ]) {
+    const overlaps =
+      first.x < second.x + second.width &&
+      first.x + first.width > second.x &&
+      first.y < second.y + second.height &&
+      first.y + first.height > second.y;
+    expect(overlaps).toBe(false);
+  }
+  const descriptionStyle = await description.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      fontSize: Number.parseFloat(style.fontSize),
+      lineHeight: Number.parseFloat(style.lineHeight),
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(descriptionStyle.fontSize).toBeGreaterThanOrEqual(13);
+  expect(descriptionStyle.lineHeight).toBeGreaterThanOrEqual(19.5);
+  expect(descriptionStyle.scrollWidth).toBeLessThanOrEqual(descriptionStyle.clientWidth);
+  expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+  const transitionDuration = await trigger.evaluate((element) => getComputedStyle(element).transitionDuration);
+  const transitionMilliseconds = transitionDuration.endsWith("ms")
+    ? Number.parseFloat(transitionDuration)
+    : Number.parseFloat(transitionDuration) * 1_000;
+  expect(transitionMilliseconds).toBeLessThanOrEqual(0.01);
+  const process = page.getByRole("button", { name: "Process document" });
+  await process.scrollIntoViewIfNeeded();
+  await expect(process).toBeEnabled();
+  await process.click();
+  await expect(page.getByRole("heading", { name: "Decision and next steps" })).toBeVisible();
 });
