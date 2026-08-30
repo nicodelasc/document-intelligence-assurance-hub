@@ -3,6 +3,13 @@ import { applyActionPolicy } from "@/domain/action-policy";
 import { syntheticFixtures } from "@/domain/fixtures";
 import type { ActionProposal } from "@/domain/types";
 
+const guardedActionPolicy = applyActionPolicy as (
+  outcome: Parameters<typeof applyActionPolicy>[0],
+  proposed: Parameters<typeof applyActionPolicy>[1],
+  fixture: Parameters<typeof applyActionPolicy>[2],
+  documentClassification: "irrelevant" | "uncertain",
+) => ActionProposal;
+
 function findFixture(id: string) {
   const fixture = syntheticFixtures.find((candidate) => candidate.id === id);
   if (!fixture) throw new Error(`Missing fixture: ${id}`);
@@ -58,4 +65,37 @@ describe("applyActionPolicy", () => {
       ).status,
     ).toBe("needs_review");
   });
+
+  it.each(["irrelevant", "uncertain"] as const)(
+    "replaces the complete provider action for a guarded %s document",
+    (documentClassification) => {
+      expect(
+        guardedActionPolicy(
+          "evidence_consistent",
+          proposal,
+          null,
+          documentClassification,
+        ),
+      ).toEqual({
+        type: "create_document_review_task",
+        title: "Replace document",
+        summary:
+          "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.",
+        payload: [
+          {
+            label: "Next step",
+            value:
+              "Replace document with a supported supplier invoice or warehouse goods receipt.",
+          },
+        ],
+        instructionEvidence: null,
+        page: null,
+        risk: "low",
+        status: "blocked",
+        reason:
+          "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.",
+        stagedAt: null,
+      });
+    },
+  );
 });

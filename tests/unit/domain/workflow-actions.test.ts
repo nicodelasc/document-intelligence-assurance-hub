@@ -119,6 +119,22 @@ describe("workflow action policy", () => {
     ).toEqual([]);
   });
 
+  it.each(["irrelevant", "uncertain"] as const)(
+    "limits a guarded %s document to replacement and summary download",
+    (documentClassification) => {
+      const guardedRun = {
+        status: "completed" as const,
+        outcome: "not_found" as const,
+        documentClassification,
+      } as Parameters<typeof allowedWorkflowActionsForRun>[0];
+
+      expect(allowedWorkflowActionsForRun(guardedRun)).toEqual([
+        "replace_document",
+        "download_summary",
+      ]);
+    },
+  );
+
   it("keeps returned action allowlists immutable at runtime", () => {
     const actions = allowedWorkflowActionsForRun({
       status: "completed",

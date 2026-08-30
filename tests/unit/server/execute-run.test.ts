@@ -35,6 +35,7 @@ const requestedFields = [
 
 const extraction: ProviderExtractionResponse = {
   extraction: {
+    classification: "supplier_invoice",
     fields: [
       {
         key: "vendor_name",
@@ -239,6 +240,45 @@ describe("executeRun", () => {
     });
     expect(run).toMatchObject({ documentFamily: null, fixtureId: null });
   });
+
+  it.each(["irrelevant", "uncertain"] as const)(
+    "forces a custom %s document to not_found with a server-owned action",
+    async (classification) => {
+      const response = structuredClone(extraction);
+      response.extraction.classification = classification;
+      const customInput: ExecuteRunInput = {
+        ...input,
+        sourceType: "custom",
+        consent: true,
+      };
+      const { value, repository } = dependencies(
+        provider({ extract: async () => response }),
+      );
+
+      const events = await collect(customInput, value);
+      const run = await repository.readPublicRun(
+        "run-123",
+        new Date("2026-08-27T01:00:00.000Z"),
+      );
+
+      expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "not_found" });
+      expect(run?.details?.result).toMatchObject({
+        outcome: "not_found",
+        documentClassification: classification,
+        action: {
+          type: "create_document_review_task",
+          title: "Replace document",
+          summary:
+            "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.",
+          status: "blocked",
+          stagedAt: null,
+        },
+      });
+      expect(run?.details?.result?.action).not.toMatchObject({
+        title: "Post inventory immediately",
+      });
+    },
+  );
 
   it("uses trusted synthetic fixture metadata for the final action", async () => {
     const fixture = findFixture("warehouse-clean-receipt");

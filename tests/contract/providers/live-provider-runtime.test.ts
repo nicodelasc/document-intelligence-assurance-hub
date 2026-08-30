@@ -26,6 +26,7 @@ const requestedFields = [
 ];
 
 const modelOutput = {
+  classification: "supplier_invoice",
   fields: [
     {
       key: "vendor_name",

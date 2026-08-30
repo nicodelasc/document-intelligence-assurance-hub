@@ -779,12 +779,19 @@ export async function* executeRun(
     yield await announce("deciding");
     const decisionStartedAt = processingClock();
     currentStageStartedAt = decisionStartedAt;
-    const outcome = decideOutcome({ sourceType: input.sourceType, fields });
+    const guardedDocument =
+      input.sourceType === "custom" &&
+      (response.extraction.classification === "irrelevant" ||
+        response.extraction.classification === "uncertain");
+    const outcome = guardedDocument
+      ? "not_found"
+      : decideOutcome({ sourceType: input.sourceType, fields });
     const action = {
       ...applyActionPolicy(
         outcome,
         response.extraction.action,
         input.sourceType === "synthetic" ? (input.fixture ?? null) : null,
+        response.extraction.classification,
       ),
       stagedAt: null,
     };
@@ -814,6 +821,7 @@ export async function* executeRun(
     await dependencies.repository.saveResults(runId, {
       fields,
       outcome,
+      documentClassification: response.extraction.classification,
       documentInstruction: response.extraction.documentInstruction,
       action,
       usage: finalUsageTrustworthy

@@ -1,4 +1,5 @@
 import type {
+  DocumentClassification,
   DocumentFamily,
   EmailPreview,
   FieldResult,
@@ -41,6 +42,11 @@ const failedRunActions: readonly WorkflowActionType[] = Object.freeze([
 ]);
 
 const noWorkflowActions: readonly WorkflowActionType[] = Object.freeze([]);
+
+const guardedDocumentActions: readonly WorkflowActionType[] = Object.freeze([
+  "replace_document",
+  "download_summary",
+]);
 
 const outcomeGroup: Readonly<Record<Outcome, OutcomeGroup>> = Object.freeze({
   clear: "clear",
@@ -97,12 +103,19 @@ function redactAddressLikeText(value: string, maximumLength: number): string {
 export function allowedWorkflowActionsForRun(input: {
   status: RunStatus;
   outcome: Outcome | null;
+  documentClassification?: DocumentClassification | null;
 }): readonly WorkflowActionType[] {
   if (input.status === "failed") {
     return failedRunActions;
   }
   if (input.status !== "completed" || input.outcome === null) {
     return noWorkflowActions;
+  }
+  if (
+    input.documentClassification === "irrelevant" ||
+    input.documentClassification === "uncertain"
+  ) {
+    return guardedDocumentActions;
   }
   return actionsByOutcomeGroup[outcomeGroup[input.outcome]];
 }

@@ -221,6 +221,8 @@ export async function handleWorkflowActionPost(
     const allowedActions = allowedWorkflowActionsForRun({
       status: run.status,
       outcome: run.outcome,
+      documentClassification:
+        run.details.result?.documentClassification ?? null,
     });
     if (!allowedActions.includes(actionRequest.action)) {
       return respond(

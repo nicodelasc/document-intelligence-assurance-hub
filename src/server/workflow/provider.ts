@@ -3,7 +3,7 @@ import {
   MAX_PROVIDER_OUTPUT_TOKENS,
   requireSupportedLiveModel,
 } from "@/domain/pricing";
-import type { Provider } from "@/domain/types";
+import type { DocumentClassification, Provider } from "@/domain/types";
 import { actionProposalSchema } from "@/domain/run-schema";
 import type {
   ExecutionMode,
@@ -24,6 +24,12 @@ export const extractedFieldSchema = z
 
 export const extractionResultSchema = z
   .object({
+    classification: z.enum([
+      "supplier_invoice",
+      "warehouse_goods_receipt",
+      "irrelevant",
+      "uncertain",
+    ]) satisfies z.ZodType<DocumentClassification>,
     fields: z.array(extractedFieldSchema),
     documentInstruction: z.string().max(600).nullable(),
     action: actionProposalSchema.refine(
@@ -118,6 +124,7 @@ export function validateExtractionForRequest(
     throw new ProviderRequestError("provider_schema_mismatch", null);
   }
   return {
+    classification: parsed.classification,
     fields: requestedFields.map((requestedField) => {
       const field = fieldsByKey.get(requestedField.key);
       if (!field)

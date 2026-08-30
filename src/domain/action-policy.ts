@@ -1,9 +1,31 @@
 import type {
   ActionProposal,
   ActionStatus,
+  DocumentClassification,
   Outcome,
   SyntheticFixture,
 } from "./types";
+
+const guardedDocumentAction: ActionProposal = {
+  type: "create_document_review_task",
+  title: "Replace document",
+  summary:
+    "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.",
+  payload: [
+    {
+      label: "Next step",
+      value:
+        "Replace document with a supported supplier invoice or warehouse goods receipt.",
+    },
+  ],
+  instructionEvidence: null,
+  page: null,
+  risk: "low",
+  status: "blocked",
+  reason:
+    "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.",
+  stagedAt: null,
+};
 
 function statusForVerifiedOutcome(
   outcome: Outcome,
@@ -21,7 +43,14 @@ export function applyActionPolicy(
   outcome: Outcome,
   proposed: ActionProposal,
   fixture: SyntheticFixture | null,
+  documentClassification?: DocumentClassification,
 ): ActionProposal {
+  if (
+    documentClassification === "irrelevant" ||
+    documentClassification === "uncertain"
+  ) {
+    return structuredClone(guardedDocumentAction);
+  }
   const status = statusForVerifiedOutcome(outcome, fixture);
   if (!fixture) {
     return {

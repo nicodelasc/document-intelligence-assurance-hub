@@ -31,6 +31,11 @@ export type ActionStatus = "ready" | "needs_review" | "blocked";
 
 export type DocumentFamily = "supplier_invoice" | "warehouse_goods_receipt";
 
+export type DocumentClassification =
+  | DocumentFamily
+  | "irrelevant"
+  | "uncertain";
+
 export type VariantClassification = "correct" | "attention" | "incorrect";
 
 export type AttentionReason =

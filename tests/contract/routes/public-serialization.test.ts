@@ -251,6 +251,21 @@ describe("public serializers", () => {
     });
   });
 
+  it("exposes persisted document classification only in active run detail", () => {
+    const run = poisonedRun();
+    if (run.details?.result === null || run.details?.result === undefined) {
+      throw new Error("active result is required");
+    }
+    run.details.result.documentClassification = "irrelevant";
+
+    expect(serializePublicRunDetail(run)).toMatchObject({
+      details: { result: { documentClassification: "irrelevant" } },
+    });
+    expect(serializePublicRunListRow(run)).not.toHaveProperty(
+      "documentClassification",
+    );
+  });
+
   it("keeps list rows anonymous while exposing only the active safe filename", () => {
     const serialized = JSON.stringify(serializePublicRunListRow(poisonedRun()));
 

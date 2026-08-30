@@ -1,5 +1,6 @@
 import type {
   ActionProposal,
+  DocumentClassification,
   DocumentFamily,
   FieldResult,
   Outcome,
@@ -70,6 +71,7 @@ export type StoredRunRecord = {
 export type SaveRunResultsInput = {
   fields: FieldResult[];
   outcome: Outcome;
+  documentClassification?: DocumentClassification | null;
   documentInstruction: string | null;
   action: ActionProposal;
   usage: TokenUsage;

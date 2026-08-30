@@ -480,6 +480,7 @@ describe("POST /api/runs", () => {
             await request.onDispatch?.();
             return {
               extraction: {
+                classification: "warehouse_goods_receipt",
                 fields: request.requestedFields.map((field) => ({
                   key: field.key,
                   label: field.label,
@@ -567,6 +568,7 @@ describe("POST /api/runs", () => {
             await request.onDispatch?.();
             return {
               extraction: {
+                classification: "supplier_invoice",
                 fields: request.requestedFields.map((field) => ({
                   key: field.key,
                   label: field.label,
@@ -621,6 +623,7 @@ describe("POST /api/runs", () => {
         await input.onDispatch?.();
         return {
           extraction: {
+            classification: "supplier_invoice",
             fields: input.requestedFields.map((field) => ({
               key: field.key,
               label: field.label,
@@ -1072,6 +1075,7 @@ describe("GET /api/runs", () => {
           async extract(request) {
             return {
               extraction: {
+                classification: "supplier_invoice",
                 fields: request.requestedFields.map((field) => ({
                   key: field.key,
                   label: field.label,

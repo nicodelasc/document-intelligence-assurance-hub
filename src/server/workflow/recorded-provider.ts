@@ -39,6 +39,7 @@ export function createRecordedExtractionProvider(input: {
     async extract(request: ProviderExtractionInput): Promise<ProviderExtractionResponse> {
       request.signal?.throwIfAborted();
       const extraction = {
+        classification: metadata.family,
         fields: request.requestedFields.map((requestedField) => {
           const field = fixture.fields.find((candidate) => candidate.key === requestedField.key);
           return {

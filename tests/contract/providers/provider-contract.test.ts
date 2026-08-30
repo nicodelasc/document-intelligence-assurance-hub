@@ -26,6 +26,7 @@ const requestedFields = [
 ];
 
 const validModelOutput = {
+  classification: "warehouse_goods_receipt",
   fields: [
     {
       key: "vendor_name",
@@ -72,6 +73,16 @@ const validModelOutput = {
 };
 
 describe("extraction provider contract", () => {
+  it("accepts only the supported document classifications", () => {
+    expect(extractionResultSchema.safeParse(validModelOutput).success).toBe(true);
+    expect(
+      extractionResultSchema.safeParse({
+        ...validModelOutput,
+        classification: "purchase_order",
+      }).success,
+    ).toBe(false);
+  });
+
   it("uses the enabled OpenAI catalogue default", () => {
     expect(
       createOpenAIExtractionProvider({
@@ -125,6 +136,7 @@ describe("extraction provider contract", () => {
         fixture.requestedFields.map((field) => field.key),
       );
       expect(result.extraction.action).toEqual(fixture.action);
+      expect(result.extraction.classification).toBe(fixture.family);
       const recorded = recordedDocumentRunResults.find(
         (candidate) => candidate.fixtureId === fixture.id,
       );
@@ -210,7 +222,7 @@ describe("extraction provider contract", () => {
       });
 
       const result = await provider.extract({ document, requestedFields });
-      expect(provider.promptVersion).toBe("document-extraction-2026-08-28.v2");
+      expect(provider.promptVersion).toBe("document-extraction-2026-08-30.v3");
       expect(extractionResultSchema.parse(result.extraction)).toEqual(
         validModelOutput,
       );
@@ -219,6 +231,10 @@ describe("extraction provider contract", () => {
       expect(request?.systemInstruction).toMatch(/ignore.*instructions/i);
       expect(request?.systemInstruction).toMatch(/verbatim.*page snippet/i);
       expect(request?.systemInstruction).toMatch(/propose.*action/i);
+      expect(request?.systemInstruction).toMatch(/classify.*supplier_invoice/i);
+      expect(request?.systemInstruction).toContain("warehouse_goods_receipt");
+      expect(request?.systemInstruction).toContain("irrelevant");
+      expect(request?.systemInstruction).toContain("uncertain");
       expect(request?.systemInstruction).toMatch(/internal dry run/i);
       expect(request?.systemInstruction).toMatch(/never.*external/i);
       expect(request?.systemInstruction).toContain(

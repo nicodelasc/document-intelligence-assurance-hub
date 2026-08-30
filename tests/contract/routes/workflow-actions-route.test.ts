@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { syntheticFixtures } from "@/domain/fixtures";
 import type {
   DocumentFamily,
+  DocumentClassification,
   FieldResult,
   Outcome,
   RunStatus,
@@ -42,6 +43,7 @@ async function seedRun(input: {
   id?: string;
   status?: RunStatus;
   outcome?: Outcome;
+  documentClassification?: DocumentClassification;
   family?: DocumentFamily | null;
   expiresAt?: string;
   resultFields?: FieldResult[];
@@ -88,6 +90,7 @@ async function seedRun(input: {
     await input.container.repository.saveResults(id, {
       fields: structuredClone(input.resultFields ?? fields),
       outcome,
+      documentClassification: input.documentClassification,
       documentInstruction: action.instructionEvidence,
       action: structuredClone(action),
       usage: { inputTokens: 0, outputTokens: 0 },
@@ -337,6 +340,25 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     expect(await errorCode(response)).toBe("workflow_action_not_allowed");
     expectPrivateHeaders(response);
   });
+
+  it.each(["irrelevant", "uncertain"] as const)(
+    "denies disallowed workflow actions for a guarded %s custom document",
+    async (documentClassification) => {
+      const container = createTestContainer({ clock: () => now });
+      await seedRun({
+        container,
+        outcome: "not_found",
+        documentClassification,
+      });
+
+      const response = await postWorkflow(container, {
+        body: { action: "prepare_email", recipientRole: "Buyer" },
+      });
+
+      expect(response.status).toBe(409);
+      expect(await errorCode(response)).toBe("workflow_action_not_allowed");
+    },
+  );
 
   it.each([
     ["unknown role", "prepare_email", "Unknown Role"],
