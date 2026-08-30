@@ -258,6 +258,7 @@ export function WorkflowPanel({
   capabilityToken,
   documentFamily,
   documentClassification = null,
+  controlsAvailable = true,
   fields,
   safeDiagnosticCodes,
   onEvent,
@@ -272,6 +273,7 @@ export function WorkflowPanel({
   capabilityToken: string;
   documentFamily: DocumentFamily | null;
   documentClassification?: DocumentClassification | null;
+  controlsAvailable?: boolean;
   fields: readonly FieldResult[];
   safeDiagnosticCodes: readonly string[];
   onEvent: (event: WorkflowEvent) => void;
@@ -279,8 +281,10 @@ export function WorkflowPanel({
   onRequestReplacement: () => void;
 }) {
   const controls = useMemo(
-    () => controlsForRun(status, outcome, documentClassification),
-    [documentClassification, outcome, status],
+    () => controlsAvailable
+      ? controlsForRun(status, outcome, documentClassification)
+      : [],
+    [controlsAvailable, documentClassification, outcome, status],
   );
   const roles = allowedRecipientRoles(documentFamily);
   const [dialogAction, setDialogAction] =

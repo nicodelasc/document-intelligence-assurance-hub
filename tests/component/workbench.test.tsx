@@ -1191,7 +1191,7 @@ describe("Workbench request lifecycle", () => {
           });
         }
         return new Response(
-          JSON.stringify({ run: { id: "run_detail_recovery", providerCalled: false, provider: null, model: null, details: { result: { action: readyAction } } } }),
+          JSON.stringify({ run: { id: "run_detail_recovery", providerCalled: false, provider: null, model: null, details: { result: { documentClassification: "supplier_invoice", action: readyAction } } } }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -1204,6 +1204,7 @@ describe("Workbench request lifecycle", () => {
 
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
 
     resolveFirstDetail(
       new Response(JSON.stringify({ error: { message: "private upstream detail" } }), {
@@ -1215,8 +1216,10 @@ describe("Workbench request lifecycle", () => {
     expect(await screen.findByRole("alert", { name: "Prepared action unavailable" })).toHaveTextContent(
       "The prepared action is temporarily unavailable.",
     );
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Retry prepared action" }));
     expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Approve and stage" })).toBeVisible();
     expect(detailCalls).toBe(2);
   });
 
@@ -1272,8 +1275,7 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByText("In progress")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Processing failed" })).toBeVisible();
     expect(screen.getByText("provider unavailable")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Retry processing" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Download error summary" })).toBeVisible();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     expect(screen.getByText("Summary prepared")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Approve and stage" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
@@ -1337,7 +1339,11 @@ describe("Workbench request lifecycle", () => {
             providerCalled: false,
             provider: null,
             model: null,
-            details: { steps: [], result: null, workflowEvents: [] },
+            details: {
+              steps: [],
+              result: { documentClassification: "supplier_invoice" },
+              workflowEvents: [],
+            },
           },
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -1387,7 +1393,7 @@ describe("Workbench request lifecycle", () => {
     expect(runForms[1].get("model")).not.toBe("claude-haiku-4-5");
   });
 
-  it("persists a failed-run retry then starts its immutable snapshot before delayed diagnostics resolve", async () => {
+  it("enables a failed-run retry only after delayed diagnostics verify classification", async () => {
     const user = userEvent.setup();
     const order: string[] = [];
     const runForms: FormData[] = [];
@@ -1406,7 +1412,20 @@ describe("Workbench request lifecycle", () => {
         return new Promise<Response>((resolve, reject) => {
           releaseDetail = () => {
             detailReleased = true;
-            resolve(new Response(JSON.stringify({ run: null }), {
+            resolve(new Response(JSON.stringify({ run: {
+              id: "run_delayed_retry_detail",
+              status: "failed",
+              outcome: null,
+              documentFamily: "supplier_invoice",
+              providerCalled: false,
+              provider: null,
+              model: null,
+              details: {
+                steps: [],
+                result: { documentClassification: "supplier_invoice" },
+                workflowEvents: [],
+              },
+            } }), {
               status: 200,
               headers: { "content-type": "application/json" },
             }));
@@ -1446,15 +1465,20 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     await user.click(screen.getByRole("button", { name: "Process document" }));
+    expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
+    expect(releaseDetail).toBeTypeOf("function");
+    await act(async () => {
+      releaseDetail();
+    });
     await user.click(
       await screen.findByRole("button", { name: "Retry processing" }),
     );
 
     await waitFor(() => expect(runForms).toHaveLength(2));
     expect(order).toEqual(["workflow persisted", "second run posted"]);
-    expect(detailReleased).toBe(false);
-    expect(releaseDetail).toBeTypeOf("function");
-    expect(detailSignal?.aborted).toBe(true);
+    expect(detailReleased).toBe(true);
+    expect(detailSignal?.aborted).toBe(false);
     expect(runForms[1].get("sourceType")).toBe("synthetic");
     expect(runForms[1].get("sampleId")).toBe(syntheticFixtures[0].id);
     expect(runForms[1].get("model")).toBe("gpt-5.6-luna");
@@ -1470,7 +1494,7 @@ describe("Workbench request lifecycle", () => {
     expect(await screen.findByText("The retry stopped safely.")).toBeVisible();
   });
 
-  it("merges a locally appended failed-run event when delayed diagnostics return an older snapshot", async () => {
+  it("enables a failed-run download only after delayed diagnostics verify classification", async () => {
     const user = userEvent.setup();
     let resolveDetail!: (response: Response) => void;
     const createObjectURL = vi.fn(() => "blob:delayed-error-summary");
@@ -1511,10 +1535,8 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     await user.click(screen.getByRole("button", { name: "Process document" }));
-    await user.click(
-      await screen.findByRole("button", { name: "Download error summary" }),
-    );
-    expect(await screen.findByText("Summary prepared")).toBeVisible();
+    expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
 
     await act(async () => {
       resolveDetail(new Response(JSON.stringify({
@@ -1528,7 +1550,7 @@ describe("Workbench request lifecycle", () => {
           model: null,
           details: {
             steps: [],
-            result: null,
+            result: { documentClassification: "supplier_invoice" },
             workflowEvents: [],
           },
         },
@@ -1538,6 +1560,10 @@ describe("Workbench request lifecycle", () => {
     await waitFor(() => {
       expect(screen.queryByText("Loading prepared workflow details…")).not.toBeInTheDocument();
     });
+    await user.click(
+      await screen.findByRole("button", { name: "Download error summary" }),
+    );
+    expect(await screen.findByText("Summary prepared")).toBeVisible();
     expect(screen.getByText("Summary prepared")).toBeVisible();
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:delayed-error-summary");
@@ -1724,7 +1750,7 @@ describe("Workbench request lifecycle", () => {
             providerCalled: false,
             provider: null,
             model: null,
-            details: { steps: [], result: { action: readyAction, fields: [] }, workflowEvents: [] },
+            details: { steps: [], result: { documentClassification: "supplier_invoice", action: readyAction, fields: [] }, workflowEvents: [] },
           },
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -1749,6 +1775,7 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     await user.click(screen.getByRole("button", { name: "Process document" }));
+    expect(await screen.findByRole("button", { name: "Assurance trace details" })).toHaveAttribute("aria-expanded", "false");
     inputClick.mockClear();
     order.length = 0;
     await user.click(
@@ -1759,6 +1786,8 @@ describe("Workbench request lifecycle", () => {
     expect(order).toEqual(["event persisted", "picker"]);
     expect(runPosts).toBe(1);
     expect(screen.getByLabelText("Document file")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Assurance trace details" })).not.toBeInTheDocument();
+    expect(screen.getByText("Understand document")).toBeVisible();
     expect(screen.getByText("Choose document")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: /publicly visible/i })).not.toBeChecked();
     expect(screen.getByText(/confirm consent and process it through the normal review path/i)).toBeVisible();
@@ -1796,8 +1825,7 @@ describe("Workbench request lifecycle", () => {
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
     expect(screen.getByRole("alert")).toHaveTextContent("temporarily unavailable");
     expect(screen.getByRole("heading", { name: "Processing failed" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Retry processing" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Download error summary" })).toBeVisible();
+    expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
     expect(new Headers(postCall?.[1]?.headers).get("idempotency-key")).toMatch(
       /^[A-Za-z0-9_-]{16,128}$/,

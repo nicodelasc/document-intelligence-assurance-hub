@@ -693,6 +693,10 @@ export function WorkbenchView() {
     abortRef.current?.abort();
     abortRef.current = null;
     clearActiveWorkflow();
+    setTrace(freshTrace());
+    setTraceExpanded(true);
+    setTraceElapsedMs(null);
+    setTraceTerminalStatus(null);
     setSource("custom");
     setError("");
     setWorkflowNotice(
@@ -1061,6 +1065,10 @@ export function WorkbenchView() {
                       capabilityToken={actionCapability}
                       documentFamily={activeRunFamily}
                       documentClassification={documentClassification}
+                      controlsAvailable={
+                        actionDetailStatus === "ready" &&
+                        documentClassification !== null
+                      }
                       fields={fields}
                       safeDiagnosticCodes={safeDiagnosticCodes}
                       onEvent={appendWorkflowEvent}
