@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useRef,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -19,6 +20,14 @@ export function Dialog({
   busy = false,
   role = "dialog",
   initialFocusRef,
+  titleRef,
+  titleTabIndex,
+  dismissOnBackdrop = true,
+  layerClassName = "",
+  surfaceClassName = "",
+  surfaceId,
+  surfaceStyle,
+  decoration,
   onClose,
   children,
 }: {
@@ -28,6 +37,14 @@ export function Dialog({
   busy?: boolean;
   role?: "dialog" | "alertdialog";
   initialFocusRef?: RefObject<HTMLElement | null>;
+  titleRef?: RefObject<HTMLHeadingElement | null>;
+  titleTabIndex?: -1;
+  dismissOnBackdrop?: boolean;
+  layerClassName?: string;
+  surfaceClassName?: string;
+  surfaceId?: string;
+  surfaceStyle?: CSSProperties;
+  decoration?: ReactNode;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -80,17 +97,26 @@ export function Dialog({
       }
       const first = nodes[0];
       const last = nodes[nodes.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const activeIndex = nodes.indexOf(document.activeElement as HTMLElement);
+      if (event.shiftKey && activeIndex <= 0) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (activeIndex === -1 || activeIndex === nodes.length - 1)) {
         event.preventDefault();
         first.focus();
       }
     };
+    const blockOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || dialogRef.current?.contains(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("click", blockOutsideClick, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("click", blockOutsideClick, true);
       document.documentElement.style.overflow = previousOverflow;
       if (shell) shell.inert = false;
       triggerRef.current?.focus();
@@ -99,17 +125,20 @@ export function Dialog({
 
   if (!open || typeof document === "undefined") return null;
   return createPortal(
-    <div className="dialog-layer">
+    <div className={`dialog-layer ${layerClassName}`}>
       <div
         className="dialog-backdrop"
         aria-hidden="true"
         onMouseDown={() => {
-          if (!busyRef.current) closeRef.current();
+          if (dismissOnBackdrop && !busyRef.current) closeRef.current();
         }}
       />
+      {decoration}
       <div
         ref={dialogRef}
-        className="dialog-surface"
+        id={surfaceId}
+        className={`dialog-surface ${surfaceClassName}`}
+        style={surfaceStyle}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
@@ -117,7 +146,7 @@ export function Dialog({
         tabIndex={-1}
       >
         <header className="dialog-heading">
-          <h2 id={titleId}>{title}</h2>
+          <h2 ref={titleRef} id={titleId} tabIndex={titleTabIndex}>{title}</h2>
           {description ? <p id={descriptionId}>{description}</p> : null}
         </header>
         {children}

@@ -94,7 +94,7 @@ Buttons combine emphasis and intent. Cobalt solid is the single primary action p
 
 ### Navigation and data display
 
-The header contains the product name and the two route links only. Tables use semantic markup, sticky headers where helpful and an explicit horizontal overflow cue on narrow screens. Recharts uses the semantic palette with text summaries adjacent to every chart.
+The sticky header contains the product name and the two route links. On Workbench only it also carries the cobalt `How it works` button at the far right so first-time guidance stays visible before the review begins. The trigger remains in the first header row on mobile while route navigation occupies the row below. Tables use semantic markup, sticky headers where helpful and an explicit horizontal overflow cue on narrow screens. Recharts uses the semantic palette with text summaries adjacent to every chart.
 
 ### Forms and overlays
 
@@ -102,7 +102,7 @@ Forms use visible labels, app-owned validation, `noValidate` and first-error foc
 
 ### Workbench guidance and terminal review
 
-The Workbench introduction owns one cobalt `How it works` trigger. It opens a five-step app-owned modal for document selection, model selection, processing, evidence review and prepared actions. The modal states that built-in samples use deterministic evidence when live processing is unavailable and that workflow controls are simulations. On terminal success the assurance trace becomes a compact disclosure with the completed-stage count and total duration when available. Its named detail region exposes the same three stages on demand. A failed trace stays expanded so safe diagnostics remain visible. The terminal result is one `Decision and next steps` panel: verified outcome, decision brief, evidence differences and workflow controls in that order. The evidence ledger and activity timeline remain separate panels below it.
+The Workbench header owns one bold cobalt `How it works` trigger with a help icon. It first opens a concise purpose overview then starts a five-step guided spotlight for the Document library, Processing model, Process document control, Assurance trace and Decision and next steps. The overview initially focuses `Start guided tour` and each spotlight step moves focus to its callout heading. The page stays shaded and inert throughout. A cobalt outline and static directional arrow identify the current target without turning the underlying control into part of the modal. Desktop callouts choose a collision-safe position with 16 px viewport clearance. At 720 px and below the callout becomes a safe-area-aware bottom card while the target scrolls into the upper page. The header changes to two rows at 900 px and below so its trigger does not create tablet overflow. Target and callout resize observations keep the spotlight aligned as results load. Forced-colors mode uses system Highlight and CanvasText colors for the outline, shade and arrow. Back, Next, Finish, Exit guided tour and Escape preserve modal focus behavior then restore focus to the header trigger. Leaving Workbench closes guidance so returning starts from a closed state. On terminal success the assurance trace becomes a compact disclosure with the completed-stage count and total duration when available. Its named detail region exposes the same three stages on demand. A failed trace stays expanded so safe diagnostics remain visible. The terminal result is one `Decision and next steps` panel: verified outcome, decision brief, evidence differences and workflow controls in that order. The evidence ledger and activity timeline remain separate panels below it.
 
 ### Workbench action states
 
@@ -114,7 +114,7 @@ Lucide outline icons use a consistent 1.75 px stroke. Icons support labels and n
 
 ### Motion
 
-The evidence rail advances with a 180 ms state transition. Other motion is limited to purposeful hover, selection and dialog feedback. Reduced-motion mode removes transforms and uses near-instant opacity changes.
+The evidence rail advances with a 180 ms state transition. Each guided-tour step uses one 180 ms opacity and 8 px settle as the callout changes. The spotlight and arrow never pulse, bounce or glow. Other motion is limited to purposeful hover, selection and dialog feedback. Reduced-motion mode removes transforms, uses near-instant opacity changes and changes guided target scrolling from smooth to immediate.
 
 ### Content and data visualization
 

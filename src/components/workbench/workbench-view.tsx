@@ -44,7 +44,7 @@ import type { ProviderAvailability } from "@/server/http/container";
 import { DocumentPreview } from "./document-preview";
 import { FixtureLibrary } from "./fixture-library";
 import { AssuranceTrace } from "./assurance-trace";
-import { HowItWorksDialog } from "./how-it-works-dialog";
+import { workbenchTourTargetIds } from "./guided-tour-config";
 
 const rawTraceStages: RunStatus[] = [
   "validating",
@@ -426,7 +426,6 @@ export function WorkbenchView() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
   const cancellableRef = useRef(false);
@@ -954,13 +953,16 @@ export function WorkbenchView() {
     <main id="main-content" className="page workbench-page">
       <header className="page-intro">
         <div><h1>Review a document</h1><p>Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.</p></div>
-        <Button type="button" intent="primary" onClick={() => setHowItWorksOpen(true)}>How it works</Button>
       </header>
       <LiveRegion message={liveMessage} />
-      <HowItWorksDialog open={howItWorksOpen} onClose={() => setHowItWorksOpen(false)} />
       <form noValidate onSubmit={(event) => { event.preventDefault(); runAssurance(); }}>
         <div className="workbench-desk">
-          <RulePanel className="source-rail" title="1. Document library">
+          <RulePanel
+            className="source-rail"
+            headerId={workbenchTourTargetIds.documentLibrary}
+            headerClassName="tour-target"
+            title="1. Document library"
+          >
             <FixtureLibrary
               fixtures={syntheticFixtures}
               selectedId={source === "synthetic" ? sampleId : ""}
@@ -983,8 +985,10 @@ export function WorkbenchView() {
 
           <section className="document-work-area">
             <div className="run-controls">
-              <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
-              <div className="run-actions">
+              <div id={workbenchTourTargetIds.processingModel} className="tour-target">
+                <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
+              </div>
+              <div id={workbenchTourTargetIds.processDocument} className="run-actions tour-target">
                 <ProcessingStatus
                   available={providerAvailability[provider]}
                   availabilityStatus={modelAvailabilityStatus}
@@ -1010,7 +1014,7 @@ export function WorkbenchView() {
           </section>
 
           <aside className="assurance-rail">
-            <RulePanel title="Assurance trace">
+            <RulePanel id={workbenchTourTargetIds.assuranceTrace} className="tour-target" title="Assurance trace">
               <AssuranceTrace
                 displayTrace={displayTrace}
                 terminalStatus={traceTerminalStatus}
@@ -1019,12 +1023,12 @@ export function WorkbenchView() {
                 onExpandedChange={setTraceExpanded}
               />
             </RulePanel>
-            {!hasTerminalRun ? (
-              <RulePanel title="Business outcome">
-                <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
-              </RulePanel>
-            ) : (
-              <>
+            <div id={workbenchTourTargetIds.decision} className="tour-target">
+              {!hasTerminalRun ? (
+                <RulePanel title="Business outcome">
+                  <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
+                </RulePanel>
+              ) : (
                 <RulePanel title="Decision and next steps" className="decision-panel">
                   <section className="decision-panel__section">
                     <OutcomeSummary
@@ -1080,6 +1084,10 @@ export function WorkbenchView() {
                     />
                   </section>
                 </RulePanel>
+              )}
+            </div>
+            {hasTerminalRun ? (
+              <>
                 <RulePanel title="Evidence ledger">
                   <EvidenceLedger fields={fields} />
                 </RulePanel>
@@ -1087,7 +1095,7 @@ export function WorkbenchView() {
                   <ActivityTimeline events={workflowEvents} />
                 </RulePanel>
               </>
-            )}
+            ) : null}
           </aside>
         </div>
       </form>

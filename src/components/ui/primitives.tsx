@@ -32,12 +32,16 @@ export function RulePanel({
   action,
   headingLevel = 2,
   className = "",
+  headerId,
+  headerClassName = "",
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   title?: ReactNode;
   action?: ReactNode;
   headingLevel?: 2 | 3 | 4;
+  headerId?: string;
+  headerClassName?: string;
 }) {
   const heading = title
     ? headingLevel === 4
@@ -49,7 +53,7 @@ export function RulePanel({
   return (
     <section className={`rule-panel ${className}`} {...props}>
       {title || action ? (
-        <header className="rule-panel__header">
+        <header id={headerId} className={`rule-panel__header ${headerClassName}`}>
           {heading}
           {action}
         </header>

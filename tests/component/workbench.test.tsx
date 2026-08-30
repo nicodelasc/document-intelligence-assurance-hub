@@ -1732,6 +1732,8 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
+    const decisionTarget = document.getElementById("workbench-tour-decision");
+    expect(decisionTarget).not.toBeNull();
 
     await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
     await user.click(screen.getByRole("button", { name: /Harborline Components goods receipt/i }));
@@ -1750,6 +1752,8 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByRole("heading", { name: "Differences" })).not.toBeInTheDocument();
     const decisionPanel = screen.getByRole("heading", { name: "Decision and next steps" }).closest("section");
     expect(decisionPanel).not.toBeNull();
+    expect(document.getElementById("workbench-tour-decision")).toBe(decisionTarget);
+    expect(decisionPanel!.parentElement).toBe(decisionTarget);
     const decisionSections = within(decisionPanel!).getAllByRole("heading", { level: 3 });
     expect(decisionSections.map((heading) => heading.textContent).slice(0, 4)).toEqual([
       "Clear",
@@ -2291,38 +2295,6 @@ describe("Public run history", () => {
 });
 
 describe("Workbench decision guidance", () => {
-  it("opens guidance with five ordered steps then closes by mouse or Escape restoring focus", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
-      String(input) === "/api/models"
-        ? modelCatalogue({ openai: false, anthropic: false })
-        : emptyHistory(),
-    ));
-    render(<WorkbenchView />);
-
-    const trigger = screen.getByRole("button", { name: "How it works" });
-    await user.click(trigger);
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Choose a document",
-      "Choose a model",
-      "Process the document",
-      "Review the evidence",
-      "Choose a prepared action",
-    ]);
-    expect(within(dialog).getByText(/deterministic evidence/i)).toBeVisible();
-    expect(within(dialog).getByText(/simulations/i)).toBeVisible();
-
-    await user.click(within(dialog).getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-
-    await user.click(trigger);
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-  });
-
   it("auto-collapses a successful terminal trace with completed stages and duration", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

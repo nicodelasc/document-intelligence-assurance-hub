@@ -149,33 +149,110 @@ async function interceptWorkbenchApi(page: Page, terminal: "success" | "failure"
   });
 }
 
-test("closes How it works with its visible Close button and restores focus", async ({ page }) => {
+test("opens the Workbench purpose overview from the app header then restores focus", async ({ page }) => {
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
   const trigger = page.getByRole("button", { name: "How it works" });
+  await expect(page.locator(".app-header").getByRole("button", { name: "How it works" })).toBeVisible();
   await trigger.focus();
   await trigger.click();
-  await expect(page.getByRole("dialog", { name: "How it works" })).toBeVisible();
-  await expect(page.getByRole("dialog")).toContainText("Choose a prepared action");
+  const overview = page.getByRole("dialog", { name: "What this workbench does" });
+  await expect(overview).toBeVisible();
+  await expect(overview).toContainText("checks document evidence");
+  await expect(overview.getByRole("button", { name: "Start guided tour" })).toBeVisible();
 
-  await page.getByRole("dialog", { name: "How it works" }).getByRole("button", { name: "Close" }).click();
+  await overview.getByRole("button", { name: "Close" }).click();
 
-  await expect(page.getByRole("dialog", { name: "How it works" })).toHaveCount(0);
+  await expect(overview).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
 
-test("closes How it works with Escape and restores focus", async ({ page }) => {
+test("walks the spotlight steps in order then exits with Escape", async ({ page }) => {
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
   const trigger = page.getByRole("button", { name: "How it works" });
   await trigger.focus();
   await trigger.click();
-  await expect(page.getByRole("dialog", { name: "How it works" })).toBeVisible();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+
+  const steps = [
+    "Document library",
+    "Processing model",
+    "Process document",
+    "Assurance trace",
+    "Decision and next steps",
+  ] as const;
+  for (let index = 0; index < steps.length; index += 1) {
+    const callout = page.getByRole("dialog", { name: steps[index] });
+    await expect(callout).toContainText(`Step ${index + 1} of 5`);
+    await expect(page.locator(".guided-tour__spotlight")).toBeVisible();
+    if (index === 0) {
+      await expect(callout.getByRole("heading", { name: steps[index] })).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(callout.getByRole("button", { name: "Exit guided tour" })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(callout.getByRole("button", { name: "Next" })).toBeFocused();
+    }
+    if (index < steps.length - 1) await callout.getByRole("button", { name: "Next" }).click();
+  }
 
   await page.keyboard.press("Escape");
 
-  await expect(page.getByRole("dialog", { name: "How it works" })).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
+});
+
+test("keeps the intermediate header and first spotlight collision-free", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 900 });
+  await interceptWorkbenchApi(page, "success");
+  await page.goto("/workbench");
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(768);
+  await page.getByRole("button", { name: "How it works" }).click();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+  const spotlight = page.locator(".guided-tour__spotlight");
+  await expect(spotlight).toHaveCSS("opacity", "1");
+  const [calloutBox, spotlightBox, targetBox] = await Promise.all([
+    page.getByRole("dialog", { name: "Document library" }).boundingBox(),
+    spotlight.boundingBox(),
+    page.locator("#workbench-tour-document-library").boundingBox(),
+  ]);
+  expect(calloutBox).not.toBeNull();
+  expect(spotlightBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  expect(spotlightBox!.width).toBeGreaterThan(40);
+  expect(Math.abs(
+    spotlightBox!.x + spotlightBox!.width / 2 - (targetBox!.x + targetBox!.width / 2),
+  )).toBeLessThanOrEqual(8);
+  const overlaps =
+    calloutBox!.x < spotlightBox!.x + spotlightBox!.width &&
+    calloutBox!.x + calloutBox!.width > spotlightBox!.x &&
+    calloutBox!.y < spotlightBox!.y + spotlightBox!.height &&
+    calloutBox!.y + calloutBox!.height > spotlightBox!.y;
+  expect(overlaps).toBe(false);
+});
+
+test("keeps the spotlight and arrow visible in forced colors", async ({ page }) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await interceptWorkbenchApi(page, "success");
+  await page.goto("/workbench");
+  await page.getByRole("button", { name: "How it works" }).click();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+  await expect(page.locator(".guided-tour__spotlight")).toHaveCSS("opacity", "1");
+  await expect(page.locator(".guided-tour__arrow")).toBeVisible();
+
+  const spotlightStyle = await page.locator(".guided-tour__spotlight").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderColor: style.borderColor, forcedColorAdjust: style.forcedColorAdjust };
+  });
+  const arrowStyle = await page.locator(".guided-tour__arrow").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundColor: style.backgroundColor, forcedColorAdjust: style.forcedColorAdjust };
+  });
+  expect(spotlightStyle.forcedColorAdjust).toBe("none");
+  expect(spotlightStyle.borderColor).not.toBe("rgb(255, 255, 255)");
+  expect(arrowStyle.forcedColorAdjust).toBe("none");
+  expect(arrowStyle.backgroundColor).not.toBe("rgba(255, 255, 255, 0)");
 });
 
 test("collapses a successful trace then exposes all stages and ordered decision content", async ({ page }) => {
@@ -284,6 +361,38 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
     ? Number.parseFloat(transitionDuration)
     : Number.parseFloat(transitionDuration) * 1_000;
   expect(transitionMilliseconds).toBeLessThanOrEqual(0.01);
+  await trigger.click();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+  const callout = page.getByRole("dialog", { name: "Document library" });
+  await expect(callout).toBeVisible();
+  const spotlight = page.locator(".guided-tour__spotlight");
+  await expect(spotlight).toHaveCSS("opacity", "1");
+  const [calloutBox, spotlightBox, targetBox] = await Promise.all([
+    callout.boundingBox(),
+    spotlight.boundingBox(),
+    page.locator("#workbench-tour-document-library").boundingBox(),
+  ]);
+  expect(calloutBox).not.toBeNull();
+  expect(spotlightBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  expect(spotlightBox!.width).toBeGreaterThan(40);
+  expect(Math.abs(
+    spotlightBox!.x + spotlightBox!.width / 2 - (targetBox!.x + targetBox!.width / 2),
+  )).toBeLessThanOrEqual(8);
+  expect(calloutBox!.x).toBeGreaterThanOrEqual(16);
+  expect(calloutBox!.x + calloutBox!.width).toBeLessThanOrEqual(390 - 16);
+  const overlapsSpotlight =
+    calloutBox!.x < spotlightBox!.x + spotlightBox!.width &&
+    calloutBox!.x + calloutBox!.width > spotlightBox!.x &&
+    calloutBox!.y < spotlightBox!.y + spotlightBox!.height &&
+    calloutBox!.y + calloutBox!.height > spotlightBox!.y;
+  expect(overlapsSpotlight).toBe(false);
+  const animationDuration = await callout.evaluate((element) => getComputedStyle(element).animationDuration);
+  const animationMilliseconds = animationDuration.endsWith("ms")
+    ? Number.parseFloat(animationDuration)
+    : Number.parseFloat(animationDuration) * 1_000;
+  expect(animationMilliseconds).toBeLessThanOrEqual(0.01);
+  await page.keyboard.press("Escape");
   const process = page.getByRole("button", { name: "Process document" });
   await process.scrollIntoViewIfNeeded();
   await expect(process).toBeEnabled();
