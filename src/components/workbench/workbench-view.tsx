@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { ShieldCheck } from "lucide-react";
 import type {
   ActionProposal,
+  DocumentClassification,
   DocumentFamily,
   FieldResult,
   Outcome,
@@ -42,6 +43,8 @@ import { WorkflowPanel } from "./workflow-panel";
 import type { ProviderAvailability } from "@/server/http/container";
 import { DocumentPreview } from "./document-preview";
 import { FixtureLibrary } from "./fixture-library";
+import { AssuranceTrace } from "./assurance-trace";
+import { HowItWorksDialog } from "./how-it-works-dialog";
 
 const rawTraceStages: RunStatus[] = [
   "validating",
@@ -82,6 +85,7 @@ type PublicRunHydration = {
   outcome: Outcome | null;
   documentFamily: DocumentFamily | null;
   documentFamilyPresent: boolean;
+  documentClassification: DocumentClassification | null;
   proposal: ActionProposal | null;
   workflowEvents: WorkflowEvent[];
   fields: FieldResult[];
@@ -96,6 +100,14 @@ type ModelConfiguration = {
 type ModelAvailabilityStatus = "loading" | "resolved" | "failed";
 
 const outcomes = new Set<Outcome>(["clear", "needs_review", "incomplete", "evidence_consistent", "conflict", "not_found"]);
+const documentClassifications = new Set<DocumentClassification>([
+  "supplier_invoice",
+  "warehouse_goods_receipt",
+  "irrelevant",
+  "uncertain",
+]);
+const guardedDocumentBrief =
+  "This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.";
 
 function freshTrace(): TraceState {
   return Object.fromEntries(rawTraceStages.map((stage) => [stage, { status: "idle", duration: null }]));
@@ -289,12 +301,18 @@ function publicRunHydration(payload: unknown): PublicRunHydration | null {
     record.documentFamily === "warehouse_goods_receipt"
       ? record.documentFamily
       : null;
+  const documentClassification =
+    typeof result?.documentClassification === "string" &&
+    documentClassifications.has(result.documentClassification as DocumentClassification)
+      ? (result.documentClassification as DocumentClassification)
+      : null;
   return {
     status,
     outcome,
     documentFamily,
     documentFamilyPresent:
       record.documentFamily === null || documentFamily !== null,
+    documentClassification,
     proposal: parsedAction?.success ? parsedAction.data : null,
     workflowEvents,
     fields,
@@ -376,6 +394,10 @@ export function WorkbenchView() {
   const [previewUrl, setPreviewUrl] = useState("");
   const [running, setRunning] = useState(false);
   const [trace, setTrace] = useState<TraceState>(freshTrace);
+  const [traceExpanded, setTraceExpanded] = useState(true);
+  const [traceElapsedMs, setTraceElapsedMs] = useState<number | null>(null);
+  const [traceTerminalStatus, setTraceTerminalStatus] =
+    useState<Extract<RunStatus, "completed" | "failed"> | null>(null);
   const [fields, setFields] = useState<FieldResult[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [preparedAction, setPreparedAction] = useState<ActionProposal | null>(null);
@@ -384,6 +406,8 @@ export function WorkbenchView() {
   const [activeRunStatus, setActiveRunStatus] = useState<RunStatus | null>(null);
   const [activeRunFamily, setActiveRunFamily] =
     useState<DocumentFamily | null>(null);
+  const [documentClassification, setDocumentClassification] =
+    useState<DocumentClassification | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [safeDiagnosticCodes, setSafeDiagnosticCodes] = useState<string[]>([]);
   const [actionDetailStatus, setActionDetailStatus] = useState<ActionDetailStatus>("idle");
@@ -402,6 +426,7 @@ export function WorkbenchView() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
   const cancellableRef = useRef(false);
@@ -524,6 +549,9 @@ export function WorkbenchView() {
   const displayTrace = buildDisplayTrace(trace);
   const hasTerminalRun = Boolean(actionRunId) &&
     (activeRunStatus === "completed" || activeRunStatus === "failed");
+  const guardedDocument =
+    documentClassification === "irrelevant" ||
+    documentClassification === "uncertain";
 
   const onStreamEvent = useCallback((event: RunEvent, requestId: number) => {
     if (requestId !== requestRef.current) return;
@@ -580,6 +608,7 @@ export function WorkbenchView() {
       if (hydration.documentFamilyPresent) {
         setActiveRunFamily(hydration.documentFamily);
       }
+      setDocumentClassification(hydration.documentClassification);
       setPreparedAction(hydration.proposal);
       setWorkflowEvents((current) =>
         mergeWorkflowEvents(current, hydration.workflowEvents),
@@ -643,6 +672,7 @@ export function WorkbenchView() {
     setActionCapability("");
     setActiveRunStatus(null);
     setActiveRunFamily(null);
+    setDocumentClassification(null);
     setWorkflowEvents([]);
     setSafeDiagnosticCodes([]);
     setActionDetailStatus("idle");
@@ -723,6 +753,9 @@ export function WorkbenchView() {
     lastAnnouncedDisplayStageRef.current = null;
     setError("");
     setWorkflowNotice("");
+    setTraceExpanded(true);
+    setTraceElapsedMs(null);
+    setTraceTerminalStatus(null);
     clearActiveWorkflow();
     activeRunSnapshotRef.current = snapshot;
     setFields([]);
@@ -761,6 +794,8 @@ export function WorkbenchView() {
         unlockConfiguration();
         setRunning(false);
         setTrace((current) => failActiveTrace(current));
+        setTraceExpanded(true);
+        setTraceTerminalStatus("failed");
         lastStageRef.current = null;
         setError(terminal.message);
         setLiveMessage(`Run stopped. ${terminal.message}`);
@@ -791,6 +826,9 @@ export function WorkbenchView() {
         for (const stage of rawTraceStages) next[stage] = { status: "pass", duration: next[stage]?.duration ?? Math.max(1, elapsed / rawTraceStages.length) };
         return next;
       });
+      setTraceElapsedMs(elapsed);
+      setTraceExpanded(false);
+      setTraceTerminalStatus("completed");
       setOutcome(terminal.outcome);
       setActionRunId(terminal.runId);
       setActionCapability(terminal.deletionToken);
@@ -847,6 +885,8 @@ export function WorkbenchView() {
         const message = reason instanceof Error ? reason.message : "The run could not be completed.";
         activeRunSnapshotRef.current = null;
         setTrace((current) => failActiveTrace(current));
+        setTraceExpanded(true);
+        setTraceTerminalStatus("failed");
         lastStageRef.current = null;
         setError(message);
         setLiveMessage(`Run stopped. ${message}`);
@@ -878,6 +918,9 @@ export function WorkbenchView() {
         state?.status === "active" ? { ...state, status: "idle" as const } : state,
       ]),
     ));
+    setTraceExpanded(true);
+    setTraceElapsedMs(null);
+    setTraceTerminalStatus(null);
     lastStageRef.current = null;
     setLiveMessage("Run cancelled. The selected source is still available.");
     requestAnimationFrame(() => runButtonRef.current?.focus());
@@ -907,8 +950,10 @@ export function WorkbenchView() {
     <main id="main-content" className="page workbench-page">
       <header className="page-intro">
         <div><h1>Review a document</h1><p>Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.</p></div>
+        <Button type="button" intent="primary" onClick={() => setHowItWorksOpen(true)}>How it works</Button>
       </header>
       <LiveRegion message={liveMessage} />
+      <HowItWorksDialog open={howItWorksOpen} onClose={() => setHowItWorksOpen(false)} />
       <form noValidate onSubmit={(event) => { event.preventDefault(); runAssurance(); }}>
         <div className="workbench-desk">
           <RulePanel className="source-rail" title="1. Document library">
@@ -962,7 +1007,13 @@ export function WorkbenchView() {
 
           <aside className="assurance-rail">
             <RulePanel title="Assurance trace">
-              <ol className="trace-list">{displayTrace.map((stage) => <li key={stage.key} className={stage.status === "active" ? "trace-active" : ""}><StatusMark status={stage.status} /><span><strong>{stage.label}</strong><small>{stage.status === "active" ? "In progress" : stage.status === "pass" ? "Completed" : stage.status === "error" ? "Needs attention" : "Pending"}</small></span><time>{stage.duration === null ? "—" : `${(stage.duration / 1000).toFixed(1)} s`}</time></li>)}</ol>
+              <AssuranceTrace
+                displayTrace={displayTrace}
+                terminalStatus={traceTerminalStatus}
+                elapsedMs={traceElapsedMs}
+                expanded={traceExpanded}
+                onExpandedChange={setTraceExpanded}
+              />
             </RulePanel>
             {!hasTerminalRun ? (
               <RulePanel title="Business outcome">
@@ -970,42 +1021,53 @@ export function WorkbenchView() {
               </RulePanel>
             ) : (
               <>
-                <RulePanel title="Business outcome">
-                  <OutcomeSummary
-                    status={activeRunStatus!}
-                    outcome={outcome}
-                    headingRef={outcomeHeadingRef}
-                  />
-                </RulePanel>
-                <RulePanel title="Differences">
-                  <DifferenceSummary status={activeRunStatus!} fields={fields} />
-                </RulePanel>
-                <RulePanel title="Workflow controls">
-                  {actionDetailStatus === "loading" ? (
-                    <p className="workflow-detail-status" role="status">Loading prepared workflow details…</p>
-                  ) : null}
-                  {actionDetailStatus === "error" && activeRunStatus !== "failed" ? (
-                    <div className="inline-error recovery-error" role="alert" aria-label="Prepared action unavailable">
-                      <strong>Prepared action unavailable</strong>
-                      <span>{actionDetailError}</span>
-                      <Button type="button" intent="neutral" onClick={() => void retryPreparedAction()}>Retry prepared action</Button>
-                    </div>
-                  ) : null}
-                  <WorkflowPanel
-                    key={actionRunId}
-                    runId={actionRunId}
-                    status={activeRunStatus!}
-                    outcome={outcome}
-                    proposal={preparedAction}
-                    events={workflowEvents}
-                    capabilityToken={actionCapability}
-                    documentFamily={activeRunFamily}
-                    fields={fields}
-                    safeDiagnosticCodes={safeDiagnosticCodes}
-                    onEvent={appendWorkflowEvent}
-                    onReprocess={reprocessActiveRun}
-                    onRequestReplacement={() => requestReplacement()}
-                  />
+                <RulePanel title="Decision and next steps" className="decision-panel">
+                  <section className="decision-panel__section">
+                    <OutcomeSummary
+                      status={activeRunStatus!}
+                      outcome={outcome}
+                      headingRef={outcomeHeadingRef}
+                    />
+                  </section>
+                  <section className="decision-panel__section">
+                    <DecisionBrief
+                      proposal={guardedDocument ? null : preparedAction}
+                      documentClassification={documentClassification}
+                    />
+                  </section>
+                  <section className="decision-panel__section">
+                    <h3>Evidence differences</h3>
+                    <DifferenceSummary status={activeRunStatus!} fields={fields} />
+                  </section>
+                  <section className="decision-panel__section">
+                    <h3>Workflow controls</h3>
+                    {actionDetailStatus === "loading" ? (
+                      <p className="workflow-detail-status" role="status">Loading prepared workflow details…</p>
+                    ) : null}
+                    {actionDetailStatus === "error" && activeRunStatus !== "failed" ? (
+                      <div className="inline-error recovery-error" role="alert" aria-label="Prepared action unavailable">
+                        <strong>Prepared action unavailable</strong>
+                        <span>{actionDetailError}</span>
+                        <Button type="button" intent="neutral" onClick={() => void retryPreparedAction()}>Retry prepared action</Button>
+                      </div>
+                    ) : null}
+                    <WorkflowPanel
+                      key={actionRunId}
+                      runId={actionRunId}
+                      status={activeRunStatus!}
+                      outcome={outcome}
+                      proposal={guardedDocument ? null : preparedAction}
+                      events={workflowEvents}
+                      capabilityToken={actionCapability}
+                      documentFamily={activeRunFamily}
+                      documentClassification={documentClassification}
+                      fields={fields}
+                      safeDiagnosticCodes={safeDiagnosticCodes}
+                      onEvent={appendWorkflowEvent}
+                      onReprocess={reprocessActiveRun}
+                      onRequestReplacement={() => requestReplacement()}
+                    />
+                  </section>
                 </RulePanel>
                 <RulePanel title="Evidence ledger">
                   <EvidenceLedger fields={fields} />
@@ -1074,6 +1136,29 @@ function OutcomeSummary({
           <p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p>
         </div>
       </header>
+    </div>
+  );
+}
+
+function DecisionBrief({
+  proposal,
+  documentClassification,
+}: {
+  proposal: ActionProposal | null;
+  documentClassification: DocumentClassification | null;
+}) {
+  const guarded =
+    documentClassification === "irrelevant" ||
+    documentClassification === "uncertain";
+  return (
+    <div className="decision-brief">
+      <h3>Decision brief</h3>
+      <p>
+        {guarded
+          ? guardedDocumentBrief
+          : proposal?.summary ??
+          "The prepared decision brief is unavailable while the run detail is loading."}
+      </p>
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { WorkflowPanel } from "@/components/workbench/workflow-panel";
 import { ActivityTimeline } from "@/components/workbench/activity-timeline";
 import type {
   ActionProposal,
+  DocumentClassification,
   FieldResult,
   RunEvent,
   WorkflowActionType,
@@ -103,6 +104,7 @@ function renderWorkflowPanel(
     events: readonly WorkflowEvent[];
     capabilityToken: string;
     documentFamily: "supplier_invoice" | "warehouse_goods_receipt" | null;
+    documentClassification: DocumentClassification | null;
     fields: readonly FieldResult[];
     safeDiagnosticCodes: readonly string[];
     onEvent: (event: WorkflowEvent) => void;
@@ -119,6 +121,7 @@ function renderWorkflowPanel(
       events={overrides.events ?? []}
       capabilityToken={overrides.capabilityToken ?? "workflow_capability"}
       documentFamily={overrides.documentFamily ?? "supplier_invoice"}
+      documentClassification={overrides.documentClassification ?? null}
       fields={overrides.fields ?? []}
       safeDiagnosticCodes={overrides.safeDiagnosticCodes ?? (status === "failed" ? ["provider_unavailable"] : [])}
       onEvent={overrides.onEvent ?? (() => undefined)}
@@ -1540,7 +1543,7 @@ describe("Workbench request lifecycle", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:delayed-error-summary");
   });
 
-  it("shows three visible stages then orders outcome, differences, workflow, evidence and activity", async () => {
+  it("combines outcome, decision brief, differences and controls before evidence and activity", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1599,16 +1602,28 @@ describe("Workbench request lifecycle", () => {
       "Verify evidence",
       "Resolve and prepare action",
     ]) {
-      expect(screen.getByText(label)).toBeVisible();
+      expect(screen.getByText(label)).toBeInTheDocument();
     }
     expect(screen.queryByText(/publish telemetry/i)).not.toBeInTheDocument();
-    const orderedHeadings = [
-      "Business outcome",
-      "Differences",
+    expect(screen.queryByRole("heading", { name: "Business outcome" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Differences" })).not.toBeInTheDocument();
+    const decisionPanel = screen.getByRole("heading", { name: "Decision and next steps" }).closest("section");
+    expect(decisionPanel).not.toBeNull();
+    const decisionSections = within(decisionPanel!).getAllByRole("heading", { level: 3 });
+    expect(decisionSections.map((heading) => heading.textContent).slice(0, 4)).toEqual([
+      "Clear",
+      "Decision brief",
+      "Evidence differences",
       "Workflow controls",
-      "Evidence ledger",
-      "Activity timeline",
-    ].map((name) => screen.getByRole("heading", { name }));
+    ]);
+    expect(
+      within(screen.getByRole("heading", { name: "Decision brief" }).closest("section")!).getByText(readyAction.summary),
+    ).toBeVisible();
+    const orderedHeadings = [
+      screen.getByRole("heading", { name: "Decision and next steps" }),
+      screen.getByRole("heading", { name: "Evidence ledger" }),
+      screen.getByRole("heading", { name: "Activity timeline" }),
+    ];
     orderedHeadings.slice(0, -1).forEach((heading, index) => {
       expect(
         heading.compareDocumentPosition(orderedHeadings[index + 1]) &
@@ -2126,5 +2141,184 @@ describe("Public run history", () => {
     );
     expect(screen.getByRole("heading", { name: "Review a document" })).toBeVisible();
     expect(screen.queryByText("untrusted detail")).not.toBeInTheDocument();
+  });
+});
+
+describe("Workbench decision guidance", () => {
+  it("opens guidance with five ordered steps then closes by mouse or Escape restoring focus", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/models"
+        ? modelCatalogue({ openai: false, anthropic: false })
+        : emptyHistory(),
+    ));
+    render(<WorkbenchView />);
+
+    const trigger = screen.getByRole("button", { name: "How it works" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Choose a document",
+      "Choose a model",
+      "Process the document",
+      "Review the evidence",
+      "Choose a prepared action",
+    ]);
+    expect(within(dialog).getByText(/deterministic evidence/i)).toBeVisible();
+    expect(within(dialog).getByText(/simulations/i)).toBeVisible();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("auto-collapses a successful terminal trace with completed stages and duration", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") return modelCatalogue({ openai: false, anthropic: false });
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_trace_success") {
+        return new Response(JSON.stringify({ run: {
+          id: "run_trace_success", status: "completed", outcome: "clear", documentFamily: "supplier_invoice",
+          providerCalled: false, provider: null, model: null,
+          details: { result: { documentClassification: "supplier_invoice", action: readyAction }, workflowEvents: [] },
+        } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") return ndjson([{
+        type: "completed", outcome: "clear", runId: "run_trace_success", executionMode: "recorded", deletionToken: "trace_success", timestamp: "2026-08-30T00:00:00.000Z",
+      }]);
+      return new Response(null, { status: 404 });
+    }));
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+
+    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-controls");
+    expect(screen.getByText(/3 of 3 stages completed/)).toBeVisible();
+    expect(screen.getByText(/Total duration:/)).toBeVisible();
+    expect(screen.getByText("Understand document").closest("ol")).toHaveAttribute("hidden");
+  });
+
+  it("keeps a failed terminal trace expanded and allows its detail to be toggled", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") return modelCatalogue({ openai: false, anthropic: false });
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_trace_failure") {
+        return new Response(JSON.stringify({ run: {
+          id: "run_trace_failure", status: "failed", outcome: null, documentFamily: "supplier_invoice",
+          providerCalled: false, provider: null, model: null,
+          details: { result: null, workflowEvents: [] },
+        } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") return ndjson([
+        { type: "stage", stage: "comparing", timestamp: "2026-08-30T00:00:00.000Z" },
+        { type: "failed", code: "provider_unavailable", message: "The run stopped safely.", runId: "run_trace_failure", deletionToken: "trace_failure", timestamp: "2026-08-30T00:00:00.100Z" },
+      ]);
+      return new Response(null, { status: 404 });
+    }));
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+
+    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Resolve and prepare action")).toBeVisible();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("Resolve and prepare action").closest("ol")).toHaveAttribute("hidden");
+  });
+
+  it("resets a collapsed trace to expanded when the next run starts", async () => {
+    const user = userEvent.setup();
+    let runCount = 0;
+    let resolveSecondRun!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") return modelCatalogue({ openai: false, anthropic: false });
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_trace_reset") {
+        return new Response(JSON.stringify({ run: {
+          id: "run_trace_reset", status: "completed", outcome: "clear", documentFamily: "supplier_invoice",
+          providerCalled: false, provider: null, model: null,
+          details: { result: { documentClassification: "supplier_invoice", action: readyAction }, workflowEvents: [] },
+        } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") {
+        runCount += 1;
+        if (runCount === 1) return ndjson([{
+          type: "completed", outcome: "clear", runId: "run_trace_reset", executionMode: "recorded", deletionToken: "trace_reset", timestamp: "2026-08-30T00:00:00.000Z",
+        }]);
+        return new Promise<Response>((resolve) => { resolveSecondRun = resolve; });
+      }
+      return new Response(null, { status: 404 });
+    }));
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Assurance trace details" })).not.toBeInTheDocument());
+    expect(screen.getByText("Understand document")).toBeVisible();
+    resolveSecondRun(ndjson([{
+      type: "failed", code: "provider_unavailable", message: "The second run stopped safely.", timestamp: "2026-08-30T00:00:01.000Z",
+    }]));
+  });
+
+  it.each(["irrelevant", "uncertain"] as const)(
+    "shows only guarded controls for a %s document classification",
+    (documentClassification) => {
+      renderWorkflowPanel("completed", "not_found", { documentClassification });
+
+      expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
+        "Replace document and reprocess",
+        "Download review summary",
+      ]);
+    },
+  );
+
+  it("uses the server-owned guarded brief instead of a persisted provider proposal", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") return modelCatalogue({ openai: false, anthropic: false });
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs/run_guarded_brief") {
+        return new Response(JSON.stringify({ run: {
+          id: "run_guarded_brief", status: "completed", outcome: "not_found", documentFamily: null,
+          providerCalled: false, provider: null, model: null,
+          details: { result: {
+            documentClassification: "irrelevant",
+            action: { ...readyAction, summary: "Hostile provider proposal" },
+          }, workflowEvents: [] },
+        } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (init?.method === "POST") return ndjson([{
+        type: "completed", outcome: "not_found", runId: "run_guarded_brief", executionMode: "recorded", deletionToken: "guarded_brief", timestamp: "2026-08-30T00:00:00.000Z",
+      }]);
+      return new Response(null, { status: 404 });
+    }));
+    render(<WorkbenchView />);
+
+    await user.click(screen.getByRole("button", { name: "Process document" }));
+
+    const brief = screen.getByRole("heading", { name: "Decision brief" }).closest("section")!;
+    expect(within(brief).getByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();
+    expect(screen.queryByText("Hostile provider proposal")).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Replace document and reprocess",
+      "Download review summary",
+    ]);
   });
 });

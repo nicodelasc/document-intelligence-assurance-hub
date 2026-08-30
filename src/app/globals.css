@@ -163,7 +163,13 @@ h4 { font-size: 0.78rem; }
 .pdf-fallback { min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; color: var(--muted); }
 .pdf-fallback svg { width: 42px; height: 42px; color: var(--primary); }
 .assurance-rail { display: grid; gap: 0.7rem; }
+.assurance-trace { min-width: 0; }
+.trace-disclosure { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--rule-soft); background: #FBFCFE; }
+.trace-disclosure strong { display: block; font-size: 0.75rem; }
+.trace-disclosure p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.68rem; overflow-wrap: anywhere; }
+.trace-disclosure__toggle { flex: 0 0 auto; min-height: 34px; }
 .trace-list { min-height: 174px; margin: 0; padding: 0; list-style: none; }
+.trace-list[hidden] { display: none; }
 .trace-list li { min-height: 58px; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 0.55rem; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--rule-soft); }
 .trace-list li:last-child { border-bottom: 0; }
 .trace-list li.trace-active { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
@@ -175,6 +181,11 @@ h4 { font-size: 0.78rem; }
 .result-ledger h3 { margin: 0; font: 700 1.1rem/1.2 Manrope, sans-serif; }
 .result-ledger p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.68rem; }
 .workflow-panel { display: grid; gap: 0.75rem; padding: 0.8rem; }
+.decision-panel { min-width: 0; }
+.decision-panel__section { min-width: 0; border-bottom: 1px solid var(--rule-soft); }
+.decision-panel__section:last-child { border-bottom: 0; }
+.decision-panel__section > h3, .decision-brief h3 { margin: 0; padding: 0.7rem 0.8rem 0; font: 700 0.9rem/1.2 Manrope, sans-serif; }
+.decision-brief p { margin: 0; padding: 0.5rem 0.8rem 0.75rem; color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
 .workflow-proposal { display: grid; gap: 0.7rem; }
 .workflow-proposal > header { display: flex; align-items: flex-start; gap: 0.55rem; }
 .workflow-proposal > header .status-mark { margin-top: 0.32rem; }
@@ -238,6 +249,9 @@ tbody th { font-weight: 600; }
 .dialog-surface h2 { font: 700 1.25rem/1.2 Manrope, sans-serif; }
 .dialog-heading p { margin-bottom: 0.9rem; color: var(--muted); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1rem; }
+.how-it-works__steps { display: grid; gap: 0.45rem; margin: 0; padding-left: 1.4rem; }
+.how-it-works__steps li { padding-left: 0.15rem; font-size: 0.78rem; }
+.how-it-works__note { margin: 0.9rem 0 0; padding: 0.7rem; border-left: 3px solid var(--primary); background: var(--primary-soft); color: #24436F; font-size: 0.72rem; }
 .workflow-role-dialog, .email-preview { display: grid; gap: 0.45rem; }
 .workflow-role-dialog label, .email-preview label { color: #344054; font-size: 0.72rem; font-weight: 650; }
 .workflow-role-dialog select, .email-preview input, .email-preview textarea { width: 100%; min-height: 40px; padding: 0.55rem 0.65rem; border: 1px solid #B8C1CC; border-radius: var(--radius-md); background: var(--surface); }
@@ -382,6 +396,8 @@ tbody th { font-weight: 600; }
   .page-intro h1 { font-size: 1.65rem; }
   .keyless-notice { max-width: none; }
   .run-controls { grid-template-columns: 1fr; }
+  .trace-disclosure { display: grid; }
+  .trace-disclosure__toggle { width: 100%; }
   .run-actions { min-width: 0; }
   .fixture-family-tabs { grid-template-columns: 1fr; }
   .fixture-family-tabs button { border-right: 0; border-bottom: 1px solid var(--rule); }

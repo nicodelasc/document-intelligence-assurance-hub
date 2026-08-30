@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { workflowEventSchema } from "@/domain/run-schema";
 import type {
   ActionProposal,
+  DocumentClassification,
   DocumentFamily,
   EmailPreview,
   FieldResult,
@@ -95,6 +96,10 @@ const controlsByGroup = {
     { action: "retry_processing", label: "Retry processing" },
     { action: "download_summary", label: "Download error summary" },
   ],
+  guarded: [
+    { action: "replace_document", label: "Replace document and reprocess" },
+    { action: "download_summary", label: "Download review summary" },
+  ],
 } as const satisfies Record<string, readonly ActionControl[]>;
 
 type OutcomeGroup = "clear" | "needs_review" | "incomplete";
@@ -110,10 +115,17 @@ function groupForOutcome(outcome: Outcome): OutcomeGroup {
 function controlsForRun(
   status: RunStatus,
   outcome: Outcome | null,
+  documentClassification: DocumentClassification | null,
 ): readonly ActionControl[] {
-  const allowed = new Set(allowedWorkflowActionsForRun({ status, outcome }));
+  const allowed = new Set(allowedWorkflowActionsForRun({
+    status,
+    outcome,
+    documentClassification,
+  }));
   const controls =
-    status === "failed"
+    documentClassification === "irrelevant" || documentClassification === "uncertain"
+      ? controlsByGroup.guarded
+      : status === "failed"
       ? controlsByGroup.failed
       : outcome === null
         ? []
@@ -245,6 +257,7 @@ export function WorkflowPanel({
   proposal,
   capabilityToken,
   documentFamily,
+  documentClassification = null,
   fields,
   safeDiagnosticCodes,
   onEvent,
@@ -258,6 +271,7 @@ export function WorkflowPanel({
   events: readonly WorkflowEvent[];
   capabilityToken: string;
   documentFamily: DocumentFamily | null;
+  documentClassification?: DocumentClassification | null;
   fields: readonly FieldResult[];
   safeDiagnosticCodes: readonly string[];
   onEvent: (event: WorkflowEvent) => void;
@@ -265,8 +279,8 @@ export function WorkflowPanel({
   onRequestReplacement: () => void;
 }) {
   const controls = useMemo(
-    () => controlsForRun(status, outcome),
-    [outcome, status],
+    () => controlsForRun(status, outcome, documentClassification),
+    [documentClassification, outcome, status],
   );
   const roles = allowedRecipientRoles(documentFamily);
   const [dialogAction, setDialogAction] =
