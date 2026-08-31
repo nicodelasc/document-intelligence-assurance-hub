@@ -235,7 +235,7 @@ describe("executeRun", () => {
     expect(run?.details?.result?.action).toMatchObject({
       status: "ready",
       reason:
-        "Evidence is consistent. The action is ready for internal dry-run staging.",
+        "Evidence is consistent. The action is ready for posting handoff preparation.",
       stagedAt: null,
     });
     expect(run).toMatchObject({ documentFamily: null, fixtureId: null });

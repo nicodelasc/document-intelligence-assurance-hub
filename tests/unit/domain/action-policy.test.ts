@@ -42,13 +42,24 @@ describe("applyActionPolicy", () => {
     }
   });
 
-  it("sets custom evidence statuses without a fixture", () => {
+  it("describes a custom evidence-consistent result as ready for posting handoff preparation", () => {
     expect(
-      applyActionPolicy("evidence_consistent", proposal, null).status,
-    ).toBe("ready");
-    expect(applyActionPolicy("conflict", proposal, null).status).toBe(
-      "needs_review",
-    );
+      applyActionPolicy("evidence_consistent", proposal, null),
+    ).toMatchObject({
+      status: "ready",
+      reason:
+        "Evidence is consistent. The action is ready for posting handoff preparation.",
+    });
+  });
+
+  it("describes a custom conflict as requiring review before handoff preparation", () => {
+    expect(applyActionPolicy("conflict", proposal, null)).toMatchObject({
+      status: "needs_review",
+      reason: "Custom documents require review before a handoff is prepared.",
+    });
+  });
+
+  it("blocks a custom result when requested evidence was not found", () => {
     expect(applyActionPolicy("not_found", proposal, null)).toMatchObject({
       status: "blocked",
       reason:

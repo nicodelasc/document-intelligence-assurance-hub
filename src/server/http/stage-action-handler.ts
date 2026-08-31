@@ -5,7 +5,10 @@ import {
   resolveAnonymousBucket,
 } from "@/server/http/anonymous-bucket";
 import { serializeActionProposal } from "@/server/http/public-serialization";
-import { allowedWorkflowActionsForRun } from "@/domain/workflow-actions";
+import {
+  allowedWorkflowActionsForRun,
+  workflowStatusForAction,
+} from "@/domain/workflow-actions";
 import {
   noIndexHeaders,
   safeErrorResponse,
@@ -149,11 +152,12 @@ export async function handleStageActionPost(
       );
     }
 
+    const eventStatus = workflowStatusForAction("approve_and_stage");
     const result = await container.repository.createWorkflowEvent({
       runId: parameters.id,
       action: "approve_and_stage",
       recipientRole: null,
-      status: "staged",
+      status: eventStatus,
       now,
       eventId: container.requestIdSource(),
     });
@@ -162,7 +166,7 @@ export async function handleStageActionPost(
         result.event.runId !== parameters.id ||
         result.event.action !== "approve_and_stage" ||
         result.event.recipientRole !== null ||
-        result.event.status !== "staged"
+        result.event.status !== eventStatus
       ) {
         throw new Error("stage_action_event_conflict");
       }
@@ -172,11 +176,12 @@ export async function handleStageActionPost(
       return respond(
         safeJsonResponse(
           {
-            staging: {
-              status: result.status === "created" ? "staged" : "already_staged",
+            handoff: {
+              status:
+                result.status === "created" ? eventStatus : "already_prepared",
               action: serializeActionProposal({
                 ...action,
-                stagedAt: result.event.createdAt,
+                stagedAt: null,
               }),
             },
           },

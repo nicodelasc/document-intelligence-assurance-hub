@@ -140,7 +140,7 @@ describe("POST /api/runs/[id]/stage-action", () => {
     expect(stageAction).not.toHaveBeenCalled();
   });
 
-  it("stages a permitted internal action idempotently", async () => {
+  it("prepares a permitted posting handoff idempotently", async () => {
     const ids = [
       "request-stage-1",
       "event-stage-1",
@@ -164,20 +164,20 @@ describe("POST /api/runs/[id]/stage-action", () => {
       container,
     );
     const firstBody = await readJson<{
-      staging: { status: string; action: ActionProposal };
+      handoff: { status: string; action: ActionProposal };
     }>(first);
     const duplicateBody = await readJson<{
-      staging: { status: string; action: ActionProposal };
+      handoff: { status: string; action: ActionProposal };
     }>(duplicate);
 
     expect(first.status).toBe(200);
-    expect(firstBody.staging.status).toBe("staged");
-    expect(firstBody.staging.action.stagedAt).toBe(now.toISOString());
+    expect(firstBody.handoff.status).toBe("prepared");
+    expect(firstBody.handoff.action.stagedAt).toBeNull();
     expect(duplicate.status).toBe(200);
     expect(duplicateBody).toEqual({
-      staging: {
-        status: "already_staged",
-        action: firstBody.staging.action,
+      handoff: {
+        status: "already_prepared",
+        action: firstBody.handoff.action,
       },
     });
     const stored = await container.repository.readPublicRun(
@@ -190,7 +190,7 @@ describe("POST /api/runs/[id]/stage-action", () => {
         runId: "run-action-1",
         action: "approve_and_stage",
         recipientRole: null,
-        status: "staged",
+        status: "prepared",
         createdAt: now.toISOString(),
       },
     ]);

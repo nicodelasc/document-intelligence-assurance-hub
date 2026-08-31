@@ -58,12 +58,12 @@ export function applyActionPolicy(
       status,
       reason:
         outcome === "evidence_consistent"
-          ? "Evidence is consistent. The action is ready for internal dry-run staging."
+          ? "Evidence is consistent. The action is ready for posting handoff preparation."
           : outcome === "not_found"
             ? "Incomplete evidence - one or more requested fields were not found"
             : status === "blocked"
               ? "Required evidence is incomplete."
-              : "Custom documents require review before staging.",
+              : "Custom documents require review before a handoff is prepared.",
     };
   }
 

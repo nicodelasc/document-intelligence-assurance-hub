@@ -475,7 +475,7 @@ describe("recorded benchmark metrics", () => {
     });
   });
 
-  it("refreshes the staged dry-run count after the staging route persists an action", async () => {
+  it("does not count a prepared handoff as a staged dry run", async () => {
     const container = createTestContainer();
     const events = await readLines(
       await handleRunsPost(
@@ -504,7 +504,7 @@ describe("recorded benchmark metrics", () => {
     ).json()) as { actions: { stagedDryRuns: number } };
     expect(before.actions.stagedDryRuns).toBe(0);
 
-    const staged = await handleStageActionPost(
+    const prepared = await handleStageActionPost(
       new Request(
         `http://local.test/api/runs/${completed.runId}/stage-action`,
         {
@@ -515,7 +515,7 @@ describe("recorded benchmark metrics", () => {
       { id: completed.runId },
       container,
     );
-    expect(staged.status).toBe(200);
+    expect(prepared.status).toBe(200);
 
     const after = (await (
       await handleMetricsGet(
@@ -523,7 +523,7 @@ describe("recorded benchmark metrics", () => {
         container,
       )
     ).json()) as { actions: { stagedDryRuns: number } };
-    expect(after.actions.stagedDryRuns).toBe(1);
+    expect(after.actions.stagedDryRuns).toBe(0);
   });
 
   it("removes a deleted action from a warm metrics snapshot", async () => {
