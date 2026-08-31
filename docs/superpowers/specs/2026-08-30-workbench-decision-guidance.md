@@ -13,7 +13,7 @@ Make the Workbench easier for a non-technical reviewer to understand while prese
 - Use the shared dialog primitive so focus is trapped, Escape closes the modal, the background becomes inert and focus returns to the trigger.
 - State clearly that built-in samples use deterministic evidence when live processing is unavailable and every workflow control is a simulation.
 
-### Assurance trace
+### Review progress
 
 - Keep the three-stage assurance trace expanded before processing and while a run is active.
 - After a successful run completes, automatically collapse the trace into a concise summary that includes completed stage count and total duration when available.

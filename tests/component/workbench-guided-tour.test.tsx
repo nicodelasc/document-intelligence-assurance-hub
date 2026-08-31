@@ -171,8 +171,8 @@ describe("Workbench guided tour", () => {
       "Select a procurement document",
       "Processing model",
       "Assess for exceptions",
-      "Assurance trace",
-      "Exception triage decision",
+      "Review progress",
+      "Review result",
     ] as const;
     const truthfulStepCopy = [
       /synthetic supplier invoice.*goods receipt.*handwritten comments/i,

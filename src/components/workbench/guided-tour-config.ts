@@ -19,13 +19,13 @@ export const workbenchTourSteps = [
   },
   {
     targetId: "workbench-tour-assurance-trace",
-    title: "Assurance trace",
+    title: "Review progress",
     description:
       "Follow document understanding, evidence-grounded evaluator checks and guardrails as the workflow prepares a controlled handoff.",
   },
   {
     targetId: "workbench-tour-decision",
-    title: "Exception triage decision",
+    title: "Review result",
     description:
       "A responsible employee reviews the decision, evidence differences and prepared next step. No ERP, payment, inventory or email system is changed.",
   },

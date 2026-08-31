@@ -184,8 +184,8 @@ test("walks the spotlight steps in order then exits with Escape", async ({ page 
     "Select a procurement document",
     "Processing model",
     "Assess for exceptions",
-    "Assurance trace",
-    "Exception triage decision",
+    "Review progress",
+    "Review result",
   ] as const;
   for (let index = 0; index < steps.length; index += 1) {
     const callout = page.getByRole("dialog", { name: steps[index] });
@@ -246,7 +246,7 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
   await page.goto("/workbench");
   await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(
-    page.getByRole("heading", { name: "Exception triage decision" }),
+    page.getByRole("heading", { name: "Review result" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "How it works" }).click();
   await page.getByRole("button", { name: "Start guided tour" }).click();
@@ -255,8 +255,8 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
   }
 
   for (const step of [
-    { title: "Assurance trace", targetId: "workbench-tour-assurance-trace" },
-    { title: "Exception triage decision", targetId: "workbench-tour-decision" },
+    { title: "Review progress", targetId: "workbench-tour-assurance-trace" },
+    { title: "Review result", targetId: "workbench-tour-decision" },
   ]) {
     const spotlight = page.locator(".guided-tour__spotlight");
     await expect(spotlight).toHaveCSS("opacity", "1");
@@ -275,7 +275,7 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
       calloutBox!.y < spotlightBox!.y + spotlightBox!.height &&
       calloutBox!.y + calloutBox!.height > spotlightBox!.y;
     expect(overlaps).toBe(false);
-    if (step.title === "Assurance trace") {
+    if (step.title === "Review progress") {
       await page.getByRole("button", { name: "Next", exact: true }).click();
     }
   }
@@ -310,11 +310,11 @@ test("collapses a successful trace then exposes all stages and ordered decision 
   await page.getByRole("button", { name: "Assess for exceptions" }).click();
 
   await expect(
-    page.getByRole("heading", { name: "Exception triage decision" }),
+    page.getByRole("heading", { name: "Review result" }),
   ).toBeVisible();
-  const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
+  const traceToggle = page.getByRole("button", { name: "View review steps" });
   await expect(traceToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByText("3 of 3 stages completed", { exact: false })).toBeVisible();
+  await expect(page.getByText("3 of 3 steps complete", { exact: false })).toBeVisible();
   await expect(page.locator(".assurance-trace .trace-list")).toBeHidden();
 
   await traceToggle.click();
@@ -346,7 +346,7 @@ test("keeps a failed trace expanded for safe diagnostics", async ({ page }) => {
   await page.getByRole("button", { name: "Assess for exceptions" }).click();
 
   await expect(page.getByText("The document could not be parsed safely.", { exact: true })).toBeVisible();
-  const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
+  const traceToggle = page.getByRole("button", { name: "View review steps" });
   await expect(traceToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".assurance-trace .trace-list")).toBeVisible();
   await expect(
@@ -457,6 +457,6 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
   await expect(process).toBeEnabled();
   await process.click();
   await expect(
-    page.getByRole("heading", { name: "Exception triage decision" }),
+    page.getByRole("heading", { name: "Review result" }),
   ).toBeVisible();
 });

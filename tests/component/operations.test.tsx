@@ -142,7 +142,7 @@ describe("Run explorer", () => {
       const row = radio.closest("tr")!;
       expect(within(row).getByText(label)).toBeVisible();
       expect(within(row).getByText("Evidence only - no business approval")).toBeVisible();
-      expect(within(row).queryByText("Ready for posting decision")).not.toBeInTheDocument();
+      expect(within(row).queryByText("Ready for posting review")).not.toBeInTheDocument();
     }
     expect(screen.getByLabelText("Search review records")).toBeVisible();
     expect(screen.getByRole("region", { name: "Scrollable procurement review queue" })).toBeVisible();
@@ -243,7 +243,7 @@ describe("Run explorer", () => {
       expect(within(row).getByText("No active handoff")).toBeVisible();
       expect(row.querySelector(".status-mark--warning")).toBeInTheDocument();
       expect(within(row).queryByText("Posting handoff prepared")).not.toBeInTheDocument();
-      expect(within(row).queryByText("Ready for posting decision")).not.toBeInTheDocument();
+      expect(within(row).queryByText("Ready for posting review")).not.toBeInTheDocument();
       expect(within(row).queryByText("Legacy document")).not.toBeInTheDocument();
     }
   });
@@ -333,7 +333,7 @@ describe("Run explorer", () => {
     } }), { status: 200 })));
     render(<RunExplorer runs={[active]} onSelect={() => undefined} />);
 
-    await user.click(screen.getByRole("radio", { name: "Select INV-MP-4101, Ready for posting decision, received 27 Aug 2026, 08:00 SGT" }));
+    await user.click(screen.getByRole("radio", { name: "Select INV-MP-4101, Ready for posting review, received 27 Aug 2026, 08:00 SGT" }));
 
     const runTable = screen.getByRole("table", { name: "Procurement review queue" });
     expect(within(runTable).queryByText("No AI processing")).not.toBeInTheDocument();
@@ -342,7 +342,7 @@ describe("Run explorer", () => {
     expect(within(runTable).getByText("Total mismatch")).toBeVisible();
     expect(within(runTable).getByText("Invoice total differs from the purchase-order reference.")).toBeVisible();
     expect(within(runTable).getByText("Email copy prepared - not sent")).toBeVisible();
-    expect(within(runTable).getByText("Ready for posting decision")).toBeVisible();
+    expect(within(runTable).getByText("Ready for posting review")).toBeVisible();
     for (const technicalColumn of ["Run ID", "Processing model", "Processing time", "Expiry"]) {
       expect(within(runTable).queryByRole("columnheader", { name: technicalColumn })).not.toBeInTheDocument();
     }
@@ -588,7 +588,7 @@ describe("Operations metric claims", () => {
       expect(screen.getByText(label)).toBeVisible();
     }
     for (const status of [
-      "Ready for posting decision",
+      "Ready for posting review",
       "Exception review required",
       "Awaiting readable evidence",
       "Processing errors",

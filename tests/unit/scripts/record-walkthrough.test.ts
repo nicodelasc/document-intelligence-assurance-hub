@@ -14,7 +14,7 @@ describe("Walkthrough recorder release vocabulary", () => {
     for (const marker of [
       "Review incoming procurement documents",
       "Assess for exceptions",
-      "Exception triage decision",
+      "Review result",
       "Prepare posting handoff",
       "Draft clarification request",
       "Procurement review operations",

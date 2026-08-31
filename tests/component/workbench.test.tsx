@@ -1739,23 +1739,28 @@ describe("Workbench request lifecycle", () => {
     expect(screen.queryByText(/publish telemetry/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Business outcome" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Differences" })).not.toBeInTheDocument();
-    const decisionPanel = screen.getByRole("heading", { name: "Exception triage decision" }).closest("section");
+    expect(screen.getByRole("heading", { name: "Review progress" })).toBeVisible();
+    expect(screen.getByText("Review complete")).toBeVisible();
+    expect(screen.getByText(/3 of 3 steps complete/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "View review steps" })).toHaveAttribute("aria-expanded", "false");
+    const decisionPanel = screen.getByRole("heading", { name: "Review result" }).closest("section");
     expect(decisionPanel).not.toBeNull();
     expect(document.getElementById("workbench-tour-decision")).toBe(decisionTarget);
     expect(decisionTarget).toHaveClass("rule-panel__header");
     expect(decisionTarget!.parentElement).toBe(decisionPanel);
     const decisionSections = within(decisionPanel!).getAllByRole("heading", { level: 3 });
     expect(decisionSections.map((heading) => heading.textContent).slice(0, 4)).toEqual([
-      "Ready for posting decision",
+      "Ready for posting review",
       "Decision brief",
       "Evidence differences",
       "Prepared next step",
     ]);
+    expect(within(decisionPanel!).getByText("Result from this demo sample.")).toBeVisible();
     expect(
       within(screen.getByRole("heading", { name: "Decision brief" }).closest("section")!).getByText(readyAction.summary),
     ).toBeVisible();
     const orderedHeadings = [
-      screen.getByRole("heading", { name: "Exception triage decision" }),
+      screen.getByRole("heading", { name: "Review result" }),
       screen.getByRole("heading", { name: "Evidence ledger" }),
       screen.getByRole("heading", { name: "Activity timeline" }),
     ];
@@ -1884,7 +1889,7 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
-    expect(await screen.findByRole("button", { name: "Assurance trace details" })).toHaveAttribute("aria-expanded", "false");
+    expect(await screen.findByRole("button", { name: "View review steps" })).toHaveAttribute("aria-expanded", "false");
     inputClick.mockClear();
     order.length = 0;
     await user.click(
@@ -1895,7 +1900,7 @@ describe("Workbench request lifecycle", () => {
     expect(order).toEqual(["event persisted", "picker"]);
     expect(runPosts).toBe(1);
     expect(screen.getByLabelText("Document file")).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Assurance trace details" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View review steps" })).not.toBeInTheDocument();
     expect(screen.getByText("Understand document")).toBeVisible();
     expect(screen.getByText("Choose document")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: /publicly visible/i })).not.toBeChecked();
@@ -2306,11 +2311,10 @@ describe("Workbench decision guidance", () => {
 
     await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
-    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveAttribute("aria-controls");
-    expect(screen.getByText(/3 of 3 stages completed/)).toBeVisible();
-    expect(screen.getByText(/Total duration:/)).toBeVisible();
+    expect(screen.getByText(/3 of 3 steps complete · \d+\.\d s/)).toBeVisible();
     expect(screen.getByText("Understand document").closest("ol")).toHaveAttribute("hidden");
   });
 
@@ -2337,7 +2341,7 @@ describe("Workbench decision guidance", () => {
 
     await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
-    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Triage exception and prepare handoff")).toBeVisible();
     await user.click(toggle);
@@ -2372,11 +2376,11 @@ describe("Workbench decision guidance", () => {
     render(<WorkbenchView />);
 
     await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
-    const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
+    const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Assurance trace details" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "View review steps" })).not.toBeInTheDocument());
     expect(screen.getByText("Understand document")).toBeVisible();
     resolveSecondRun(ndjson([{
       type: "failed", code: "provider_unavailable", message: "The second run stopped safely.", timestamp: "2026-08-30T00:00:01.000Z",

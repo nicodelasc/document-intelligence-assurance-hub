@@ -191,12 +191,12 @@ try {
     await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
     await page.getByRole("button", { name: "Assess for exceptions" }).click();
     await page
-      .getByRole("heading", { name: "Ready for posting decision" })
+      .getByRole("heading", { name: "Ready for posting review" })
       .waitFor();
     await page
-      .getByRole("heading", { name: "Exception triage decision" })
+      .getByRole("heading", { name: "Review result" })
       .scrollIntoViewIfNeeded();
-    await page.getByRole("button", { name: "Assurance trace details" }).click();
+    await page.getByRole("button", { name: "View review steps" }).click();
     for (const stage of [
       "Understand document",
       "Verify evidence",

@@ -74,7 +74,7 @@ Expected: FAIL because broad actions and `staged` are still returned.
 
 - [ ] **Step 3: Write Workbench component and tour tests for the approved business copy**
 
-Cover the heading `Review incoming procurement documents`, action `Assess for exceptions`, terminal heading `Exception triage decision`, section `Prepared next step`, three scoped action groups and the five approved tour titles. Assert removed controls are absent.
+Cover the heading `Review incoming procurement documents`, action `Assess for exceptions`, terminal heading `Review result`, section `Prepared next step`, three scoped action groups and the five approved tour titles. Assert removed controls are absent.
 
 - [ ] **Step 4: Run focused Workbench tests and verify they fail against the old tool-first copy**
 

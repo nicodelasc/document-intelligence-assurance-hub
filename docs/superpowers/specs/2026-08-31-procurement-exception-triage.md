@@ -21,7 +21,7 @@ The application must not call this a three-way match because the invoice and war
 
 The outcome vocabulary is:
 
-- `Clear` is presented as `Ready for posting decision`.
+- `Clear` is presented as `Ready for posting review`.
 - `Needs review` is presented as `Exception review required`.
 - `Incomplete` is presented as `Awaiting readable evidence`.
 - Custom-upload evidence labels remain evidence-only and never imply business approval.
@@ -34,7 +34,7 @@ The first viewport must state the problem before exposing processing controls:
 - Supporting copy: `Verify supplier invoices and goods receipts before finance or inventory handoff.`
 - Library heading: `1. Select a procurement document`.
 - Primary action: `Assess for exceptions`.
-- Terminal panel: `Exception triage decision`.
+- Terminal panel: `Review result`.
 - Terminal workflow section: `Prepared next step`.
 
 The three visible trace stages remain compact and observable:
@@ -76,7 +76,7 @@ Operations becomes a business-first review console while retaining technical tra
 - Queue columns lead with document reference, document type, review decision, exception, prepared next step and received time.
 - Run ID, model, token, latency, expiry and safe diagnostics remain in the selected record inspector.
 - `Workflow status` becomes `Triage status`.
-- Status labels become `Ready for posting decision`, `Exception review required`, `Awaiting readable evidence` and `Processing errors`.
+- Status labels become `Ready for posting review`, `Exception review required`, `Awaiting readable evidence` and `Processing errors`.
 - `Latest simulated workflow activity` becomes `Prepared case handoffs`.
 - `Document lifecycle` becomes `Public demo retention`.
 - `Run detail` becomes `Review record and technical trace`.

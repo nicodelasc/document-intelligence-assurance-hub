@@ -76,7 +76,7 @@ describe("public-surface verifier", () => {
         [
           "Review incoming procurement documents",
           "Assess for exceptions",
-          "Exception triage decision",
+          "Review result",
           "Prepared next step",
           "Processing model",
           "Procurement review operations",
@@ -92,7 +92,7 @@ describe("public-surface verifier", () => {
         [
           "Review incoming procurement documents",
           "Assess for exceptions",
-          "Exception triage decision",
+          "Review result",
           "Prepared next step",
           "Processing model",
           "Procurement review operations",

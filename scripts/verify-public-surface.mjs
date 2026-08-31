@@ -73,8 +73,8 @@ const requiredUiCopy = [
     pattern: /assess for exceptions/i,
   },
   {
-    label: "Exception triage decision",
-    pattern: /exception triage decision/i,
+    label: "Review result",
+    pattern: /review result/i,
   },
   { label: "Prepared next step", pattern: /prepared next step/i },
   { label: "Processing model", pattern: /processing model/i },

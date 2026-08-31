@@ -137,7 +137,7 @@ test("the mobile PDF preview and differences panel stack without page overflow",
 
   await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(
-    page.getByRole("heading", { name: "Ready for posting decision" }),
+    page.getByRole("heading", { name: "Ready for posting review" }),
   ).toBeVisible();
   const evidenceLedger = page.getByRole("region", {
     name: "Scrollable extracted field ledger",

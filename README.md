@@ -77,7 +77,7 @@ The Workbench exposes only the controls needed to prepare the next responsible r
 
 | Result                                  | Controls                                                                  |
 | --------------------------------------- | ------------------------------------------------------------------------- |
-| Ready for posting decision              | `Prepare posting handoff`                                                 |
+| Ready for posting review                | `Prepare posting handoff`                                                 |
 | Exception review required               | `Assign exception review` and `Draft clarification request`               |
 | Awaiting readable evidence              | `Request clearer evidence`, `Assign manual review` and `Replace document` |
 | Failed                                  | `Retry processing`                                                        |
@@ -131,7 +131,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows `Review incoming procurement documents`, `Assess for exceptions`, `Exception triage decision`, `Prepared next step`, `Procurement review operations` and the queue-first Operations story plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
+The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows `Review incoming procurement documents`, `Assess for exceptions`, `Review result`, `Prepared next step`, `Procurement review operations` and the queue-first Operations story plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
 
 ## Connected persistence
 

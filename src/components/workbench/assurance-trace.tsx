@@ -27,11 +27,11 @@ export function AssuranceTrace({
       {terminal ? (
         <div className="trace-disclosure">
           <div>
-            <strong>{terminalStatus === "completed" ? "Run completed" : "Run stopped"}</strong>
+            <strong>{terminalStatus === "completed" ? "Review complete" : "Review stopped"}</strong>
             {terminalStatus === "completed" ? (
               <p>
-                {completedCount} of {displayTrace.length} stages completed
-                {elapsedMs === null ? null : <> · Total duration: {(elapsedMs / 1000).toFixed(1)} s</>}
+                {completedCount} of {displayTrace.length} steps complete
+                {elapsedMs === null ? null : <> · {(elapsedMs / 1000).toFixed(1)} s</>}
               </p>
             ) : (
               <p>Review the completed and affected stages before choosing a recovery action.</p>
@@ -45,7 +45,7 @@ export function AssuranceTrace({
             aria-controls={traceId}
             onClick={() => onExpandedChange(!expanded)}
           >
-            Assurance trace details
+            View review steps
           </Button>
         </div>
       ) : null}

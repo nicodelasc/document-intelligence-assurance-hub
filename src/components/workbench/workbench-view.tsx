@@ -57,7 +57,7 @@ const rawTraceStages: RunStatus[] = [
 ];
 
 const outcomeLabel: Record<Outcome, string> = {
-  clear: "Ready for posting decision",
+  clear: "Ready for posting review",
   needs_review: "Exception review required",
   incomplete: "Awaiting readable evidence",
   evidence_consistent: "Evidence-consistent",
@@ -1019,7 +1019,7 @@ export function WorkbenchView() {
             <RulePanel
               headerId={workbenchTourTargetIds.assuranceTrace}
               headerClassName="tour-target"
-              title="Assurance trace"
+              title="Review progress"
             >
               <AssuranceTrace
                 displayTrace={displayTrace}
@@ -1033,7 +1033,7 @@ export function WorkbenchView() {
               className={hasTerminalRun ? "decision-panel" : ""}
               headerId={workbenchTourTargetIds.decision}
               headerClassName="tour-target"
-              title="Exception triage decision"
+              title="Review result"
             >
               {!hasTerminalRun ? (
                 <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
@@ -1161,7 +1161,7 @@ function OutcomeSummary({
         <StatusMark status={outcome === "clear" || outcome === "evidence_consistent" ? "pass" : outcome === "incomplete" || outcome === "not_found" ? "warning" : "error"} />
         <div>
           <h3 ref={headingRef} tabIndex={-1}>{heading}</h3>
-          <p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Guided fixture outcome from demo data."}</p>
+          <p>{custom ? "This label describes document evidence only. It does not approve any business action." : "Result from this demo sample."}</p>
         </div>
       </header>
     </div>

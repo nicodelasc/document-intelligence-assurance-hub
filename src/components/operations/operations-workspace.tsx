@@ -36,7 +36,7 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
         headerClassName="tour-target"
       >
         <dl className="workspace-stat-grid">
-          <div><dt>Ready for posting decision</dt><dd>{operations.workflowStatus.ready}</dd></div>
+          <div><dt>Ready for posting review</dt><dd>{operations.workflowStatus.ready}</dd></div>
           <div><dt>Exception review required</dt><dd>{operations.workflowStatus.needsAttention}</dd></div>
           <div><dt>Awaiting readable evidence</dt><dd>{operations.workflowStatus.incomplete}</dd></div>
           <div><dt>Processing errors</dt><dd>{operations.workflowStatus.processingErrors}</dd></div>

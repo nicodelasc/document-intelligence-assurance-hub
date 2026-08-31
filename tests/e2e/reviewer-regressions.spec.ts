@@ -340,7 +340,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
     const row = page.getByRole("radio", { name: `Select ${reference}, ${label}, received 27 Aug 2026, 08:00 SGT` }).locator("xpath=ancestor::tr");
     await expect(row.getByText(label, { exact: true })).toBeVisible();
     await expect(row.getByText("Evidence only - no business approval")).toBeVisible();
-    await expect(row.getByText("Ready for posting decision")).toHaveCount(0);
+    await expect(row.getByText("Ready for posting review")).toHaveCount(0);
   }
   await page.getByLabel("Outcome filter").selectOption("conflict");
   await page.getByLabel("Processing model filter").selectOption("openai");

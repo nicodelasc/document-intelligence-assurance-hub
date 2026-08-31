@@ -60,7 +60,7 @@ test("browses document families without processing then runs the selected fixtur
     timeout: connectedRunTimeout,
   });
   expect(runPosts).toHaveLength(1);
-  const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
+  const traceToggle = page.getByRole("button", { name: "View review steps" });
   await expect(traceToggle).toHaveAttribute("aria-expanded", "false");
   await traceToggle.click();
   for (const stage of [
@@ -84,8 +84,8 @@ test("browses document families without processing then runs the selected fixtur
     .getByRole("heading", { level: 2 })
     .allTextContents();
   expect(sectionHeadings).toEqual([
-    "Assurance trace",
-    "Exception triage decision",
+    "Review progress",
+    "Review result",
     "Evidence ledger",
     "Activity timeline",
   ]);

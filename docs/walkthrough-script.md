@@ -10,7 +10,7 @@ Open Workbench at `Review incoming procurement documents`. Show `Supplier invoic
 
 ## 0:15–0:30 — One correct fixture and three visible stages
 
-Under Supplier invoices choose `Clean match` then press `Assess for exceptions`. Follow `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`. Show `Exception triage decision`, the `Ready for posting decision` outcome and `Prepare posting handoff` under `Prepared next step`. Also show `No AI processing` attribution. The selected model is configuration while persisted confirmed dispatch is the only provider-call evidence.
+Under Supplier invoices choose `Clean match` then press `Assess for exceptions`. Follow `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`. Show `Review result`, the `Ready for posting review` outcome and `Prepare posting handoff` under `Prepared next step`. Also show `No AI processing` attribution. The selected model is configuration while persisted confirmed dispatch is the only provider-call evidence.
 
 ## 0:30–1:01 — Discrepancy and prepared simulated workflow action
 

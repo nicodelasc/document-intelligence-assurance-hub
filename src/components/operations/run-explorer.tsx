@@ -163,7 +163,7 @@ function reviewDecision(run: ExplorerRun): {
     return { label, status: "idle", boundary: "Evidence only - no business approval" };
   }
   if (run.outcome === "clear" || run.outcome === "evidence_consistent") {
-    return { label: "Ready for posting decision", status: "pass" };
+    return { label: "Ready for posting review", status: "pass" };
   }
   if (run.outcome === "needs_review" || run.outcome === "conflict") {
     return { label: "Exception review required", status: "warning" };

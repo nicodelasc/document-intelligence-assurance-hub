@@ -24,7 +24,7 @@ test("Workbench preserves source preview trace order on mobile", async ({ page }
     [
       "1. Select a procurement document",
       "Document preview",
-      "Assurance trace",
+      "Review progress",
     ].map(async (name) => {
       const box = await page.getByRole("heading", { name }).boundingBox();
       expect(box).not.toBeNull();

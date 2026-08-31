@@ -120,7 +120,7 @@ describe("Release artifact hardening", () => {
       "Understand document",
       "Verify evidence",
       "Triage exception and prepare handoff",
-      "Exception triage decision",
+      "Review result",
       "Clean match",
       "Total mismatch",
       "Prepare posting handoff",
@@ -149,7 +149,7 @@ describe("Release artifact hardening", () => {
       /getByRole\(["']button["'], \{ name: \/Total mismatch\/i \}\)/,
     );
     expect(recorder).toMatch(
-      /getByRole\("button",\s*\{ name: "Assurance trace details" \}\)[\s\S]*?\.click\(\)/,
+      /getByRole\("button",\s*\{ name: "View review steps" \}\)[\s\S]*?\.click\(\)/,
     );
     expect(recorder).toMatch(/Draft clarification request/);
     expect(recorder).toMatch(/Recipient role/);
