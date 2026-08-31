@@ -117,7 +117,7 @@ describe("Workbench guided tour", () => {
     const navigation = within(appHeader!).getByRole("navigation", { name: "Primary navigation" });
     expect(productName.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(trigger.compareDocumentPosition(navigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Review a document" }).closest("header")).not.toContainElement(trigger);
+    expect(screen.getByRole("heading", { name: "Review incoming procurement documents" }).closest("header")).not.toContainElement(trigger);
     for (const targetId of targetIds) {
       expect(document.getElementById(targetId)).toBeInTheDocument();
     }
@@ -127,17 +127,17 @@ describe("Workbench guided tour", () => {
     installMatchMedia();
     const user = userEvent.setup();
     const fetchMock = renderWorkbench();
-    const processButton = await screen.findByRole("button", { name: "Process document" });
+    const processButton = await screen.findByRole("button", { name: "Assess for exceptions" });
     await waitFor(() => expect(processButton).toBeEnabled());
 
     await user.click(await findGuidanceTrigger());
-    const overview = screen.getByRole("dialog", { name: "What this workbench does" });
-    expect(overview).toHaveTextContent(/agentic document-assurance workflow/i);
-    expect(overview).toHaveTextContent(/multimodal document understanding/i);
-    expect(overview).toHaveTextContent(/evidence-grounded evaluator checks/i);
-    expect(overview).toHaveTextContent(/orchestration, validation and telemetry are implemented/i);
+    const overview = screen.getByRole("dialog", { name: "How procurement exception triage works" });
+    expect(overview).toHaveTextContent(/manual invoice and goods-receipt review/i);
+    expect(overview).toHaveTextContent(/agentic workflow/i);
+    expect(overview).toHaveTextContent(/verify evidence/i);
+    expect(overview).toHaveTextContent(/evaluator safeguards/i);
     expect(overview).toHaveTextContent(/synthetic/i);
-    expect(overview).toHaveTextContent(/do not update external systems/i);
+    expect(overview).toHaveTextContent(/systems are not changed/i);
     expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeVisible();
     expect(within(overview).getByRole("button", { name: "Close" })).toBeVisible();
     await waitFor(() => expect(
@@ -145,12 +145,12 @@ describe("Workbench guided tour", () => {
     ).toHaveFocus());
 
     fireEvent.mouseDown(document.querySelector(".dialog-backdrop")!);
-    expect(screen.getByRole("dialog", { name: "What this workbench does" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "How procurement exception triage works" })).toBeVisible();
     fireEvent.click(processButton);
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 
     await user.click(within(overview).getByRole("button", { name: "Start guided tour" }));
-    const tour = screen.getByRole("dialog", { name: "Document library" });
+    const tour = screen.getByRole("dialog", { name: "Select a procurement document" });
     fireEvent.mouseDown(document.querySelector(".dialog-backdrop")!);
     expect(tour).toBeVisible();
     const unselectedDocument = screen.getByRole("button", { name: /Buyer hold/ });
@@ -168,18 +168,18 @@ describe("Workbench guided tour", () => {
     await user.click(screen.getByRole("button", { name: "Start guided tour" }));
 
     const expectedSteps = [
-      "Document library",
+      "Select a procurement document",
       "Processing model",
-      "Process document",
+      "Assess for exceptions",
       "Assurance trace",
-      "Decision and next steps",
+      "Exception triage decision",
     ] as const;
     const truthfulStepCopy = [
-      /synthetic fixtures.*OCR-style reading.*handwritten comments/i,
+      /synthetic supplier invoice.*goods receipt.*handwritten comments/i,
       /explicit provider dispatch/i,
-      /untrusted document text.*no tool execution/i,
-      /observable orchestration.*evaluator checks/i,
-      /human-in-the-loop.*staged actions/i,
+      /extracts document evidence.*approved synthetic references.*cannot trigger tool execution/i,
+      /document understanding.*evaluator checks.*guardrails/i,
+      /responsible employee.*prepared next step.*no ERP.*payment.*inventory.*email/i,
     ] as const;
     for (let index = 0; index < expectedSteps.length; index += 1) {
       const dialog = screen.getByRole("dialog", { name: expectedSteps[index] });
@@ -199,7 +199,7 @@ describe("Workbench guided tour", () => {
       else expect(back).toBeEnabled();
       if (index === 1) {
         await user.click(within(dialog).getByRole("button", { name: "Back" }));
-        expect(screen.getByRole("dialog", { name: "Document library" })).toBeVisible();
+        expect(screen.getByRole("dialog", { name: "Select a procurement document" })).toBeVisible();
         await user.click(screen.getByRole("button", { name: "Next" }));
       }
       if (index < expectedSteps.length - 1) {
@@ -219,7 +219,7 @@ describe("Workbench guided tour", () => {
     renderWorkbench();
     const trigger = await findGuidanceTrigger();
     await user.click(trigger);
-    const dialog = screen.getByRole("dialog", { name: "What this workbench does" });
+    const dialog = screen.getByRole("dialog", { name: "How procurement exception triage works" });
     const start = within(dialog).getByRole("button", { name: "Start guided tour" });
     const close = within(dialog).getByRole("button", { name: "Close" });
     await waitFor(() => expect(start).toHaveFocus());
@@ -253,7 +253,7 @@ describe("Workbench guided tour", () => {
     const user = userEvent.setup();
     renderWorkbench();
     await user.click(await findGuidanceTrigger());
-    const overview = screen.getByRole("dialog", { name: "What this workbench does" });
+    const overview = screen.getByRole("dialog", { name: "How procurement exception triage works" });
     await waitFor(() => expect(
       within(overview).getByRole("button", { name: "Start guided tour" }),
     ).toHaveFocus());
@@ -273,12 +273,12 @@ describe("Workbench guided tour", () => {
     await user.click(await findGuidanceTrigger());
     await user.click(screen.getByRole("button", { name: "Start guided tour" }));
     await waitFor(() => expect(
-      screen.getByRole("heading", { name: "Document library" }),
+      screen.getByRole("heading", { name: "Select a procurement document" }),
     ).toHaveFocus());
 
     document.getElementById(targetIds[0])!.remove();
 
-    const overview = await screen.findByRole("dialog", { name: "What this workbench does" });
+    const overview = await screen.findByRole("dialog", { name: "How procurement exception triage works" });
     expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
     await waitFor(() => expect(
       within(overview).getByRole("button", { name: "Close" }),
@@ -292,7 +292,7 @@ describe("Workbench guided tour", () => {
       <AppShell><main>Workbench route</main></AppShell>,
     );
     await user.click(await findGuidanceTrigger());
-    expect(screen.getByRole("dialog", { name: "What this workbench does" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "How procurement exception triage works" })).toBeVisible();
 
     navigationState.pathname = "/operations";
     rerender(<AppShell><main>Operations route</main></AppShell>);
@@ -383,10 +383,10 @@ describe("Workbench guided tour", () => {
       expect(callout.style.top).toMatch(/px$/);
     };
 
-    expectPositioned("Document library");
+    expectPositioned("Select a procurement document");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expectPositioned("Processing model");
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expectPositioned("Document library");
+    expectPositioned("Select a procurement document");
   });
 });

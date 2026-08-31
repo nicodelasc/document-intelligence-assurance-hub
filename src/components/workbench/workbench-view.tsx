@@ -57,9 +57,9 @@ const rawTraceStages: RunStatus[] = [
 ];
 
 const outcomeLabel: Record<Outcome, string> = {
-  clear: "Clear",
-  needs_review: "Needs review",
-  incomplete: "Incomplete",
+  clear: "Ready for posting decision",
+  needs_review: "Exception review required",
+  incomplete: "Awaiting readable evidence",
   evidence_consistent: "Evidence-consistent",
   conflict: "Conflict",
   not_found: "Not found",
@@ -414,7 +414,9 @@ export function WorkbenchView() {
   const [actionDetailError, setActionDetailError] = useState("");
   const [error, setError] = useState("");
   const [workflowNotice, setWorkflowNotice] = useState("");
-  const [liveMessage, setLiveMessage] = useState("Ready to review a document.");
+  const [liveMessage, setLiveMessage] = useState(
+    "Ready to assess a procurement document.",
+  );
   const [outcomeFocusVersion, setOutcomeFocusVersion] = useState(0);
   const [history, setHistory] = useState<ComparableRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -952,7 +954,7 @@ export function WorkbenchView() {
   return (
     <main id="main-content" className="page workbench-page">
       <header className="page-intro">
-        <div><h1>Review a document</h1><p>Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.</p></div>
+        <div><h1>Review incoming procurement documents</h1><p>Verify supplier invoices and goods receipts before finance or inventory handoff.</p></div>
       </header>
       <LiveRegion message={liveMessage} />
       <form noValidate onSubmit={(event) => { event.preventDefault(); runAssurance(); }}>
@@ -961,7 +963,7 @@ export function WorkbenchView() {
             className="source-rail"
             headerId={workbenchTourTargetIds.documentLibrary}
             headerClassName="tour-target"
-            title="1. Document library"
+            title="1. Select a procurement document"
           >
             <FixtureLibrary
               fixtures={syntheticFixtures}
@@ -1003,7 +1005,7 @@ export function WorkbenchView() {
                     (source === "custom" && !providerAvailability[provider])
                   }
                 >
-                  Process document
+                  Assess for exceptions
                 </Button>
                 {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
               </div>
@@ -1031,7 +1033,7 @@ export function WorkbenchView() {
               className={hasTerminalRun ? "decision-panel" : ""}
               headerId={workbenchTourTargetIds.decision}
               headerClassName="tour-target"
-              title={hasTerminalRun ? "Decision and next steps" : "Business outcome"}
+              title="Exception triage decision"
             >
               {!hasTerminalRun ? (
                 <EmptyState title="Awaiting a run">A business-facing outcome will appear here before its evidence.</EmptyState>
@@ -1057,7 +1059,7 @@ export function WorkbenchView() {
                     <DifferenceSummary status={activeRunStatus!} fields={fields} />
                   </section>
                   <section className="decision-panel__section">
-                    <h3>Workflow controls</h3>
+                    <h3>Prepared next step</h3>
                     {actionDetailStatus === "loading" ? (
                       <p className="workflow-detail-status" role="status">Loading prepared workflow details…</p>
                     ) : null}

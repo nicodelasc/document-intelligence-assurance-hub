@@ -16,36 +16,26 @@ const actionsByOutcomeGroup: Readonly<
 > = Object.freeze({
   clear: Object.freeze<WorkflowActionType[]>([
     "approve_and_stage",
-    "prepare_email",
-    "download_summary",
-    "mark_for_later_review",
   ]),
   needs_review: Object.freeze<WorkflowActionType[]>([
     "assign_review",
-    "request_clarification",
     "prepare_email",
-    "replace_document",
-    "download_summary",
   ]),
   incomplete: Object.freeze<WorkflowActionType[]>([
     "request_clearer_document",
-    "prepare_email",
     "assign_review",
     "replace_document",
-    "retry_processing",
   ]),
 });
 
 const failedRunActions: readonly WorkflowActionType[] = Object.freeze([
   "retry_processing",
-  "download_summary",
 ]);
 
 const noWorkflowActions: readonly WorkflowActionType[] = Object.freeze([]);
 
 const guardedDocumentActions: readonly WorkflowActionType[] = Object.freeze([
   "replace_document",
-  "download_summary",
 ]);
 
 const outcomeGroup: Readonly<Record<Outcome, OutcomeGroup>> = Object.freeze({
@@ -149,10 +139,7 @@ export function recipientRoleAllowed(
 export function workflowStatusForAction(
   action: WorkflowActionType,
 ): WorkflowEventStatus {
-  if (action === "approve_and_stage") {
-    return "staged";
-  }
-  if (action === "prepare_email") {
+  if (action === "approve_and_stage" || action === "prepare_email") {
     return "prepared";
   }
   return "simulated";

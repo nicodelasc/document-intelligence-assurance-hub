@@ -126,7 +126,7 @@ function workflowRequest(
   const body =
     input.body ??
     ({
-      action: "download_summary",
+      action: "approve_and_stage",
       recipientRole: null,
     } satisfies WorkflowActionRequest);
   return new Request(
@@ -277,9 +277,9 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
         event: {
           id: "event-created",
           runId,
-          action: "download_summary",
+          action: "approve_and_stage",
           recipientRole: null,
-          status: "simulated",
+          status: "prepared",
           createdAt: now.toISOString(),
         },
       },
@@ -341,6 +341,46 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     expectPrivateHeaders(response);
   });
 
+  it.each([
+    ["clear", "prepare_email", "Buyer"],
+    ["needs_review", "request_clarification", "Buyer"],
+    ["incomplete", "retry_processing", null],
+  ] as const)(
+    "rejects the removed %s action %s at the route boundary",
+    async (outcome, action, recipientRole) => {
+      const container = createTestContainer({ clock: () => now });
+      await seedRun({ container, outcome });
+
+      const response = await postWorkflow(container, {
+        body: { action, recipientRole },
+      });
+
+      expect(response.status).toBe(409);
+      expect(await errorCode(response)).toBe("workflow_action_not_allowed");
+    },
+  );
+
+  it("records a posting handoff as prepared", async () => {
+    const container = createTestContainer({
+      clock: () => now,
+      requestIdSource: idSequence("request-handoff", "event-handoff"),
+    });
+    await seedRun({ container, outcome: "clear" });
+
+    const response = await postWorkflow(container, {
+      body: { action: "approve_and_stage", recipientRole: null },
+    });
+    const event = (
+      await readJson<{ workflow: { event: WorkflowEvent } }>(response)
+    ).workflow.event;
+
+    expect(response.status).toBe(200);
+    expect(event).toMatchObject({
+      action: "approve_and_stage",
+      status: "prepared",
+    });
+  });
+
   it.each(["irrelevant", "uncertain"] as const)(
     "denies disallowed workflow actions for a guarded %s custom document",
     async (documentClassification) => {
@@ -380,12 +420,12 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
   );
 
   it.each([
-    ["unknown role", "prepare_email", "Unknown Role"],
-    ["missing role", "prepare_email", null],
-    ["role on a role-free action", "download_summary", "Buyer"],
-  ])("rejects %s", async (_label, action, recipientRole) => {
+    ["unknown role", "prepare_email", "Unknown Role", "needs_review"],
+    ["missing role", "prepare_email", null, "needs_review"],
+    ["role on a role-free action", "approve_and_stage", "Buyer", "clear"],
+  ] as const)("rejects %s", async (_label, action, recipientRole, outcome) => {
     const container = createTestContainer({ clock: () => now });
-    await seedRun({ container });
+    await seedRun({ container, outcome });
 
     const response = await postWorkflow(container, {
       body: { action, recipientRole },
@@ -495,7 +535,7 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
       clock: () => now,
       requestIdSource: idSequence("request-email", "event-email"),
     });
-    await seedRun({ container });
+    await seedRun({ container, outcome: "needs_review" });
     const outbound = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("outbound calls are forbidden"));
@@ -566,7 +606,7 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     expect(
       refreshed.runExplorer.find((run) => run.id === runId)
         ?.latestWorkflowEvent,
-    ).toMatchObject({ action: "download_summary" });
+    ).toMatchObject({ action: "approve_and_stage" });
 
     currentTime = new Date(now.getTime() + 1);
     await container.repository.createWorkflowEvent({
@@ -596,12 +636,12 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     expect(aggregate).toHaveBeenCalledTimes(2);
     expect(
       cached.runExplorer.find((run) => run.id === runId)?.latestWorkflowEvent,
-    ).toMatchObject({ action: "download_summary" });
+    ).toMatchObject({ action: "approve_and_stage" });
   });
 
   it("rejects email preparation when completed result fields are unavailable", async () => {
     const container = createTestContainer({ clock: () => now });
-    await seedRun({ container });
+    await seedRun({ container, outcome: "needs_review" });
     const active = await container.repository.readPublicRun(runId, now);
     if (!active) throw new Error("seeded run is required");
     container.repository.readPublicRun = async () => ({

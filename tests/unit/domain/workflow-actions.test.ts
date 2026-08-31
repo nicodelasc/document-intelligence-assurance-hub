@@ -28,32 +28,19 @@ describe("workflow action policy", () => {
     {
       status: "completed" as const,
       outcome: "clear" as const,
-      expected: [
-        "approve_and_stage",
-        "prepare_email",
-        "download_summary",
-        "mark_for_later_review",
-      ],
+      expected: ["approve_and_stage"],
     },
     {
       status: "completed" as const,
       outcome: "evidence_consistent" as const,
-      expected: [
-        "approve_and_stage",
-        "prepare_email",
-        "download_summary",
-        "mark_for_later_review",
-      ],
+      expected: ["approve_and_stage"],
     },
     {
       status: "completed" as const,
       outcome: "needs_review" as const,
       expected: [
         "assign_review",
-        "request_clarification",
         "prepare_email",
-        "replace_document",
-        "download_summary",
       ],
     },
     {
@@ -61,10 +48,7 @@ describe("workflow action policy", () => {
       outcome: "conflict" as const,
       expected: [
         "assign_review",
-        "request_clarification",
         "prepare_email",
-        "replace_document",
-        "download_summary",
       ],
     },
     {
@@ -72,10 +56,8 @@ describe("workflow action policy", () => {
       outcome: "incomplete" as const,
       expected: [
         "request_clearer_document",
-        "prepare_email",
         "assign_review",
         "replace_document",
-        "retry_processing",
       ],
     },
     {
@@ -83,10 +65,8 @@ describe("workflow action policy", () => {
       outcome: "not_found" as const,
       expected: [
         "request_clearer_document",
-        "prepare_email",
         "assign_review",
         "replace_document",
-        "retry_processing",
       ],
     },
   ])(
@@ -101,7 +81,7 @@ describe("workflow action policy", () => {
   it("restricts failed runs to recovery actions", () => {
     expect(
       allowedWorkflowActionsForRun({ status: "failed", outcome: null }),
-    ).toEqual(["retry_processing", "download_summary"]);
+    ).toEqual(["retry_processing"]);
   });
 
   it.each(["expired", "deleted", "extracting"] as const)(
@@ -120,7 +100,7 @@ describe("workflow action policy", () => {
   });
 
   it.each(["irrelevant", "uncertain"] as const)(
-    "limits a guarded %s document to replacement and summary download",
+    "limits a guarded %s document to replacement",
     (documentClassification) => {
       const guardedRun = {
         status: "completed" as const,
@@ -130,13 +110,12 @@ describe("workflow action policy", () => {
 
       expect(allowedWorkflowActionsForRun(guardedRun)).toEqual([
         "replace_document",
-        "download_summary",
       ]);
     },
   );
 
   it.each(["irrelevant", "uncertain"] as const)(
-    "limits a failed guarded %s document to replacement and summary download",
+    "limits a failed guarded %s document to replacement",
     (documentClassification) => {
       expect(
         allowedWorkflowActionsForRun({
@@ -144,7 +123,7 @@ describe("workflow action policy", () => {
           outcome: null,
           documentClassification,
         }),
-      ).toEqual(["replace_document", "download_summary"]);
+      ).toEqual(["replace_document"]);
     },
   );
 
@@ -160,12 +139,7 @@ describe("workflow action policy", () => {
     ).toThrow();
     expect(
       allowedWorkflowActionsForRun({ status: "completed", outcome: "clear" }),
-    ).toEqual([
-      "approve_and_stage",
-      "prepare_email",
-      "download_summary",
-      "mark_for_later_review",
-    ]);
+    ).toEqual(["approve_and_stage"]);
   });
 });
 
@@ -234,8 +208,8 @@ describe("workflow recipient policy", () => {
 });
 
 describe("workflow event status", () => {
-  it("maps staging and prepared email actions to their distinct statuses", () => {
-    expect(workflowStatusForAction("approve_and_stage")).toBe("staged");
+  it("maps posting handoff and prepared email actions to prepared status", () => {
+    expect(workflowStatusForAction("approve_and_stage")).toBe("prepared");
     expect(workflowStatusForAction("prepare_email")).toBe("prepared");
   });
 

@@ -47,8 +47,8 @@ function action(
     title,
     summary:
       status === "ready"
-        ? "Stage the verified document for internal processing."
-        : "Keep the document out of staging pending review.",
+        ? "Prepare the verified document for a responsible posting decision."
+        : "Keep the document pending exception review or clearer evidence.",
     payload,
     instructionEvidence,
     page: 1,
@@ -132,10 +132,10 @@ function invoice(
       "create_ap_exception_case",
       status,
       outcome === "clear"
-        ? "Stage matched supplier invoice"
+        ? "Prepare supplier invoice posting handoff"
         : outcome === "incomplete"
-          ? "Request readable invoice approval"
-          : "Review supplier invoice",
+          ? "Request readable invoice evidence"
+          : "Review supplier invoice exception",
       note,
       [
         { label: "Supplier", value: org },
@@ -187,10 +187,10 @@ function warehouse(
       "stage_inventory_receipt",
       status,
       outcome === "clear"
-        ? "Stage matched goods receipt"
+        ? "Prepare goods receipt posting handoff"
         : outcome === "incomplete"
-          ? "Request readable damage evidence"
-          : "Review goods receipt",
+          ? "Request readable receipt evidence"
+          : "Review goods receipt exception",
       note,
       [
         { label: "Goods receipt number", value: values[0] },

@@ -30,7 +30,7 @@ const DISPLAY_STAGE_DEFINITIONS = [
   },
   {
     key: "resolve",
-    label: "Resolve and prepare action",
+    label: "Triage exception and prepare handoff",
     rawStages: ["comparing", "deciding"],
   },
 ] as const satisfies ReadonlyArray<{

@@ -75,8 +75,8 @@ function modelCatalogue(
 
 const readyAction: ActionProposal = {
   type: "stage_inventory_receipt",
-  title: "Stage inventory receipt",
-  summary: "Stage the verified receipt for internal inventory posting.",
+  title: "Prepare inventory posting handoff",
+  summary: "Prepare the verified receipt for an inventory posting decision.",
   payload: [
     { label: "Shipment ID", value: "SHIP-4018" },
     { label: "Received quantity", value: "48" },
@@ -143,7 +143,7 @@ function workflowEvent(
     status:
       overrides.status ??
       (action === "approve_and_stage"
-        ? "staged"
+        ? "prepared"
         : action === "prepare_email"
           ? "prepared"
           : "simulated"),
@@ -175,12 +175,12 @@ function workflowResponse(
 
 describe("Outcome workflow controls", () => {
   it.each([
-    ["clear", ["Approve and stage", "Prepare email copy", "Download review summary", "Mark for later review"]],
-    ["evidence_consistent", ["Approve and stage", "Prepare email copy", "Download review summary", "Mark for later review"]],
-    ["needs_review", ["Assign for review", "Request clarification", "Prepare email to the selected role", "Replace document and reprocess", "Download discrepancy summary"]],
-    ["conflict", ["Assign for review", "Request clarification", "Prepare email to the selected role", "Replace document and reprocess", "Download discrepancy summary"]],
-    ["incomplete", ["Request a clearer document", "Prepare replacement-request email", "Assign manual review", "Upload replacement", "Reprocess"]],
-    ["not_found", ["Request a clearer document", "Prepare replacement-request email", "Assign manual review", "Upload replacement", "Reprocess"]],
+    ["clear", ["Prepare posting handoff"]],
+    ["evidence_consistent", ["Prepare posting handoff"]],
+    ["needs_review", ["Assign exception review", "Draft clarification request"]],
+    ["conflict", ["Assign exception review", "Draft clarification request"]],
+    ["incomplete", ["Request clearer evidence", "Assign manual review", "Replace document"]],
+    ["not_found", ["Request clearer evidence", "Assign manual review", "Replace document"]],
   ] as const)(
     "shows only the approved controls for %s",
     (outcome, expectedLabels) => {
@@ -200,18 +200,15 @@ describe("Outcome workflow controls", () => {
       screen.getByRole("button", { name: "Retry processing" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Download error summary" }),
-    ).toBeVisible();
+      within(screen.getByLabelText("Document workflow actions")).getAllByRole("button"),
+    ).toHaveLength(1);
     expect(screen.getByText("provider unavailable")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "Approve and stage" }),
+      screen.queryByRole("button", { name: "Prepare posting handoff" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /email/i }),
     ).not.toBeInTheDocument();
-    expect(
-      within(screen.getByLabelText("Document workflow actions")).getAllByRole("button"),
-    ).toHaveLength(2);
   });
 
   it("uses run status and outcome policy even when proposal status is blocked", () => {
@@ -220,12 +217,47 @@ describe("Outcome workflow controls", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Approve and stage" }),
+      screen.getByRole("button", { name: "Prepare posting handoff" }),
     ).toBeEnabled();
   });
 });
 
 describe("Workbench controls", () => {
+  it("leads with the procurement review problem and exception assessment", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === "/api/models"
+          ? modelCatalogue({ openai: false, anthropic: false })
+          : emptyHistory(),
+      ),
+    );
+
+    render(<WorkbenchView />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Review incoming procurement documents",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Verify supplier invoices and goods receipts before finance or inventory handoff.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", {
+        name: "1. Select a procurement document",
+      }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "Assess for exceptions" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Process document" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("starts custom consent unchecked and keeps exactly two or three field labels", async () => {
     const user = userEvent.setup();
     render(<CustomUploadFields onReadyChange={() => undefined} />);
@@ -307,7 +339,7 @@ describe("Workbench controls", () => {
     expect(within(invoicePanel).getByText("Correct")).toBeVisible();
     expect(within(invoicePanel).getAllByText("Needs attention")).toHaveLength(2);
     expect(within(invoicePanel).getAllByText("Incorrect")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Process document" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Assess for exceptions" })).toBeVisible();
     expect(screen.getByLabelText("Processing model")).toHaveValue("gpt-5.6-luna");
     expect(
       screen.getByRole("option", { name: "GPT-5.6 Luna - Recommended" }),
@@ -427,9 +459,8 @@ describe("NDJSON streaming", () => {
 
 describe("Prepared document workflow", () => {
   it.each([
-    ["Assign for review", "assign_review", "Prepare assignment"],
-    ["Request clarification", "request_clarification", "Prepare request"],
-    ["Prepare email to the selected role", "prepare_email", "Prepare copy"],
+    ["Assign exception review", "assign_review", "Prepare assignment"],
+    ["Draft clarification request", "prepare_email", "Prepare request"],
   ] as const)(
     "opens %s with no default role and sends capability only in the header",
     async (label, action, confirmLabel) => {
@@ -489,7 +520,7 @@ describe("Prepared document workflow", () => {
     });
 
     await user.click(
-      screen.getByRole("button", { name: "Request a clearer document" }),
+      screen.getByRole("button", { name: "Request clearer evidence" }),
     );
     const role = screen.getByRole("combobox", { name: "Recipient role" });
     expect(within(role).getAllByRole("option").map((option) => option.textContent)).toEqual([
@@ -531,7 +562,7 @@ describe("Prepared document workflow", () => {
           <WorkflowPanel
             runId="run_workflow_red"
             status="completed"
-            outcome="clear"
+            outcome="needs_review"
             proposal={readyAction}
             events={events}
             capabilityToken="workflow_capability"
@@ -548,12 +579,12 @@ describe("Prepared document workflow", () => {
     }
     const view = render(<Harness />);
 
-    await user.click(screen.getByRole("button", { name: "Prepare email copy" }));
+    await user.click(screen.getByRole("button", { name: "Draft clarification request" }));
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Recipient role" }),
       "Buyer",
     );
-    await user.click(screen.getByRole("button", { name: "Prepare copy" }));
+    await user.click(screen.getByRole("button", { name: "Prepare request" }));
 
     expect(await screen.findByText("Prepared only - not sent")).toBeVisible();
     expect(screen.getByLabelText("Subject")).toHaveAttribute("readonly");
@@ -589,14 +620,14 @@ describe("Prepared document workflow", () => {
         ),
       ),
     );
-    renderWorkflowPanel("completed", "clear");
+    renderWorkflowPanel("completed", "needs_review");
 
-    await user.click(screen.getByRole("button", { name: "Prepare email copy" }));
+    await user.click(screen.getByRole("button", { name: "Draft clarification request" }));
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Recipient role" }),
       "Buyer",
     );
-    await user.click(screen.getByRole("button", { name: "Prepare copy" }));
+    await user.click(screen.getByRole("button", { name: "Prepare request" }));
     const body = await screen.findByLabelText("Prepared message");
     await user.click(screen.getByRole("button", { name: "Copy prepared message" }));
 
@@ -609,8 +640,8 @@ describe("Prepared document workflow", () => {
   });
 
   it.each([
-    ["Reprocess", "retry_processing", "reprocess"],
-    ["Replace document and reprocess", "replace_document", "replacement"],
+    ["Retry processing", "retry_processing", "reprocess"],
+    ["Replace document", "replace_document", "replacement"],
   ] as const)(
     "persists %s before invoking its browser callback",
     async (label, action, callbackMarker) => {
@@ -621,8 +652,8 @@ describe("Prepared document workflow", () => {
         vi.fn(async () => workflowResponse(action)),
       );
       renderWorkflowPanel(
-        "completed",
-        action === "retry_processing" ? "incomplete" : "needs_review",
+        action === "retry_processing" ? "failed" : "completed",
+        action === "retry_processing" ? null : "incomplete",
         {
           onEvent: () => order.push("event"),
           onReprocess: () => order.push("reprocess"),
@@ -636,42 +667,6 @@ describe("Prepared document workflow", () => {
     },
   );
 
-  it.each([
-    ["completed", "clear", "Download review summary", "Prepared summary - simulated workflow"],
-    ["failed", null, "Download error summary", "Error summary - simulated workflow"],
-  ] as const)(
-    "records then downloads the %s summary",
-    async (status, outcome, label, expectedMarker) => {
-      const user = userEvent.setup();
-      const order: string[] = [];
-      let capturedBlob: Blob | null = null;
-      const createObjectURL = vi.fn((blob: Blob) => {
-        order.push("blob");
-        capturedBlob = blob;
-        return "blob:workflow-summary";
-      });
-      const revokeObjectURL = vi.fn();
-      vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
-      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => workflowResponse("download_summary")),
-      );
-      renderWorkflowPanel(status, outcome, {
-        fields: [field("vendor", "Northstar", "Northstar")],
-        onEvent: () => order.push("event"),
-      });
-
-      await user.click(screen.getByRole("button", { name: label }));
-
-      await waitFor(() => expect(order).toEqual(["event", "blob"]));
-      expect(capturedBlob).not.toBeNull();
-      expect(capturedBlob!.type).toBe("text/plain;charset=utf-8");
-      expect(await capturedBlob!.text()).toContain(expectedMarker);
-      expect(revokeObjectURL).toHaveBeenCalledWith("blob:workflow-summary");
-    },
-  );
-
   it("deduplicates pending clicks and locks the dialog until the request settles", async () => {
     const user = userEvent.setup();
     let resolveRequest!: (response: Response) => void;
@@ -681,7 +676,7 @@ describe("Prepared document workflow", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderWorkflowPanel("completed", "needs_review");
 
-    await user.click(screen.getByRole("button", { name: "Assign for review" }));
+    await user.click(screen.getByRole("button", { name: "Assign exception review" }));
     const dialog = screen.getByRole("dialog");
     await user.selectOptions(
       within(dialog).getByRole("combobox", { name: "Recipient role" }),
@@ -709,7 +704,7 @@ describe("Prepared document workflow", () => {
   it("traps focus then restores it to the workflow trigger on idle Escape", async () => {
     const user = userEvent.setup();
     renderWorkflowPanel("completed", "needs_review");
-    const trigger = screen.getByRole("button", { name: "Assign for review" });
+    const trigger = screen.getByRole("button", { name: "Assign exception review" });
     await user.click(trigger);
     const role = screen.getByRole("combobox", { name: "Recipient role" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
@@ -732,11 +727,11 @@ describe("Prepared document workflow", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response));
     renderWorkflowPanel("completed", "clear");
 
-    await user.click(screen.getByRole("button", { name: "Approve and stage" }));
+    await user.click(screen.getByRole("button", { name: "Prepare posting handoff" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(screen.queryByText("private backend detail")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve and stage" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Prepare posting handoff" })).toBeEnabled();
   });
 
   it("aborts an unresolved workflow request when the panel unmounts", async () => {
@@ -750,7 +745,7 @@ describe("Prepared document workflow", () => {
       }),
     );
     const view = renderWorkflowPanel("completed", "clear");
-    await user.click(screen.getByRole("button", { name: "Approve and stage" }));
+    await user.click(screen.getByRole("button", { name: "Prepare posting handoff" }));
     await waitFor(() => expect(signal).toBeDefined());
 
     view.unmount();
@@ -772,7 +767,7 @@ describe("Prepared document workflow", () => {
 
     const items = screen.getAllByRole("listitem");
     expect(items.map((item) => item.querySelector("strong")?.textContent)).toEqual([
-      "Internal staging prepared",
+      "Posting handoff prepared",
       "Manual review assigned",
       "Summary prepared",
     ]);
@@ -911,7 +906,7 @@ describe("Custom document validation", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Vendor");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     await waitFor(() => expect(screen.getByLabelText("Review field 2")).toHaveFocus());
     expect(screen.getByText("Field labels must be unique.")).toBeVisible();
@@ -943,7 +938,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    const processButton = screen.getByRole("button", { name: "Process document" });
+    const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
     expect(processButton).toBeDisabled();
     await user.click(processButton);
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
@@ -978,7 +973,7 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     expect(await screen.findByText("Processing availability unavailable")).toBeVisible();
-    const processButton = screen.getByRole("button", { name: "Process document" });
+    const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
     expect(processButton).toBeDisabled();
     await user.click(processButton);
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
@@ -1016,7 +1011,7 @@ describe("Workbench request lifecycle", () => {
         "/api/models",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ));
-      const processButton = screen.getByRole("button", { name: "Process document" });
+      const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
       await waitFor(() => expect(processButton).toBeEnabled());
       await user.click(processButton);
 
@@ -1050,7 +1045,7 @@ describe("Workbench request lifecycle", () => {
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
     expect(screen.getByText("Processing unavailable for this model")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Process document" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Assess for exceptions" })).toBeDisabled();
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
   });
 
@@ -1108,7 +1103,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
     await user.selectOptions(screen.getByLabelText("Run A"), "existing_recorded");
     await user.selectOptions(screen.getByLabelText("Run B"), "run_durable_attribution");
@@ -1151,7 +1146,7 @@ describe("Workbench request lifecycle", () => {
 
     await screen.findByText("Sample results - no AI processing");
     const selectedFixture = screen.getByRole("button", { name: /Northstar Office Supply invoice/i });
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(selectedFixture).toBeDisabled();
     expect(screen.getByRole("button", { name: "+ Add your document" })).toBeDisabled();
@@ -1200,7 +1195,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
@@ -1219,7 +1214,7 @@ describe("Workbench request lifecycle", () => {
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Retry prepared action" }));
     expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Approve and stage" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Prepare posting handoff" })).toBeVisible();
     expect(detailCalls).toBe(2);
   });
 
@@ -1265,10 +1260,10 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     const failedGroup = screen
-      .getByText("Resolve and prepare action")
+      .getByText("Triage exception and prepare handoff")
       .closest("li");
     expect(failedGroup).not.toBeNull();
     expect(within(failedGroup!).getByText("Needs attention")).toBeVisible();
@@ -1277,15 +1272,14 @@ describe("Workbench request lifecycle", () => {
     expect(screen.getByText("provider unavailable")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Retry processing",
-      "Download error summary",
     ]);
     expect(screen.getByText("Processing failed before a decision brief could be prepared. Use only the safe recovery controls below.")).toBeVisible();
     expect(screen.getByText("Summary prepared")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Approve and stage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Prepare posting handoff" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
   });
 
-  it("keeps failed recovery controls hidden while detail loading then shows the policy pair after detail failure", async () => {
+  it("keeps failed recovery controls hidden while detail loading then shows retry after detail failure", async () => {
     const user = userEvent.setup();
     let resolveDetail!: (response: Response) => void;
     vi.stubGlobal(
@@ -1316,7 +1310,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
@@ -1330,10 +1324,7 @@ describe("Workbench request lifecycle", () => {
       }));
     });
 
-    expect((await screen.findAllByRole("button", { name: /Retry processing|Download error summary/ })).map((button) => button.textContent)).toEqual([
-      "Retry processing",
-      "Download error summary",
-    ]);
+    expect(await screen.findByRole("button", { name: "Retry processing" })).toBeVisible();
     expect(screen.getByText("Processing failed and the run detail could not be loaded. No decision brief is available.")).toBeVisible();
     expect(screen.queryByText("The prepared decision brief is unavailable while the run detail is loading.")).not.toBeInTheDocument();
   });
@@ -1384,14 +1375,13 @@ describe("Workbench request lifecycle", () => {
       );
       render(<WorkbenchView />);
 
-      await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
       expect(await screen.findByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();
       expect(screen.queryByText("Hostile provider proposal")).not.toBeInTheDocument();
       expect(screen.queryByText("Processing failed before a decision brief could be prepared. Use only the safe recovery controls below.")).not.toBeInTheDocument();
       expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
-        "Replace document and reprocess",
-        "Download review summary",
+        "Replace with a supported procurement document",
       ]);
     },
   );
@@ -1426,9 +1416,9 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
-    const failedGroup = screen.getByText("Resolve and prepare action").closest("li");
+    const failedGroup = screen.getByText("Triage exception and prepare handoff").closest("li");
     expect(failedGroup).not.toBeNull();
     expect(within(failedGroup!).getByText("Needs attention")).toBeVisible();
     expect(screen.queryByText(/publishing/i)).not.toBeInTheDocument();
@@ -1489,7 +1479,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByRole("button", { name: "Retry processing" })).toBeVisible();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Processing model" }),
@@ -1579,7 +1569,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     expect(releaseDetail).toBeTypeOf("function");
@@ -1609,7 +1599,7 @@ describe("Workbench request lifecycle", () => {
     expect(await screen.findByText("The retry stopped safely.")).toBeVisible();
   });
 
-  it("enables a failed-run download only after delayed diagnostics verify classification", async () => {
+  it("does not expose a failed-run download after delayed diagnostics verify classification", async () => {
     const user = userEvent.setup();
     let resolveDetail!: (response: Response) => void;
     const createObjectURL = vi.fn(() => "blob:delayed-error-summary");
@@ -1649,7 +1639,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
 
@@ -1675,13 +1665,12 @@ describe("Workbench request lifecycle", () => {
     await waitFor(() => {
       expect(screen.queryByText("Loading prepared workflow details…")).not.toBeInTheDocument();
     });
-    await user.click(
-      await screen.findByRole("button", { name: "Download error summary" }),
-    );
-    expect(await screen.findByText("Summary prepared")).toBeVisible();
-    expect(screen.getByText("Summary prepared")).toBeVisible();
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:delayed-error-summary");
+    expect(await screen.findByRole("button", { name: "Retry processing" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Download error summary" }),
+    ).not.toBeInTheDocument();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
   });
 
   it("combines outcome, decision brief, differences and controls before evidence and activity", async () => {
@@ -1737,36 +1726,36 @@ describe("Workbench request lifecycle", () => {
 
     await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
     await user.click(screen.getByRole("button", { name: /Harborline Components goods receipt/i }));
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
-    expect(await screen.findByRole("heading", { name: "Stage inventory receipt" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Prepare inventory posting handoff" })).toBeVisible();
     for (const label of [
       "Understand document",
       "Verify evidence",
-      "Resolve and prepare action",
+      "Triage exception and prepare handoff",
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
     expect(screen.queryByText(/publish telemetry/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Business outcome" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Differences" })).not.toBeInTheDocument();
-    const decisionPanel = screen.getByRole("heading", { name: "Decision and next steps" }).closest("section");
+    const decisionPanel = screen.getByRole("heading", { name: "Exception triage decision" }).closest("section");
     expect(decisionPanel).not.toBeNull();
     expect(document.getElementById("workbench-tour-decision")).toBe(decisionTarget);
     expect(decisionTarget).toHaveClass("rule-panel__header");
     expect(decisionTarget!.parentElement).toBe(decisionPanel);
     const decisionSections = within(decisionPanel!).getAllByRole("heading", { level: 3 });
     expect(decisionSections.map((heading) => heading.textContent).slice(0, 4)).toEqual([
-      "Clear",
+      "Ready for posting decision",
       "Decision brief",
       "Evidence differences",
-      "Workflow controls",
+      "Prepared next step",
     ]);
     expect(
       within(screen.getByRole("heading", { name: "Decision brief" }).closest("section")!).getByText(readyAction.summary),
     ).toBeVisible();
     const orderedHeadings = [
-      screen.getByRole("heading", { name: "Decision and next steps" }),
+      screen.getByRole("heading", { name: "Exception triage decision" }),
       screen.getByRole("heading", { name: "Evidence ledger" }),
       screen.getByRole("heading", { name: "Activity timeline" }),
     ];
@@ -1829,13 +1818,13 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
-    expect(await screen.findByText("Internal staging prepared")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    expect(await screen.findByText("Posting handoff prepared")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Internal staging prepared")).not.toBeInTheDocument();
+      expect(screen.queryByText("Posting handoff prepared")).not.toBeInTheDocument();
       expect(screen.getByText("Awaiting a run")).toBeVisible();
     });
     resolveSecondRun(ndjson([{
@@ -1865,7 +1854,7 @@ describe("Workbench request lifecycle", () => {
           run: {
             id: "run_replace_source",
             status: "completed",
-            outcome: "needs_review",
+            outcome: "incomplete",
             documentFamily: "supplier_invoice",
             providerCalled: false,
             provider: null,
@@ -1882,7 +1871,7 @@ describe("Workbench request lifecycle", () => {
         runPosts += 1;
         return ndjson([{
           type: "completed",
-          outcome: "needs_review",
+          outcome: "incomplete",
           runId: "run_replace_source",
           executionMode: "recorded",
           deletionToken: "replace_capability",
@@ -1894,12 +1883,12 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByRole("button", { name: "Assurance trace details" })).toHaveAttribute("aria-expanded", "false");
     inputClick.mockClear();
     order.length = 0;
     await user.click(
-      await screen.findByRole("button", { name: "Replace document and reprocess" }),
+      await screen.findByRole("button", { name: "Replace document" }),
     );
 
     await waitFor(() => expect(inputClick).toHaveBeenCalledTimes(1));
@@ -1939,7 +1928,7 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(await screen.findByText("failed_delete_once")).toBeVisible();
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
@@ -1947,7 +1936,6 @@ describe("Workbench request lifecycle", () => {
     expect(screen.getByRole("heading", { name: "Processing failed" })).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Retry processing",
-      "Download error summary",
     ]);
     const postCall = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
     expect(new Headers(postCall?.[1]?.headers).get("idempotency-key")).toMatch(
@@ -1995,7 +1983,7 @@ describe("Workbench request lifecycle", () => {
     );
     const view = render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(await screen.findByText(hostileLabel)).toBeVisible();
     expect(screen.getByText(hostileEvidence)).toBeVisible();
@@ -2101,7 +2089,7 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     expect(
       await screen.findByRole("heading", {
@@ -2155,9 +2143,9 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(await screen.findByRole("heading", { name: "Evidence-consistent" })).toHaveFocus();
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     expect(
       await screen.findByRole("heading", {
         name: "Incomplete evidence - one or more requested fields were not found",
@@ -2189,7 +2177,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const view = render(<WorkbenchView />);
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     await waitFor(() => expect(activeSignal).toBeDefined());
 
     view.unmount();
@@ -2290,7 +2278,7 @@ describe("Public run history", () => {
     expect(await screen.findByRole("alert", { name: "Public run history unavailable" })).toHaveTextContent(
       "Active public run history is temporarily unavailable.",
     );
-    expect(screen.getByRole("heading", { name: "Review a document" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Review incoming procurement documents" })).toBeVisible();
     expect(screen.queryByText("untrusted detail")).not.toBeInTheDocument();
   });
 });
@@ -2316,7 +2304,7 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -2347,14 +2335,14 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Resolve and prepare action")).toBeVisible();
+    expect(screen.getByText("Triage exception and prepare handoff")).toBeVisible();
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByText("Resolve and prepare action").closest("ol")).toHaveAttribute("hidden");
+    expect(screen.getByText("Triage exception and prepare handoff").closest("ol")).toHaveAttribute("hidden");
   });
 
   it("resets a collapsed trace to expanded when the next run starts", async () => {
@@ -2383,11 +2371,11 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     const toggle = await screen.findByRole("button", { name: "Assurance trace details" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Assurance trace details" })).not.toBeInTheDocument());
     expect(screen.getByText("Understand document")).toBeVisible();
     resolveSecondRun(ndjson([{
@@ -2401,8 +2389,7 @@ describe("Workbench decision guidance", () => {
       renderWorkflowPanel("completed", "not_found", { documentClassification });
 
       expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
-        "Replace document and reprocess",
-        "Download review summary",
+        "Replace with a supported procurement document",
       ]);
     },
   );
@@ -2430,14 +2417,13 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Process document" }));
+    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
 
     const brief = screen.getByRole("heading", { name: "Decision brief" }).closest("section")!;
     expect(within(brief).getByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();
     expect(screen.queryByText("Hostile provider proposal")).not.toBeInTheDocument();
     expect(within(screen.getByLabelText("Document workflow actions")).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "Replace document and reprocess",
-      "Download review summary",
+      "Replace with a supported procurement document",
     ]);
   });
 });

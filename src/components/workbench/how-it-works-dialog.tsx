@@ -6,10 +6,10 @@ import { workbenchTourSteps } from "./guided-tour-config";
 export function HowItWorksDialog({ onClose }: { onClose: () => void }) {
   return (
     <GuidedTourDialog
-      overviewTitle="What this workbench does"
-      overviewDescription="See how document evidence becomes a reviewable business decision."
-      purpose="This workbench demonstrates an agentic document-assurance workflow: multimodal document understanding, evidence-grounded evaluator checks and guardrailed action preparation."
-      boundary="The orchestration, validation and telemetry are implemented. Built-in documents and reference records are synthetic. Workflow controls prepare or simulate next steps but do not update external systems."
+      overviewTitle="How procurement exception triage works"
+      overviewDescription="See how manual invoice and goods-receipt review becomes a controlled exception decision."
+      purpose="Finance and warehouse teams can use this agentic workflow to understand documents, verify evidence and prepare a guardrailed handoff before a posting decision."
+      boundary="Document understanding, comparison, evaluator safeguards and workflow preparation are implemented. Documents and reference records are synthetic. ERP, payment, inventory and email systems are not changed."
       steps={workbenchTourSteps}
       onClose={onClose}
     />

@@ -5,7 +5,7 @@ import type {
 } from "@/domain/types";
 
 export const workflowLabels = {
-  approve_and_stage: "Internal staging prepared",
+  approve_and_stage: "Posting handoff prepared",
   mark_for_later_review: "Marked for later review",
   assign_review: "Manual review assigned",
   request_clarification: "Clarification request prepared",
@@ -46,7 +46,7 @@ export function ActivityTimeline({
   if (events.length === 0) {
     return (
       <p className="workflow-activity-empty">
-        Prepared workflow activity will appear here.
+        Prepared case activity will appear here.
       </p>
     );
   }

@@ -34,7 +34,7 @@ describe("Workbench display trace", () => {
     expect(messages).toEqual([
       "Understand document started.",
       "Verify evidence started.",
-      "Resolve and prepare action started.",
+      "Triage exception and prepare handoff started.",
     ]);
   });
 
@@ -70,7 +70,7 @@ describe("Workbench display trace", () => {
     const display = buildDisplayTrace(failed);
     expect(display).toHaveLength(3);
     expect(display.at(-1)).toMatchObject({
-      label: "Resolve and prepare action",
+      label: "Triage exception and prepare handoff",
       status: "error",
     });
     expect(display.flatMap((stage) => stage.rawStages)).not.toContain("publishing");
@@ -101,7 +101,7 @@ describe("Workbench display trace", () => {
         duration: 40,
       },
       {
-        label: "Resolve and prepare action",
+        label: "Triage exception and prepare handoff",
         status: "error",
         duration: null,
       },

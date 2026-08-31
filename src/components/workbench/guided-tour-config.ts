@@ -1,9 +1,9 @@
 export const workbenchTourSteps = [
   {
     targetId: "workbench-tour-document-library",
-    title: "Document library",
+    title: "Select a procurement document",
     description:
-      "Built-in documents are synthetic fixtures designed for OCR-style reading, including handwritten comments. Custom uploads should use non-sensitive test content.",
+      "Select a synthetic supplier invoice or goods receipt for the manual-review scenario. Handwritten comments remain part of the evidence and custom uploads should use non-sensitive test content.",
   },
   {
     targetId: "workbench-tour-processing-model",
@@ -13,21 +13,21 @@ export const workbenchTourSteps = [
   },
   {
     targetId: "workbench-tour-process-document",
-    title: "Process document",
+    title: "Assess for exceptions",
     description:
-      "Start the agentic workflow. Untrusted document text is treated as input and no tool execution is allowed. Evaluator checks use approved references.",
+      "Start the agentic workflow that extracts document evidence and checks it against approved synthetic references. Untrusted document text cannot trigger tool execution.",
   },
   {
     targetId: "workbench-tour-assurance-trace",
     title: "Assurance trace",
     description:
-      "Follow observable orchestration across document understanding, evidence-grounded evaluator checks and guardrails. The trace reports what ran without claiming an autonomous platform.",
+      "Follow document understanding, evidence-grounded evaluator checks and guardrails as the workflow prepares a controlled handoff.",
   },
   {
     targetId: "workbench-tour-decision",
-    title: "Decision and next steps",
+    title: "Exception triage decision",
     description:
-      "A human-in-the-loop reviewer sees differences and staged actions. Actions only prepare or simulate next steps and do not update external systems.",
+      "A responsible employee reviews the decision, evidence differences and prepared next step. No ERP, payment, inventory or email system is changed.",
   },
 ] as const;
 

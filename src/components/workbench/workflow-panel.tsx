@@ -31,56 +31,31 @@ type ActionControl = {
 
 const controlsByGroup = {
   clear: [
-    { action: "approve_and_stage", label: "Approve and stage" },
-    {
-      action: "prepare_email",
-      label: "Prepare email copy",
-      dialogTitle: "Prepare email copy",
-      dialogDescription: "Choose one synthetic business role for the prepared copy.",
-      confirmLabel: "Prepare copy",
-    },
-    { action: "download_summary", label: "Download review summary" },
-    { action: "mark_for_later_review", label: "Mark for later review" },
+    { action: "approve_and_stage", label: "Prepare posting handoff" },
   ],
   needs_review: [
     {
       action: "assign_review",
-      label: "Assign for review",
-      dialogTitle: "Assign for review",
-      dialogDescription: "Choose the synthetic role that should review the evidence.",
+      label: "Assign exception review",
+      dialogTitle: "Assign exception review",
+      dialogDescription: "Choose the synthetic role responsible for reviewing the exception.",
       confirmLabel: "Prepare assignment",
     },
     {
-      action: "request_clarification",
-      label: "Request clarification",
-      dialogTitle: "Request clarification",
-      dialogDescription: "Choose the synthetic role that should receive the request.",
+      action: "prepare_email",
+      label: "Draft clarification request",
+      dialogTitle: "Draft clarification request",
+      dialogDescription: "Choose one synthetic business role for the prepared request.",
       confirmLabel: "Prepare request",
     },
-    {
-      action: "prepare_email",
-      label: "Prepare email to the selected role",
-      dialogTitle: "Prepare email copy",
-      dialogDescription: "Choose one synthetic business role for the prepared copy.",
-      confirmLabel: "Prepare copy",
-    },
-    { action: "replace_document", label: "Replace document and reprocess" },
-    { action: "download_summary", label: "Download discrepancy summary" },
   ],
   incomplete: [
     {
       action: "request_clearer_document",
-      label: "Request a clearer document",
-      dialogTitle: "Request a clearer document",
-      dialogDescription: "Choose the synthetic role that should receive the request.",
+      label: "Request clearer evidence",
+      dialogTitle: "Request clearer evidence",
+      dialogDescription: "Choose the synthetic role that should receive the evidence request.",
       confirmLabel: "Prepare request",
-    },
-    {
-      action: "prepare_email",
-      label: "Prepare replacement-request email",
-      dialogTitle: "Prepare replacement-request email",
-      dialogDescription: "Choose one synthetic business role for the prepared copy.",
-      confirmLabel: "Prepare copy",
     },
     {
       action: "assign_review",
@@ -89,16 +64,14 @@ const controlsByGroup = {
       dialogDescription: "Choose the synthetic role that should review the evidence.",
       confirmLabel: "Prepare assignment",
     },
-    { action: "replace_document", label: "Upload replacement" },
-    { action: "retry_processing", label: "Reprocess" },
+    { action: "replace_document", label: "Replace document" },
   ],
-  failed: [
-    { action: "retry_processing", label: "Retry processing" },
-    { action: "download_summary", label: "Download error summary" },
-  ],
+  failed: [{ action: "retry_processing", label: "Retry processing" }],
   guarded: [
-    { action: "replace_document", label: "Replace document and reprocess" },
-    { action: "download_summary", label: "Download review summary" },
+    {
+      action: "replace_document",
+      label: "Replace with a supported procurement document",
+    },
   ],
 } as const satisfies Record<string, readonly ActionControl[]>;
 
@@ -414,7 +387,7 @@ export function WorkflowPanel({
           <header>
             <StatusMark status={status === "failed" ? "error" : "active"} />
             <div>
-              <span>Prepared workflow</span>
+              <span>Prepared handoff</span>
               <h3>{proposal.title}</h3>
             </div>
           </header>
