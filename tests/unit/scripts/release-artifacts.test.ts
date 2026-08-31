@@ -90,7 +90,10 @@ describe("Release artifact hardening", () => {
       "Sample results - no AI processing",
       "No AI processing",
       "Prepared only - not sent",
-      "Operations workspace",
+      "Procurement review operations",
+      "Procurement review queue",
+      "Triage status",
+      "Prepared case handoffs",
       "Costs workspace",
       "No confirmed model runs",
       "US$0.00",
@@ -102,7 +105,7 @@ describe("Release artifact hardening", () => {
     expect(deployment).toMatch(/two-thirds Operations.*one-third Costs/is);
     expect(deployment).toMatch(/mobile.*Operations.*before Costs/is);
     expect(deployment).toMatch(/illustrative.*SGD/is);
-    expect(deployment).toMatch(/newest-100 explorer/i);
+    expect(deployment).toMatch(/newest-100 review-record/i);
     expect(deployment).toMatch(/expiry or Delete now.*physical cleanup/is);
   });
 

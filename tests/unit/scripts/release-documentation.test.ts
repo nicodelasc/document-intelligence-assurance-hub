@@ -11,6 +11,7 @@ function readProjectFile(path: string) {
 
 const readme = readProjectFile("README.md");
 const architecture = readProjectFile("docs/architecture.md");
+const deployment = readProjectFile("docs/deployment-checklist.md");
 const evaluation = readProjectFile("docs/evaluation-report.md");
 const privacy = readProjectFile("docs/privacy-and-retention.md");
 const design = readProjectFile("DESIGN.md");
@@ -22,8 +23,10 @@ const releaseFacingDocumentation = [
   uxContract,
   readme,
   architecture,
+  deployment,
   evaluation,
   walkthrough,
+  privacy,
 ].join("\n");
 
 const pendingRoutes = [
@@ -87,6 +90,34 @@ describe("Operations release documentation", () => {
 
     expect(uxContract).toMatch(/approve_and_stage.*internal identifier/is);
     expect(uxContract).toMatch(/new events.*prepared/is);
+  });
+
+  it("keeps linked deployment and privacy records on the procurement triage journey", () => {
+    expect(deployment).toMatch(/Review incoming procurement documents/i);
+    expect(deployment).toContain("Assess for exceptions");
+    expect(deployment).toContain("Triage exception and prepare handoff");
+    for (const label of [
+      "Prepare posting handoff",
+      "Assign exception review",
+      "Draft clarification request",
+      "Request clearer evidence",
+      "Assign manual review",
+      "Replace document",
+      "Retry processing",
+      "Replace with a supported procurement document",
+    ]) {
+      expect(deployment).toContain(label);
+    }
+    expect(deployment).toMatch(
+      /Procurement review queue.*Triage status.*Prepared case handoffs/is,
+    );
+    expect(deployment).toMatch(/all documents and reference records are synthetic/is);
+    expect(deployment).toMatch(
+      /no external business system is changed/is,
+    );
+    expect(privacy).toMatch(
+      /live synthetic.*handwritten.*text-native PDF.*rendered.*local OCR.*native text.*OCR text.*merged/is,
+    );
   });
 
   it("documents queue-first Operations while keeping technical detail in the inspector", () => {
@@ -160,7 +191,9 @@ describe("Operations release documentation", () => {
 
   it("documents aggregate retention without weakening workflow boundaries", () => {
     expect(privacy).toMatch(/repository-wide anonymous aggregates/i);
-    expect(privacy).toMatch(/newest 100.*workflow.*performance.*explorer/is);
+    expect(privacy).toMatch(
+      /newest 100.*Procurement review queue.*Triage status.*Prepared case handoffs.*processing performance.*review-record/is,
+    );
     expect(privacy).toMatch(/workflow events are removed/i);
     expect(privacy).toMatch(/prepared only.*not sent/is);
     expect(privacy).toMatch(/no external connector/i);

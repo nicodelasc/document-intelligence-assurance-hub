@@ -20,6 +20,9 @@ test("captures approved desktop and mobile evidence", async ({ page }) => {
         timeout: connectedLoadTimeout,
       });
     }
+    await expect(
+      page.locator(".app-header").getByRole("button", { name: "How it works" }),
+    ).toBeVisible({ timeout: connectedLoadTimeout });
     await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
     await page.screenshot({ path: join(output, `${route}-1536x1024.png`), fullPage: false });
     if (route !== "workbench") continue;

@@ -24,7 +24,7 @@ Logical access denial is immediate. Physical cleanup can lag when Blob is unavai
 
 ## Aggregate retention boundary
 
-Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply workflow status, workflow activity, processing performance and explorer rows while those details remain active.
+Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply the Procurement review queue, Triage status, Prepared case handoffs, processing performance and review-record rows while those details remain active.
 
 At expiry or Delete now traces, results, document locators and workflow events are removed from active access. Repository-wide aggregate projections do not expose filenames, evidence, field values, event IDs, run IDs, recipient roles, deletion capabilities, anonymous bucket values or reservation identifiers.
 
@@ -46,7 +46,7 @@ The server-owned four-model catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Clau
 
 No external connector exists in this application. A simulated workflow event or prepared email copy is not evidence that an email, ERP, ticketing, payment, inventory or access-control action occurred.
 
-Live evidence grounding runs inside the application. Text-native PDF text is extracted locally while PNG, JPEG and scanned PDF pages use local OCR with bundled English language data. Raw document bytes and full extracted page text are not sent to a separate OCR service. Full page text is held only for the active workflow and is not persisted or exposed. Public traces keep only the bounded evidence snippet returned for each requested field.
+Live synthetic processing with handwritten fixtures uses explicit text-and-visual grounding inside the application. Every validated text-native PDF page is rendered for bounded local OCR then native text and OCR text are merged for page-scoped evidence checks. PNG, JPEG and scanned PDF pages use local OCR with bundled English language data. Raw document bytes and full extracted page text are not sent to a separate OCR service. Full page text is held only for the active workflow and is not persisted or exposed. Public traces keep only the bounded evidence snippet returned for each requested field.
 
 ## Enterprise gaps
 

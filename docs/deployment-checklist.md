@@ -4,6 +4,8 @@ Use this checklist for each controlled rollout. The 2026-08-28 keyless productio
 
 The completed keyless rollout record is in [evaluation-report.md](evaluation-report.md). Keep the checklist below reusable for later releases.
 
+The release demonstrates `Review incoming procurement documents`: finance and warehouse teams review supplier invoices and goods receipts before a finance or inventory handoff. All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
+
 ## Before creating a deployment
 
 - [ ] Review the Task 5 verification report and confirm the worktree commit.
@@ -104,15 +106,17 @@ WHERE was_completed = true
 - [ ] Under Supplier invoices process `Clean match` as Correct, `Buyer hold` as Needs attention and `Total mismatch` as Incorrect.
 - [ ] Under Warehouse goods receipts process `Clean receipt` as Correct, `Quantity correction` as Needs attention and `Quantity mismatch` as Incorrect.
 - [ ] Confirm the native `Processing model` selector lists all four catalogue models and browsing or changing the selection creates no run.
-- [ ] Press `Process document` for each selected fixture. Confirm fallback runs say `Sample results - no AI processing` and run attribution says `No AI processing`.
-- [ ] Confirm the visible trace contains Understand document, Verify evidence and Resolve and prepare action.
-- [ ] Prepare one simulated email-copy workflow. Confirm the blank Recipient role keeps `Prepare copy` disabled then select an allowed synthetic role.
-- [ ] Confirm the preview says `Prepared only - not sent`, exposes no delivery control and adds one prepared event to the Workflow activity timeline.
-- [ ] Exercise retry and confirm a single replacement-file selection does not auto-run. Processing starts only after consent and a later `Process document` action.
-- [ ] Download a discrepancy summary and confirm its UTF-8 text opens cleanly.
+- [ ] Press `Assess for exceptions` for each selected fixture. Confirm fallback runs say `Sample results - no AI processing` and run attribution says `No AI processing`.
+- [ ] Confirm the visible trace contains `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`.
+- [ ] Confirm clear evidence exposes `Prepare posting handoff`. Confirm review outcomes expose `Assign exception review` and `Draft clarification request`.
+- [ ] Confirm incomplete evidence exposes `Request clearer evidence`, `Assign manual review` and `Replace document`. Confirm failed processing exposes `Retry processing`.
+- [ ] Confirm irrelevant or uncertain custom documents expose only `Replace with a supported procurement document`.
+- [ ] Prepare one simulated clarification request. Confirm the blank Recipient role keeps `Prepare request` disabled then select an allowed synthetic role.
+- [ ] Confirm the preview says `Prepared only - not sent`, exposes no delivery control and adds one prepared event to `Prepared case handoffs`.
+- [ ] Exercise retry and confirm a single replacement-file selection does not auto-run. Processing starts only after consent and a later `Assess for exceptions` action.
 - [ ] Compare two distinct runs with Run A and Run B.
 - [ ] Confirm no external connector exists for email, ERP, ticketing, payment, inventory or access control. Every workflow event is simulated preparation only.
-- [ ] Open the `Operations workspace` and confirm workflow status, workflow activity, processing performance and the newest-100 explorer scope.
+- [ ] Open `Procurement review operations` and confirm the `Procurement review queue` appears before `Triage status`, `Prepared case handoffs`, processing performance and the newest-100 review-record scope.
 - [ ] Confirm Reference quality reports exactly 10 provider-neutral observations: five Supplier invoices and five Warehouse goods receipts.
 - [ ] Confirm the `Costs workspace` shows settled and completed estimates as `US$0.00` in keyless mode and confirmed usage says `No confirmed model runs`.
 - [ ] Confirm the Illustrative resource scenario uses SGD inputs, states `US$1 = S$1.35` and labels every result illustrative.
