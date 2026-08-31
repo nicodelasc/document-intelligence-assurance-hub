@@ -73,11 +73,11 @@ test("failed custom receipts survive refresh then delete independently", async (
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Validate custom upload" }).click();
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(page.getByText(failedToken)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Retry processing" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download error summary" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download error summary" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /approve|prepare email|assign/i })).toHaveCount(0);
 
   await page.evaluate(({ token }) => {
@@ -227,9 +227,9 @@ test("custom streams stay isolated then public history restores after refresh", 
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Validate custom upload" }).click();
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(page.getByRole("heading", { name: "Evidence-consistent" })).toBeFocused();
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(page.getByRole("heading", {
     name: "Incomplete evidence - one or more requested fields were not found",
   })).toBeFocused();
@@ -327,6 +327,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await page.route("**/api/runs/ops_1/document", async (route) => route.fulfill({ status: 200, contentType: "application/pdf", body: "%PDF-1.4\n%%EOF" }));
   await page.goto("/operations");
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("heading", { name: "Procurement review operations", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Operations workspace", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
   await expect(page.getByText("Provider-neutral contract baseline")).toBeVisible();
@@ -341,6 +342,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await expect(page.getByText("No matching runs")).toBeVisible();
   await page.getByLabel("Processing model filter").selectOption("all");
   await page.getByRole("radio", { name: "Select ops_1" }).check();
+  await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
   await expect(page.getByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
   await expect(page.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/ops_1/document");
   await expect(page.getByRole("heading", { name: "Reference comparison" })).toBeVisible();
@@ -363,7 +365,7 @@ test("navigating away aborts an active Workbench stream", async ({ page }) => {
   });
   await page.route("**/api/metrics", async (route) => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await page.getByRole("link", { name: "Operations" }).click();
   await expect(page).toHaveURL(/\/operations/);
   await expect.poll(() => requestFailed).toBe(true);

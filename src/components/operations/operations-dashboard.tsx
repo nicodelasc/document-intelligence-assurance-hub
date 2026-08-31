@@ -187,8 +187,8 @@ export function OperationsDashboard() {
       <main id="main-content" className="page">
         <header className="page-intro">
           <div>
-            <h1>Operations</h1>
-            <p>Review operational signals and estimated model costs.</p>
+            <h1>Procurement review operations</h1>
+            <p>Review supplier invoice and goods receipt triage before finance or inventory handoff.</p>
           </div>
         </header>
         <div className="route-error" role="alert">
@@ -213,19 +213,19 @@ export function OperationsDashboard() {
     <main id="main-content" className="page operations-page" aria-busy={loading}>
       <header className="page-intro">
         <div>
-          <h1>Operations</h1>
-          <p>Inspect workflow readiness, processing quality and estimated model costs.</p>
+          <h1>Procurement review operations</h1>
+          <p>Monitor supplier invoice and goods receipt triage before finance or inventory handoff.</p>
         </div>
       </header>
       {loading ? <div className="loading-band" role="status">Loading operational ledger…</div> : null}
       <section
         id={operationsTourTargetIds.runOverview}
         className="metric-band tour-target"
-        aria-label="Run summary metrics"
+        aria-label="Procurement triage summary metrics"
       >
-        <Metric label="Total runs" value={String(summary.totalRuns)} detail="Anonymous run summaries" />
-        <Metric label="Completion rate" value={percent.format(summary.completionRate)} detail="Completed runs" />
-        <Metric label="Review rate" value={percent.format(summary.reviewRate)} detail="Completed runs needing attention" />
+        <Metric label="Documents triaged" value={String(summary.totalRuns)} detail="Anonymous procurement reviews" />
+        <Metric label="Completion rate" value={percent.format(summary.completionRate)} detail="Completed triage records" />
+        <Metric label="Exception rate" value={percent.format(summary.reviewRate)} detail="Completed records requiring review" />
         <Metric label="Failure rate" value={percent.format(summary.failureRate)} detail="Safe terminal failures" />
       </section>
       {metrics ? (

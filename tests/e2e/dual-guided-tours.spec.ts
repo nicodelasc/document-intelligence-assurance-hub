@@ -102,10 +102,10 @@ async function interceptOperationsMetrics(page: Page) {
 }
 
 const operationsTourSteps = [
-  ["Run overview", "operations-tour-run-overview"],
+  ["Triage overview", "operations-tour-run-overview"],
+  ["Procurement review queue", "operations-tour-evidence-explorer"],
   ["Workflow health", "operations-tour-workflow-health"],
   ["Assurance safeguards", "operations-tour-assurance-safeguards"],
-  ["Evidence explorer", "operations-tour-evidence-explorer"],
   ["Cost governance", "operations-tour-cost-governance"],
 ] as const;
 
@@ -163,7 +163,7 @@ test("places route guidance before navigation and walks the Operations tour", as
   const trigger = page.getByRole("button", { name: "How it works" });
   await trigger.click();
   const overview = page.getByRole("dialog", { name: "What Operations shows" });
-  await expect(overview).toContainText("agentic document workflow observable");
+  await expect(overview).toContainText("procurement document exceptions");
   await expect(overview).toContainText("Built-in benchmark documents and reference records are synthetic");
   await expect(overview).toContainText("no ERP, email or payment connector is called");
   await overview.getByRole("button", { name: "Start guided tour" }).click();
@@ -191,7 +191,7 @@ test("places route guidance before navigation and walks the Operations tour", as
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await trigger.click();
   await page.getByRole("button", { name: "Start guided tour" }).click();
-  const mobileCallout = page.getByRole("dialog", { name: "Run overview" });
+  const mobileCallout = page.getByRole("dialog", { name: "Triage overview" });
   await expect(mobileCallout).toHaveClass(/guided-tour__callout--mobile/);
   const mobileBox = await mobileCallout.boundingBox();
   expect(mobileBox).not.toBeNull();

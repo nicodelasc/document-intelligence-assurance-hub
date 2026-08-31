@@ -23,23 +23,25 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
   return (
     <section className="workspace-column operations-column" aria-labelledby="operations-workspace-heading">
       <header className="workspace-heading">
-        <p>Document flow and assurance</p>
+        <p>Review queue and assurance</p>
         <h2 id="operations-workspace-heading">Operations workspace</h2>
       </header>
 
+      <RunExplorer runs={runs} onSelect={() => undefined} />
+
       <RulePanel
-        title="Workflow status"
+        title="Triage status"
         headingLevel={3}
         headerId={operationsTourTargetIds.workflowHealth}
         headerClassName="tour-target"
       >
         <dl className="workspace-stat-grid">
-          <div><dt>Ready</dt><dd>{operations.workflowStatus.ready}</dd></div>
-          <div><dt>Needs attention</dt><dd>{operations.workflowStatus.needsAttention}</dd></div>
-          <div><dt>Incomplete</dt><dd>{operations.workflowStatus.incomplete}</dd></div>
+          <div><dt>Ready for posting decision</dt><dd>{operations.workflowStatus.ready}</dd></div>
+          <div><dt>Exception review required</dt><dd>{operations.workflowStatus.needsAttention}</dd></div>
+          <div><dt>Awaiting readable evidence</dt><dd>{operations.workflowStatus.incomplete}</dd></div>
           <div><dt>Processing errors</dt><dd>{operations.workflowStatus.processingErrors}</dd></div>
         </dl>
-        <p className="subsection-label">Latest simulated workflow activity</p>
+        <p className="subsection-label">Prepared case handoffs</p>
         <dl className="inline-stat-list">
           <div><dt>Prepared</dt><dd>{operations.workflowActivity.prepared}</dd></div>
           <div><dt>Staged</dt><dd>{operations.workflowActivity.staged}</dd></div>
@@ -109,7 +111,7 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
         <p className="chart-summary">Ten deterministic fixture observations define this assurance baseline. It is not a model-accuracy claim.</p>
       </RulePanel>
 
-      <RulePanel title="Document lifecycle" headingLevel={3}>
+      <RulePanel title="Public demo retention" headingLevel={3}>
         <dl className="inline-stat-list lifecycle-summary">
           <div><dt>Active documents</dt><dd>{operations.lifecycle.activeDocuments}</dd></div>
           <div><dt>Active public uploads</dt><dd>{operations.lifecycle.activePublicUploads}</dd></div>
@@ -121,8 +123,6 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
           <li><StatusMark status="pass" /><span>6 to 24 hours</span><strong>{operations.lifecycle.expiryBuckets.sixToTwentyFourHours}</strong></li>
         </ul>
       </RulePanel>
-
-      <RunExplorer runs={runs} onSelect={() => undefined} />
     </section>
   );
 }

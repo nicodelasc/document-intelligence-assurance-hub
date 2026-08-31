@@ -210,17 +210,23 @@ describe("Run explorer", () => {
 
     await user.click(screen.getByRole("radio", { name: "Select run_1" }));
 
-    const runTable = screen.getByRole("table", { name: "Public assurance runs" });
-    expect(within(runTable).getByText("No AI processing")).toBeVisible();
+    const runTable = screen.getByRole("table", { name: "Procurement review queue" });
+    expect(within(runTable).queryByText("No AI processing")).not.toBeInTheDocument();
     expect(within(runTable).getByText("Supplier invoice")).toBeVisible();
+    expect(within(runTable).getByText("INV-MP-4101")).toBeVisible();
     expect(within(runTable).getByText("Total mismatch")).toBeVisible();
+    expect(within(runTable).getByText("Invoice total differs from the purchase-order reference.")).toBeVisible();
     expect(within(runTable).getByText("Email copy prepared - not sent")).toBeVisible();
+    expect(within(runTable).getByText("Ready for posting decision")).toBeVisible();
+    for (const technicalColumn of ["Run ID", "Processing model", "Processing time", "Expiry"]) {
+      expect(within(runTable).queryByRole("columnheader", { name: technicalColumn })).not.toBeInTheDocument();
+    }
     expect(await screen.findByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
     expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/run_1/document");
     for (const heading of ["Prepared action", "What differed", "Comments evidence", "Structured extraction", "Reference comparison", "Processing diagnostics", "Safe diagnostics", "Workflow activity", "Metadata"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeVisible();
     }
-    expect(screen.getByRole("heading", { name: "Run detail", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
     expect(screen.getByRole("heading", { name: "What differed", level: 4 })).toBeVisible();
     const action = screen.getByRole("heading", { name: "Prepared action" }).closest("section")!;
     expect(within(action).getByText("Stage inventory receipt")).toBeVisible();
@@ -236,8 +242,12 @@ describe("Run explorer", () => {
     expect(screen.getByText("Handwritten: Buyer review required")).toBeVisible();
     expect(screen.getByText("27 Aug 2026, 08:04 SGT")).toBeVisible();
     expect(screen.getByText("provider_retry")).toBeVisible();
-    expect(screen.getAllByText("100.3 ms")).toHaveLength(2);
+    expect(screen.getAllByText("100.3 ms")).toHaveLength(1);
     expect(screen.getByText("25.3 ms")).toBeVisible();
+    expect(screen.getByText("Prompt version ID")).toBeVisible();
+    expect(screen.getByText("Input tokens")).toBeVisible();
+    expect(screen.getByText("Output tokens")).toBeVisible();
+    expect(screen.getByText("Expires")).toBeVisible();
     expect(screen.queryByText(/system prompt/i)).not.toBeInTheDocument();
     const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
     expect(within(metadata).getAllByText("No AI processing")).toHaveLength(2);
@@ -358,9 +368,9 @@ describe("Operations metric claims", () => {
 
     await user.click(trigger);
     const loadingOverview = screen.getByRole("dialog", { name: "What Operations shows" });
-    expect(loadingOverview).toHaveTextContent(/agentic document workflow observable/i);
-    expect(loadingOverview).toHaveTextContent(/deterministic assurance signals/i);
-    expect(loadingOverview).toHaveTextContent(/estimated model economics/i);
+    expect(loadingOverview).toHaveTextContent(/procurement document exceptions/i);
+    expect(loadingOverview).toHaveTextContent(/triage overview.*review queue.*workflow health/i);
+    expect(loadingOverview).toHaveTextContent(/assurance safeguards.*cost governance/i);
     expect(loadingOverview).toHaveTextContent(/synthetic/i);
     expect(loadingOverview).toHaveTextContent(/no ERP, email or payment connector is called/i);
     expect(within(loadingOverview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
@@ -379,17 +389,17 @@ describe("Operations metric claims", () => {
     await user.click(within(loadingOverview).getByRole("button", { name: "Start guided tour" }));
 
     const expectedSteps = [
-      ["Run overview", /anonymous demo telemetry.*not production SLAs/i],
+      ["Triage overview", /procurement documents.*downstream handoff.*not production SLAs/i],
+      ["Procurement review queue", /document reference.*review decision.*prepared next step/i],
       ["Workflow health", /human-in-the-loop queues.*simulated events/i],
       ["Assurance safeguards", /provider-neutral synthetic contract baseline.*not model accuracy/i],
-      ["Evidence explorer", /retained evidence.*safe diagnostics.*confirmed dispatch attribution/i],
       ["Cost governance", /dated cost estimates.*illustrative savings/i],
     ] as const;
     const expectedTargets = [
       "operations-tour-run-overview",
+      "operations-tour-evidence-explorer",
       "operations-tour-workflow-health",
       "operations-tour-assurance-safeguards",
-      "operations-tour-evidence-explorer",
       "operations-tour-cost-governance",
     ] as const;
     for (let index = 0; index < expectedSteps.length; index += 1) {
@@ -420,7 +430,7 @@ describe("Operations metric claims", () => {
     const overview = screen.getByRole("dialog", { name: "What Operations shows" });
     expect(within(overview).getByRole("button", { name: "Start guided tour" })).toBeDisabled();
     expect(overview).toHaveTextContent(/metrics.*unavailable/i);
-    expect(screen.queryByRole("dialog", { name: "Run overview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Triage overview" })).not.toBeInTheDocument();
   });
 
   it("renders the populated Operations and Costs workspaces", async () => {
@@ -428,8 +438,10 @@ describe("Operations metric claims", () => {
     render(<OperationsDashboard />);
 
     for (const heading of [
+      "Procurement review operations",
       "Operations workspace",
       "Costs workspace",
+      "Procurement review queue",
       "Processing performance",
       "Reference quality suite",
       "Settled API spend estimate",
@@ -440,8 +452,29 @@ describe("Operations metric claims", () => {
       expect(await screen.findByRole("heading", { name: heading })).toBeVisible();
     }
     expect(screen.getByRole("heading", { name: "Operations workspace", level: 2 })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Workflow status", level: 3 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Triage status", level: 3 })).toBeVisible();
     expect(screen.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
+    for (const label of [
+      "Documents triaged",
+      "Exception rate",
+      "Prepared case handoffs",
+      "Public demo retention",
+    ]) {
+      expect(screen.getByText(label)).toBeVisible();
+    }
+    for (const status of [
+      "Ready for posting decision",
+      "Exception review required",
+      "Awaiting readable evidence",
+      "Processing errors",
+    ]) {
+      expect(screen.getByText(status)).toBeVisible();
+    }
+    const queueHeading = screen.getByRole("heading", { name: "Procurement review queue" });
+    const processingHeading = screen.getByRole("heading", { name: "Processing performance" });
+    const assuranceHeading = screen.getByRole("heading", { name: "Reference quality suite" });
+    expect(queueHeading.compareDocumentPosition(processingHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(queueHeading.compareDocumentPosition(assuranceHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("1,240 ms")).toBeVisible();
     expect(screen.getByText("2,810 ms")).toBeVisible();
     expect(screen.getByText("3 retries")).toBeVisible();

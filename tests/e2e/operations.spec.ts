@@ -124,6 +124,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/operations");
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("heading", { name: "Procurement review operations", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Operations workspace", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Reference quality suite", level: 3 })).toBeVisible();
@@ -132,7 +133,17 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   await expect(page.getByText("Email copy prepared - not sent")).toBeVisible();
   await expect(page.getByText("Supplier invoice", { exact: true })).toBeVisible();
   await expect(page.getByText("Total mismatch")).toBeVisible();
+  await expect(page.getByText("INV-MP-4101")).toBeVisible();
+  await expect(page.getByText("Invoice total differs from the purchase-order reference.")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Exception review required")).toBeVisible();
   await expect(page.getByText(/live-call|live provider|public prototype|recorded replay/i)).toHaveCount(0);
+  const operationsHeadings = await page.locator(".operations-column h3").allTextContents();
+  expect(operationsHeadings.indexOf("Procurement review queue")).toBeLessThan(
+    operationsHeadings.indexOf("Processing performance"),
+  );
+  expect(operationsHeadings.indexOf("Procurement review queue")).toBeLessThan(
+    operationsHeadings.indexOf("Reference quality suite"),
+  );
   const widths = await page.locator(".operations-costs-layout").evaluate((layout) => {
     const [operations, costs] = Array.from(layout.children).map((child) => child.getBoundingClientRect().width);
     return { operations, costs };
@@ -141,6 +152,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   expect(widths.operations / widths.costs).toBeLessThan(2.2);
 
   await page.getByRole("radio", { name: `Select ${run.id}` }).check();
+  await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
   const renderedPreview = page.getByRole("img", { name: `Rendered preview of ${run.filename}` });
   await expect(renderedPreview).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
   await expect.poll(() => renderedPreview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);

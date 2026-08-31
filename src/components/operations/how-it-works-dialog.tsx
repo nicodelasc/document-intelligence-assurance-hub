@@ -17,8 +17,8 @@ export function OperationsHowItWorksDialog({ onClose }: { onClose: () => void })
   return (
     <GuidedTourDialog
       overviewTitle="What Operations shows"
-      overviewDescription="See how workflow evidence becomes operationally reviewable."
-      purpose="Operations makes the agentic document workflow observable through run health, deterministic assurance signals and estimated model economics."
+      overviewDescription="See how procurement document exceptions become reviewable before downstream handoff."
+      purpose="Operations makes procurement document exceptions reviewable through the triage overview, review queue, workflow health, assurance safeguards and cost governance."
       boundary="The telemetry and guardrails are implemented. Built-in benchmark documents and reference records are synthetic. Workflow actions are simulated and no ERP, email or payment connector is called."
       steps={operationsTourSteps}
       getUnavailableMessage={unavailableMessage}

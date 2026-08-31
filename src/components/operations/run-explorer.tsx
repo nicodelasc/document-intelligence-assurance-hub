@@ -18,10 +18,10 @@ import type {
 import { operationsTourTargetIds } from "./guided-tour-config";
 
 export const workflowActionLabels: Readonly<Record<WorkflowActionType, string>> = {
-  approve_and_stage: "Approved and staged",
+  approve_and_stage: "Posting handoff prepared",
   mark_for_later_review: "Marked for later review",
-  assign_review: "Assigned for review",
-  request_clarification: "Clarification requested",
+  assign_review: "Exception review assigned",
+  request_clarification: "Clarification request prepared",
   request_clearer_document: "Clearer document requested",
   prepare_email: "Email copy prepared - not sent",
   replace_document: "Document replacement prepared",
@@ -144,15 +144,43 @@ function writeUrl(updates: Record<string, string | null>) {
   window.history.pushState({}, "", url);
 }
 
+function reviewDecision(run: ExplorerRun): string {
+  if (run.status === "failed") return "Processing errors";
+  if (run.outcome === "clear" || run.outcome === "evidence_consistent") {
+    return "Ready for posting decision";
+  }
+  if (run.outcome === "needs_review" || run.outcome === "conflict") {
+    return "Exception review required";
+  }
+  if (run.outcome === "incomplete" || run.outcome === "not_found") {
+    return "Awaiting readable evidence";
+  }
+  return "Triage in progress";
+}
+
 function fixtureIdentity(run: ExplorerRun) {
   if (run.sourceType === "custom") {
-    return { family: "Custom document", variant: "Custom upload" };
+    return {
+      family: "Custom document",
+      variant: "Custom upload",
+      reference: run.filename ?? "Custom upload",
+      exception: run.outcome === "clear" || run.outcome === "evidence_consistent"
+        ? "No exception recorded"
+        : "Review the selected record for evidence details",
+    };
   }
   const fixture = run.fixtureId ? fixtureById.get(run.fixtureId) : undefined;
   if (fixture) {
+    const referenceKey = fixture.family === "supplier_invoice"
+      ? "invoice_number"
+      : "goods_receipt_number";
     return {
       family: fixture.family === "supplier_invoice" ? "Supplier invoice" : "Warehouse goods receipt",
       variant: fixture.variantLabel,
+      reference: fixture.documentData[referenceKey] ?? fixture.filename,
+      exception: fixture.differenceSummary.length
+        ? fixture.differenceSummary.join(" ")
+        : "No exception recorded",
     };
   }
   const family = run.documentFamily === "supplier_invoice"
@@ -160,7 +188,14 @@ function fixtureIdentity(run: ExplorerRun) {
     : run.documentFamily === "warehouse_goods_receipt"
       ? "Warehouse goods receipt"
       : "Unclassified document";
-  return { family, variant: "Legacy run" };
+  return {
+    family,
+    variant: "Legacy run",
+    reference: run.filename ?? "Legacy document",
+    exception: run.outcome === "clear" || run.outcome === "evidence_consistent"
+      ? "No exception recorded"
+      : "Review the selected record for evidence details",
+  };
 }
 
 export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect: (run: ExplorerRun) => void }) {
@@ -196,6 +231,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
     const matchesQuery = !needle
       || run.id.toLowerCase().includes(needle)
       || run.filename?.toLowerCase().includes(needle)
+      || identity.reference.toLowerCase().includes(needle)
       || identity.variant.toLowerCase().includes(needle);
     return matchesProvider && matchesOutcome && matchesQuery;
   }), [outcome, provider, query, runs]);
@@ -224,46 +260,44 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
           id={operationsTourTargetIds.evidenceExplorer}
           className="explorer-toolbar tour-target"
         >
-          <div><h3 id="run-explorer-heading">Run explorer</h3><span>{filtered.length} matching runs</span></div>
+          <div><h3 id="run-explorer-heading">Procurement review queue</h3><span>{filtered.length} matching records</span></div>
           <label>Processing model filter<select value={provider} onChange={(event) => changeFilter("provider", event.target.value)}><option value="all">All processing</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
           <label>Outcome filter<select value={outcome} onChange={(event) => changeFilter("outcome", event.target.value)}><option value="all">All outcomes</option>{outcomeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-          <label className="search-field">Search runs<input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); writeUrl({ q: event.target.value || null, page: null }); }} placeholder="Run ID, filename or variant" />{query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); writeUrl({ q: null, page: null }); searchRef.current?.focus(); }}>×</button> : null}</label>
+          <label className="search-field">Search runs<input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); writeUrl({ q: event.target.value || null, page: null }); }} placeholder="Run ID, document reference or variant" />{query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); writeUrl({ q: null, page: null }); searchRef.current?.focus(); }}>×</button> : null}</label>
         </header>
         <div className="table-scroll table-overflow-cue" tabIndex={0} role="region" aria-label="Scrollable public run table">
           <table>
-            <caption className="sr-only">Public assurance runs</caption>
-            <thead><tr><th scope="col">Select</th><th scope="col">Run ID</th><th scope="col">Document</th><th scope="col">Processing model</th><th scope="col">Status</th><th scope="col">Outcome</th><th scope="col">Latest action</th><th scope="col">Processing time</th><th scope="col">Expiry</th></tr></thead>
+            <caption className="sr-only">Procurement review queue</caption>
+            <thead><tr><th scope="col">Select</th><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Received time</th></tr></thead>
             <tbody>
               {visible.map((run) => {
                 const identity = fixtureIdentity(run);
                 return (
                   <tr key={run.id} className={selected === run.id ? "selected-row" : ""}>
                     <td><input type="radio" name="explorer-run" aria-label={`Select ${run.id}`} checked={selected === run.id} onChange={() => selectRun(run)} /></td>
-                    <td><span className="mono run-id">{run.id}</span></td>
-                    <td><span className="table-primary">{identity.family}</span><small>{identity.variant}</small></td>
-                    <td>{processingDisplay(run.providerCalled, run.model)}</td>
-                    <td><span className="status-inline"><StatusMark status={run.status === "failed" ? "error" : run.status === "completed" ? "pass" : "warning"} />{run.status.replaceAll("_", " ")}</span></td>
-                    <td>{run.outcome?.replaceAll("_", " ") ?? "—"}</td>
+                    <td><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></td>
+                    <td>{identity.family}</td>
+                    <td><span className="status-inline"><StatusMark status={run.status === "failed" ? "error" : run.outcome === "clear" || run.outcome === "evidence_consistent" ? "pass" : "warning"} />{reviewDecision(run)}</span></td>
+                    <td>{identity.exception}</td>
                     <td>{run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
-                    <td className="mono">{formatMilliseconds(run.latencyMs)}</td>
-                    <td><time dateTime={run.expiresAt}>{formatSingaporeTime(run.expiresAt)}</time></td>
+                    <td><time dateTime={run.createdAt}>{formatSingaporeTime(run.createdAt)}</time></td>
                   </tr>
                 );
               })}
-              {!visible.length ? <tr><td colSpan={9}><EmptyState title={runs.length ? "No matching runs" : "No public runs yet"}>{runs.length ? "Clear the filters to restore the run ledger." : "Process a document in Workbench to populate this ledger."}</EmptyState></td></tr> : null}
+              {!visible.length ? <tr><td colSpan={7}><EmptyState title={runs.length ? "No matching runs" : "No review records yet"}>{runs.length ? "Clear the filters to restore the review queue." : "Assess a document in Workbench to populate this queue."}</EmptyState></td></tr> : null}
             </tbody>
           </table>
         </div>
         <nav className="pagination" aria-label="Run explorer pagination">
-          <span>{filtered.length ? `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length}` : "0 runs"}</span>
+          <span>{filtered.length ? `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length}` : "0 records"}</span>
           <Button intent="neutral" type="button" aria-label="Previous page" disabled={safePage <= 1} onClick={() => { const next = safePage - 1; setPage(next); writeUrl({ page: String(next) }); }}>Previous</Button>
           <span aria-current="page">Page {safePage} of {pageCount}</span>
           <Button intent="neutral" type="button" aria-label="Next page" disabled={safePage >= pageCount} onClick={() => { const next = safePage + 1; setPage(next); writeUrl({ page: String(next) }); }}>Next</Button>
         </nav>
       </section>
       <aside className="run-inspector">
-        {!selectedRun ? <EmptyState title="Select a run">Extraction, evidence, differences and workflow activity will appear here.</EmptyState> : selectedRun.status === "expired" || selectedRun.status === "deleted" ? (
-          <div><h3>{selectedRun.status === "expired" ? "Expired run" : "Deleted run"}</h3><p>Retention metadata only. Detailed evidence and document preview are no longer available.</p><dl><div><dt>Run ID</dt><dd className="mono">{selectedRun.id}</dd></div><div><dt>Expiry</dt><dd><time dateTime={selectedRun.expiresAt}>{formatSingaporeTime(selectedRun.expiresAt)}</time></dd></div></dl></div>
+        {!selectedRun ? <EmptyState title="Select a review record">Extraction, evidence, differences and workflow activity will appear here.</EmptyState> : selectedRun.status === "expired" || selectedRun.status === "deleted" ? (
+          <div><h3>Review record and technical trace</h3><h4>{selectedRun.status === "expired" ? "Expired run" : "Deleted run"}</h4><p>Retention metadata only. Detailed evidence and document preview are no longer available.</p><dl><div><dt>Run ID</dt><dd className="mono">{selectedRun.id}</dd></div><div><dt>Expiry</dt><dd><time dateTime={selectedRun.expiresAt}>{formatSingaporeTime(selectedRun.expiresAt)}</time></dd></div></dl></div>
         ) : <Inspector run={selectedRun} />}
       </aside>
     </div>
@@ -314,7 +348,7 @@ function Inspector({ run }: { run: ExplorerRun }) {
 
   return (
     <div>
-      <header className="inspector-title"><div><span className="mono">{run.id}</span><h3>Run detail</h3></div><button type="button" className="copy-button" onClick={() => navigator.clipboard?.writeText(run.id)}>Copy run ID</button></header>
+      <header className="inspector-title"><div><span className="mono">{run.id}</span><h3>Review record and technical trace</h3></div><button type="button" className="copy-button" onClick={() => navigator.clipboard?.writeText(run.id)}>Copy run ID</button></header>
       {error ? <p className="inline-error" role="alert">{error}</p> : !detail ? <p className="loading-region">Loading run detail…</p> : (
         <div className="inspector-sections">
           <section className="inspector-preview"><h4>Document preview</h4>{documentUrl ? <><a href={documentUrl} target="_blank" rel="noreferrer">Open full document</a>{syntheticPreviewUrl ? <img src={syntheticPreviewUrl} alt={`Rendered preview of ${detail.file.filename}`} /> : <iframe src={documentUrl} title={`Active document preview for ${detail.file.filename}`} />}</> : <p>The active document preview is unavailable.</p>}</section>
