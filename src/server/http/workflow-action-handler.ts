@@ -69,11 +69,17 @@ function eventMatchesRequest(
   runId: string,
   request: WorkflowActionRequest,
 ): boolean {
+  const expectedStatus = workflowStatusForAction(request.action);
+  const statusMatches =
+    result.event.status === expectedStatus ||
+    (result.status === "already_created" &&
+      request.action === "approve_and_stage" &&
+      result.event.status === "staged");
   return (
     result.event.runId === runId &&
     result.event.action === request.action &&
     result.event.recipientRole === request.recipientRole &&
-    result.event.status === workflowStatusForAction(request.action)
+    statusMatches
   );
 }
 

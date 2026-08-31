@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { syntheticFixtures } from "@/domain/fixtures";
 import { handleStageActionPost } from "@/server/http/stage-action-handler";
-import type { ActionProposal, RunStatus } from "@/domain/types";
+import type {
+  ActionProposal,
+  RunStatus,
+  WorkflowEvent,
+} from "@/domain/types";
 import type { HttpContainer } from "@/server/http/container";
 import { hashDeletionToken } from "@/server/security/deletion-token";
 import { createTestContainer, readJson } from "./test-support";
@@ -78,6 +82,15 @@ function request(capability: string | null = runCapability) {
   });
 }
 
+async function errorDetails(
+  response: Response,
+): Promise<{ code: string; message: string }> {
+  const { code, message } = (
+    await readJson<{ error: { code: string; message: string } }>(response)
+  ).error;
+  return { code, message };
+}
+
 describe("POST /api/runs/[id]/stage-action", () => {
   it("preserves rate limiting before capability lookup or mutation", async () => {
     const container = createTestContainer({ clock: () => now });
@@ -100,6 +113,11 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(429);
+    expect(await errorDetails(response)).toEqual({
+      code: "stage_action_rate_limited",
+      message:
+        "Posting handoff preparation was requested too frequently. Retry shortly.",
+    });
     expect(getCapabilityHash).not.toHaveBeenCalled();
     expect(stageAction).not.toHaveBeenCalled();
   });
@@ -116,9 +134,11 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("stage_action_not_authorized");
+    expect(await errorDetails(response)).toEqual({
+      code: "stage_action_not_authorized",
+      message:
+        "This browser does not hold the capability required to prepare the posting handoff.",
+    });
     expect(stageAction).not.toHaveBeenCalled();
   });
 
@@ -134,9 +154,11 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("stage_action_not_authorized");
+    expect(await errorDetails(response)).toEqual({
+      code: "stage_action_not_authorized",
+      message:
+        "This browser does not hold the capability required to prepare the posting handoff.",
+    });
     expect(stageAction).not.toHaveBeenCalled();
   });
 
@@ -205,7 +227,62 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
   });
 
-  it("maps an event ID collision to the safe staging unavailable response", async () => {
+  it("returns a truthful compatibility response for an immutable historical staged handoff", async () => {
+    const historicalCreatedAt = new Date("2026-08-27T00:30:00.000Z");
+    const historicalEvent: WorkflowEvent = {
+      id: "event-historical-staged",
+      runId: "run-action-1",
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      createdAt: historicalCreatedAt.toISOString(),
+    };
+    const ids = ["request-historical-replay", "event-historical-unused"];
+    const container = createTestContainer({
+      clock: () => now,
+      requestIdSource: () => ids.shift() ?? "request-stage-fallback",
+    });
+    await seedRun({ container, action: syntheticFixtures[1].action });
+    await container.repository.createWorkflowEvent({
+      runId: "run-action-1",
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now: historicalCreatedAt,
+      eventId: historicalEvent.id,
+    });
+    const before = await container.repository.readPublicRun(
+      "run-action-1",
+      now,
+    );
+
+    const response = await handleStageActionPost(
+      request(),
+      { id: "run-action-1" },
+      container,
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      await readJson<{
+        handoff: { status: string; action: ActionProposal };
+      }>(response),
+    ).toEqual({
+      handoff: {
+        status: "historical_staged",
+        action: expect.objectContaining({ stagedAt: null }),
+      },
+    });
+    const after = await container.repository.readPublicRun(
+      "run-action-1",
+      now,
+    );
+    expect(after).toEqual(before);
+    expect(after?.details?.workflowEvents).toEqual([historicalEvent]);
+    expect(after?.details?.result?.action.stagedAt).toBeNull();
+  });
+
+  it("maps an event ID collision to the safe handoff unavailable response", async () => {
     const ids = ["request-stage-collision", "collision-event"];
     const container = createTestContainer({
       clock: () => now,
@@ -228,9 +305,10 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("stage_action_unavailable");
+    expect(await errorDetails(response)).toEqual({
+      code: "stage_action_unavailable",
+      message: "The posting handoff could not be prepared safely.",
+    });
     const stored = await container.repository.readPublicRun(
       "run-action-1",
       now,
@@ -270,12 +348,14 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(410);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("run_expired");
+    expect(await errorDetails(response)).toEqual({
+      code: "run_expired",
+      message:
+        "This run has expired and can no longer prepare a posting handoff.",
+    });
   });
 
-  it("revokes the staging capability when a run is deleted", async () => {
+  it("revokes the handoff capability when a run is deleted", async () => {
     const container = createTestContainer({ clock: () => now });
     await seedRun({ container, action: syntheticFixtures[1].action });
     await container.repository.deleteDetailedData(
@@ -310,8 +390,9 @@ describe("POST /api/runs/[id]/stage-action", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(
-      (await readJson<{ error: { code: string } }>(response)).error.code,
-    ).toBe("action_unavailable");
+    expect(await errorDetails(response)).toEqual({
+      code: "action_unavailable",
+      message: "This run does not have a posting handoff that can be prepared.",
+    });
   });
 });

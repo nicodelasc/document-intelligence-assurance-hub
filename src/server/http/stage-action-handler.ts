@@ -54,7 +54,7 @@ export async function handleStageActionPost(
         safeErrorResponse({
           code: "stage_action_rate_limited",
           message:
-            "Action staging was requested too frequently. Retry shortly.",
+            "Posting handoff preparation was requested too frequently. Retry shortly.",
           requestId,
           status: 429,
           headers: noIndexHeaders,
@@ -76,7 +76,7 @@ export async function handleStageActionPost(
         safeErrorResponse({
           code: "stage_action_not_authorized",
           message:
-            "This browser does not hold the capability required to stage the action.",
+            "This browser does not hold the capability required to prepare the posting handoff.",
           requestId,
           status: 401,
           headers: noIndexHeaders,
@@ -103,8 +103,8 @@ export async function handleStageActionPost(
           code: run.status === "expired" ? "run_expired" : "run_deleted",
           message:
             run.status === "expired"
-              ? "This run has expired and can no longer stage an action."
-              : "This run was deleted and can no longer stage an action.",
+              ? "This run has expired and can no longer prepare a posting handoff."
+              : "This run was deleted and can no longer prepare a posting handoff.",
           requestId,
           status: 410,
           headers: noIndexHeaders,
@@ -116,7 +116,8 @@ export async function handleStageActionPost(
       return respond(
         safeErrorResponse({
           code: "action_unavailable",
-          message: "This run does not have an action that can be staged.",
+          message:
+            "This run does not have a posting handoff that can be prepared.",
           requestId,
           status: 409,
           headers: noIndexHeaders,
@@ -144,7 +145,8 @@ export async function handleStageActionPost(
       return respond(
         safeErrorResponse({
           code: "action_unavailable",
-          message: "This run does not have an action that can be staged.",
+          message:
+            "This run does not have a posting handoff that can be prepared.",
           requestId,
           status: 409,
           headers: noIndexHeaders,
@@ -162,11 +164,13 @@ export async function handleStageActionPost(
       eventId: container.requestIdSource(),
     });
     if (result.status === "created" || result.status === "already_created") {
+      const historicalStagedEvent =
+        result.status === "already_created" && result.event.status === "staged";
       if (
         result.event.runId !== parameters.id ||
         result.event.action !== "approve_and_stage" ||
         result.event.recipientRole !== null ||
-        result.event.status !== eventStatus
+        (result.event.status !== eventStatus && !historicalStagedEvent)
       ) {
         throw new Error("stage_action_event_conflict");
       }
@@ -178,7 +182,11 @@ export async function handleStageActionPost(
           {
             handoff: {
               status:
-                result.status === "created" ? eventStatus : "already_prepared",
+                result.status === "created"
+                  ? eventStatus
+                  : historicalStagedEvent
+                    ? "historical_staged"
+                    : "already_prepared",
               action: serializeActionProposal({
                 ...action,
                 stagedAt: null,
@@ -198,17 +206,20 @@ export async function handleStageActionPost(
       },
       unavailable: {
         code: "action_unavailable",
-        message: "This run does not have an action that can be staged.",
+        message:
+          "This run does not have a posting handoff that can be prepared.",
         status: 409,
       },
       expired: {
         code: "run_expired",
-        message: "This run has expired and can no longer stage an action.",
+        message:
+          "This run has expired and can no longer prepare a posting handoff.",
         status: 410,
       },
       deleted: {
         code: "run_deleted",
-        message: "This run was deleted and can no longer stage an action.",
+        message:
+          "This run was deleted and can no longer prepare a posting handoff.",
         status: 410,
       },
     } as const;
@@ -227,7 +238,7 @@ export async function handleStageActionPost(
     return respond(
       safeErrorResponse({
         code: "stage_action_unavailable",
-        message: "The action could not be staged safely.",
+        message: "The posting handoff could not be prepared safely.",
         requestId,
         status: 503,
         headers: noIndexHeaders,

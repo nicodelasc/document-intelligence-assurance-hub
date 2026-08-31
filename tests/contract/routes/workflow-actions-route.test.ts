@@ -297,6 +297,53 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
     expect(stored?.details?.workflowEvents).toEqual([firstBody.workflow.event]);
   });
 
+  it("returns an immutable historical staged handoff for a replayed identity", async () => {
+    const historicalCreatedAt = new Date("2026-08-29T09:30:00.000Z");
+    const historicalEvent: WorkflowEvent = {
+      id: "event-historical-staged",
+      runId,
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      createdAt: historicalCreatedAt.toISOString(),
+    };
+    const container = createTestContainer({
+      clock: () => now,
+      requestIdSource: idSequence(
+        "request-historical-replay",
+        "event-historical-unused",
+      ),
+    });
+    await seedRun({ container });
+    await container.repository.createWorkflowEvent({
+      runId,
+      action: "approve_and_stage",
+      recipientRole: null,
+      status: "staged",
+      now: historicalCreatedAt,
+      eventId: historicalEvent.id,
+    });
+    const before = await container.repository.readPublicRun(runId, now);
+
+    const response = await postWorkflow(container);
+
+    expect(response.status).toBe(200);
+    expect(
+      await readJson<{
+        workflow: { status: string; event: WorkflowEvent };
+      }>(response),
+    ).toEqual({
+      workflow: {
+        status: "already_created",
+        event: historicalEvent,
+      },
+    });
+    const after = await container.repository.readPublicRun(runId, now);
+    expect(after).toEqual(before);
+    expect(after?.details?.workflowEvents).toEqual([historicalEvent]);
+    expect(after?.details?.result?.action.stagedAt).toBeNull();
+  });
+
   it("treats different recipient roles as different event identities", async () => {
     const container = createTestContainer({
       clock: () => now,
