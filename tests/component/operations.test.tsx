@@ -82,7 +82,7 @@ describe("Run explorer", () => {
     await user.selectOptions(screen.getByLabelText("Processing model filter"), "anthropic");
     expect(window.location.search).toContain("provider=anthropic");
     expect(screen.queryByRole("radio", { name: "Select fixture-4.pdf" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "Select fixture-2.pdf" }));
+    await user.click(screen.getByRole("radio", { name: "Select fixture-2.pdf, Evidence-consistent, received 27 Aug 2026, 08:00 SGT" }));
     expect(window.location.search).toContain("run=run_2");
   });
 
@@ -104,7 +104,7 @@ describe("Run explorer", () => {
     await waitFor(() => expect(screen.getByLabelText("Processing model filter")).toHaveValue("openai"));
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("not_found");
     expect(screen.getByLabelText("Search review records")).toHaveValue("run_3");
-    expect(screen.getByRole("radio", { name: "Select fixture-3.pdf" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Select fixture-3.pdf, Not found, received 27 Aug 2026, 08:00 SGT" })).toBeChecked();
     expect(screen.getByText("Page 1 of 1")).toBeVisible();
   });
 
@@ -138,7 +138,7 @@ describe("Run explorer", () => {
       ["custom-conflict.pdf", "Conflict"],
       ["custom-missing.pdf", "Not found"],
     ]) {
-      const radio = within(queue).getByRole("radio", { name: `Select ${reference}` });
+      const radio = within(queue).getByRole("radio", { name: `Select ${reference}, ${label}, received 27 Aug 2026, 08:00 SGT` });
       const row = radio.closest("tr")!;
       expect(within(row).getByText(label)).toBeVisible();
       expect(within(row).getByText("Evidence only - no business approval")).toBeVisible();
@@ -150,34 +150,72 @@ describe("Run explorer", () => {
     expect(screen.getByText("3 matching review records")).toBeVisible();
   });
 
+  it("distinguishes repeated document references without exposing run IDs", async () => {
+    const user = userEvent.setup();
+    const repeatedRuns = [
+      { ...runs[0], id: "repeat_alpha", outcome: "needs_review" as const, createdAt: "2026-08-27T00:00:00.000Z" },
+      { ...runs[0], id: "repeat_beta", outcome: "needs_review" as const, createdAt: "2026-08-27T01:00:00.000Z" },
+    ];
+    render(<RunExplorer runs={repeatedRuns} onSelect={() => undefined} />);
+
+    const first = screen.getByRole("radio", {
+      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT",
+    });
+    const second = screen.getByRole("radio", {
+      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 09:00 SGT",
+    });
+    const names = screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.join(" ")).not.toMatch(/repeat_alpha|repeat_beta/);
+    expect(first.closest("th")).toHaveAttribute("scope", "row");
+    expect(second.closest("th")).toHaveAttribute("scope", "row");
+
+    await user.click(second);
+    expect(window.location.search).toContain("run=repeat_beta");
+  });
+
   it("uses neutral retention states without active handoffs", () => {
-    const retainedRuns = (["expired", "deleted"] as const).flatMap((status, statusIndex) =>
-      (["clear", "needs_review", "incomplete"] as const).map((outcome, outcomeIndex) => ({
-        ...runs[statusIndex * 3 + outcomeIndex],
-        id: `${status}_${outcome}`,
-        filename: `${status}-${outcome}.pdf`,
-        sourceType: "synthetic" as const,
-        fixtureId: null,
-        status,
-        outcome,
+    const retainedCases = [
+      { status: "expired" as const, outcome: "clear" as const, createdAt: "2026-08-27T00:00:00.000Z", received: "27 Aug 2026, 08:00 SGT" },
+      { status: "expired" as const, outcome: "needs_review" as const, createdAt: "2026-08-27T01:00:00.000Z", received: "27 Aug 2026, 09:00 SGT" },
+      { status: "expired" as const, outcome: "incomplete" as const, createdAt: "2026-08-27T02:00:00.000Z", received: "27 Aug 2026, 10:00 SGT" },
+      { status: "deleted" as const, outcome: "clear" as const, createdAt: "2026-08-27T03:00:00.000Z", received: "27 Aug 2026, 11:00 SGT" },
+      { status: "deleted" as const, outcome: "needs_review" as const, createdAt: "2026-08-27T04:00:00.000Z", received: "27 Aug 2026, 12:00 SGT" },
+      { status: "deleted" as const, outcome: "incomplete" as const, createdAt: "2026-08-27T05:00:00.000Z", received: "27 Aug 2026, 13:00 SGT" },
+    ];
+    const retainedRuns = retainedCases.map((retained, index) => {
+      const serialized = { ...runs[index] };
+      delete serialized.documentFamily;
+      delete serialized.fixtureId;
+      delete serialized.filename;
+      return {
+        ...serialized,
+        id: `${retained.status}_${retained.outcome}`,
+        status: retained.status,
+        outcome: retained.outcome,
+        createdAt: retained.createdAt,
         latestWorkflowEvent: {
           action: "approve_and_stage" as const,
           status: "prepared" as const,
           timestamp: "2026-08-27T00:04:00.000Z",
         },
-      })),
-    );
+      };
+    });
     render(<RunExplorer runs={retainedRuns} onSelect={() => undefined} />);
 
     const queue = screen.getByRole("table", { name: "Procurement review queue" });
-    for (const retained of retainedRuns) {
-      const radio = within(queue).getByRole("radio", { name: `Select ${retained.filename}` });
+    for (const [index, retained] of retainedRuns.entries()) {
+      const reference = retained.status === "expired" ? "Expired review record" : "Deleted review record";
+      const decision = retained.status === "expired" ? "Evidence expired" : "Record deleted";
+      const radio = within(queue).getByRole("radio", { name: `Select ${reference}, ${decision}, received ${retainedCases[index].received}` });
       const row = radio.closest("tr")!;
-      expect(within(row).getByText(retained.status === "expired" ? "Evidence expired" : "Record deleted")).toBeVisible();
+      expect(within(row).getByText(reference)).toBeVisible();
+      expect(within(row).getByText(decision)).toBeVisible();
       expect(within(row).getByText("No active handoff")).toBeVisible();
       expect(row.querySelector(".status-mark--warning")).toBeInTheDocument();
       expect(within(row).queryByText("Posting handoff prepared")).not.toBeInTheDocument();
       expect(within(row).queryByText("Ready for posting decision")).not.toBeInTheDocument();
+      expect(within(row).queryByText("Legacy document")).not.toBeInTheDocument();
     }
   });
 
@@ -185,7 +223,7 @@ describe("Run explorer", () => {
     const user = userEvent.setup();
     render(<RunExplorer runs={runs} onSelect={() => undefined} />);
     await user.click(screen.getByRole("button", { name: /next page/i }));
-    await user.click(screen.getByRole("radio", { name: "Select fixture-12.pdf" }));
+    await user.click(screen.getByRole("radio", { name: "Select Expired review record, Evidence expired, received 27 Aug 2026, 08:00 SGT" }));
     expect(screen.getByText(/retention metadata only/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /document preview/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /evidence snippets/i })).not.toBeInTheDocument();
@@ -266,7 +304,7 @@ describe("Run explorer", () => {
     } }), { status: 200 })));
     render(<RunExplorer runs={[active]} onSelect={() => undefined} />);
 
-    await user.click(screen.getByRole("radio", { name: "Select INV-MP-4101" }));
+    await user.click(screen.getByRole("radio", { name: "Select INV-MP-4101, Ready for posting decision, received 27 Aug 2026, 08:00 SGT" }));
 
     const runTable = screen.getByRole("table", { name: "Procurement review queue" });
     expect(within(runTable).queryByText("No AI processing")).not.toBeInTheDocument();
@@ -328,7 +366,7 @@ describe("Run explorer", () => {
     } }), { status: 200 })));
     render(<RunExplorer runs={[custom]} onSelect={() => undefined} />);
 
-    await user.click(screen.getByRole("radio", { name: "Select customer-upload.pdf" }));
+    await user.click(screen.getByRole("radio", { name: "Select customer-upload.pdf, Evidence-consistent, received 27 Aug 2026, 08:00 SGT" }));
 
     expect(await screen.findByTitle("Active document preview for customer-upload.pdf")).toHaveAttribute("src", "/api/runs/run_2/document");
     expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/run_2/document");

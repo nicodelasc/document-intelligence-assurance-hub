@@ -337,7 +337,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
     ["custom-conflict.pdf", "Conflict"],
     ["custom-missing.pdf", "Not found"],
   ] as const) {
-    const row = page.getByRole("radio", { name: `Select ${reference}` }).locator("xpath=ancestor::tr");
+    const row = page.getByRole("radio", { name: `Select ${reference}, ${label}, received 27 Aug 2026, 08:00 SGT` }).locator("xpath=ancestor::tr");
     await expect(row.getByText(label, { exact: true })).toBeVisible();
     await expect(row.getByText("Evidence only - no business approval")).toBeVisible();
     await expect(row.getByText("Ready for posting decision")).toHaveCount(0);
@@ -351,7 +351,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await expect(page.getByLabel("Processing model filter")).toHaveValue("openai");
   await expect(page.getByText("No matching review records")).toBeVisible();
   await page.getByLabel("Processing model filter").selectOption("all");
-  await page.getByRole("radio", { name: "Select INV-MP-4101" }).check();
+  await page.getByRole("radio", { name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT" }).check();
   await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
   await expect(page.getByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
   await expect(page.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/ops_1/document");

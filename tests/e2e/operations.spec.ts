@@ -151,7 +151,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   expect(widths.operations / widths.costs).toBeGreaterThan(1.8);
   expect(widths.operations / widths.costs).toBeLessThan(2.2);
 
-  await page.getByRole("radio", { name: "Select INV-MP-4101" }).check();
+  await page.getByRole("radio", { name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT" }).check();
   await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
   const renderedPreview = page.getByRole("img", { name: `Rendered preview of ${run.filename}` });
   await expect(renderedPreview).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");

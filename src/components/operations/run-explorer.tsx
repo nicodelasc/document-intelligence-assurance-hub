@@ -175,6 +175,15 @@ function reviewDecision(run: ExplorerRun): {
 }
 
 function fixtureIdentity(run: ExplorerRun) {
+  if (run.status === "expired" || run.status === "deleted") {
+    const expired = run.status === "expired";
+    return {
+      family: "Retained review record",
+      variant: "Document identity removed after retention",
+      reference: expired ? "Expired review record" : "Deleted review record",
+      exception: expired ? "Evidence is no longer retained" : "Document evidence was deleted",
+    };
+  }
   if (run.sourceType === "custom") {
     return {
       family: "Custom document",
@@ -290,14 +299,15 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                 const identity = fixtureIdentity(run);
                 const decision = reviewDecision(run);
                 const retained = run.status === "expired" || run.status === "deleted";
+                const receivedTime = formatSingaporeTime(run.createdAt);
                 return (
                   <tr key={run.id} className={selected === run.id ? "selected-row" : ""}>
-                    <td><input type="radio" name="explorer-run" aria-label={`Select ${identity.reference}`} checked={selected === run.id} onChange={() => selectRun(run)} /><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></td>
+                    <th scope="row"><input type="radio" name="explorer-run" aria-label={`Select ${identity.reference}, ${decision.label}, received ${receivedTime}`} checked={selected === run.id} onChange={() => selectRun(run)} /><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></th>
                     <td>{identity.family}</td>
                     <td><span className="status-inline"><StatusMark status={decision.status} />{decision.label}</span>{decision.boundary ? <small>{decision.boundary}</small> : null}</td>
                     <td>{identity.exception}</td>
                     <td>{retained ? "No active handoff" : run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
-                    <td><time dateTime={run.createdAt}>{formatSingaporeTime(run.createdAt)}</time></td>
+                    <td><time dateTime={run.createdAt}>{receivedTime}</time></td>
                   </tr>
                 );
               })}
