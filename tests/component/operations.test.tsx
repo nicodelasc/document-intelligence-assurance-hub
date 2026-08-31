@@ -154,15 +154,15 @@ describe("Run explorer", () => {
     const user = userEvent.setup();
     const repeatedRuns = [
       { ...runs[0], id: "repeat_alpha", outcome: "needs_review" as const, createdAt: "2026-08-27T00:00:00.000Z" },
-      { ...runs[0], id: "repeat_beta", outcome: "needs_review" as const, createdAt: "2026-08-27T01:00:00.000Z" },
+      { ...runs[0], id: "repeat_beta", outcome: "needs_review" as const, createdAt: "2026-08-27T00:00:00.000Z" },
     ];
     render(<RunExplorer runs={repeatedRuns} onSelect={() => undefined} />);
 
     const first = screen.getByRole("radio", {
-      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT",
+      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT, review record 1 of 2",
     });
     const second = screen.getByRole("radio", {
-      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 09:00 SGT",
+      name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT, review record 2 of 2",
     });
     const names = screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"));
     expect(new Set(names).size).toBe(names.length);
@@ -172,6 +172,35 @@ describe("Run explorer", () => {
 
     await user.click(second);
     expect(window.location.search).toContain("run=repeat_beta");
+  });
+
+  it("distinguishes production-shaped retained records received at the same time", () => {
+    const retainedRuns = runs.slice(0, 2).map((run, index) => {
+      const serialized = { ...run };
+      delete serialized.documentFamily;
+      delete serialized.fixtureId;
+      delete serialized.filename;
+      return {
+        ...serialized,
+        id: `retained_duplicate_${index + 1}`,
+        status: "expired" as const,
+        outcome: "clear" as const,
+        createdAt: "2026-08-27T00:00:00.000Z",
+      };
+    });
+    render(<RunExplorer runs={retainedRuns} onSelect={() => undefined} />);
+
+    const first = screen.getByRole("radio", {
+      name: "Select Expired review record, Evidence expired, received 27 Aug 2026, 08:00 SGT, review record 1 of 2",
+    });
+    const second = screen.getByRole("radio", {
+      name: "Select Expired review record, Evidence expired, received 27 Aug 2026, 08:00 SGT, review record 2 of 2",
+    });
+    const names = screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.join(" ")).not.toMatch(/retained_duplicate/);
+    expect(first.closest("th")).toHaveAttribute("scope", "row");
+    expect(second.closest("th")).toHaveAttribute("scope", "row");
   });
 
   it("uses neutral retention states without active handoffs", () => {

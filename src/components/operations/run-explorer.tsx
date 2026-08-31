@@ -223,6 +223,12 @@ function fixtureIdentity(run: ExplorerRun) {
   };
 }
 
+function selectionName(run: ExplorerRun): string {
+  const identity = fixtureIdentity(run);
+  const decision = reviewDecision(run);
+  return `Select ${identity.reference}, ${decision.label}, received ${formatSingaporeTime(run.createdAt)}`;
+}
+
 export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect: (run: ExplorerRun) => void }) {
   const [initial] = useState(() => typeof window === "undefined"
     ? { provider: "all", outcome: "all", query: "", selected: "", page: 1 }
@@ -264,6 +270,19 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
   const safePage = Math.min(page, pageCount);
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedRun = runs.find((run) => run.id === selected);
+  const selectionNames = useMemo(() => {
+    const bases = runs.map(selectionName);
+    const totals = new Map<string, number>();
+    for (const base of bases) totals.set(base, (totals.get(base) ?? 0) + 1);
+    const occurrences = new Map<string, number>();
+    return new Map(runs.map((run, index) => {
+      const base = bases[index];
+      const occurrence = (occurrences.get(base) ?? 0) + 1;
+      occurrences.set(base, occurrence);
+      const total = totals.get(base) ?? 1;
+      return [run.id, total > 1 ? `${base}, review record ${occurrence} of ${total}` : base];
+    }));
+  }, [runs]);
 
   function changeFilter(kind: "provider" | "outcome", value: string) {
     if (kind === "provider") setProvider(value);
@@ -302,7 +321,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                 const receivedTime = formatSingaporeTime(run.createdAt);
                 return (
                   <tr key={run.id} className={selected === run.id ? "selected-row" : ""}>
-                    <th scope="row"><input type="radio" name="explorer-run" aria-label={`Select ${identity.reference}, ${decision.label}, received ${receivedTime}`} checked={selected === run.id} onChange={() => selectRun(run)} /><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></th>
+                    <th scope="row"><input type="radio" name="explorer-run" aria-label={selectionNames.get(run.id)} checked={selected === run.id} onChange={() => selectRun(run)} /><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></th>
                     <td>{identity.family}</td>
                     <td><span className="status-inline"><StatusMark status={decision.status} />{decision.label}</span>{decision.boundary ? <small>{decision.boundary}</small> : null}</td>
                     <td>{identity.exception}</td>
