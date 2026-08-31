@@ -223,6 +223,25 @@ describe("Release artifact hardening", () => {
     }
   });
 
+  it("preserves approved reviewer PDF overrides during sample regeneration", () => {
+    const generation = spawnSync(
+      process.execPath,
+      [join(projectRoot, "scripts/generate-sample-documents.mjs")],
+      { encoding: "utf8", timeout: 60_000 },
+    );
+
+    expect(generation.error).toBeUndefined();
+    expect(generation.status, generation.stderr).toBe(0);
+    for (const filename of [
+      "invoice-unreadable-approval.pdf",
+      "warehouse-unreadable-damage-note.pdf",
+    ]) {
+      expect(readFileSync(join(projectRoot, "public/samples", filename))).toEqual(
+        readFileSync(join(projectRoot, "assets/sample-overrides", filename)),
+      );
+    }
+  }, 60_000);
+
   it("fully decodes one 1440x900 VP8 stream within half a second of 2:08", () => {
     const artifactPath = join(projectRoot, "artifacts/walkthrough.webm");
     if (!ffmpegPath) {
@@ -269,7 +288,7 @@ describe("Release artifact hardening", () => {
     expect(walkthrough).toContain("## 1:58–2:08 — Disclosure and gate");
   }, 60_000);
 
-  it("decodes every fixture preview at 1191x1684 with visible content", async () => {
+  it("decodes every fixture preview at its recorded geometry with visible content", async () => {
     const sampleDirectory = join(projectRoot, "public/samples");
 
     for (const fixture of syntheticFixtures) {
@@ -279,7 +298,12 @@ describe("Release artifact hardening", () => {
       );
       const preview = await previewLuminanceVariance(previewPath);
       expect(preview.width, fixture.id).toBe(1191);
-      expect(preview.height, fixture.id).toBe(1684);
+      expect(preview.height, fixture.id).toBe(
+        fixture.id === "invoice-unreadable-approval" ||
+          fixture.id === "warehouse-unreadable-damage-note"
+          ? 1687
+          : 1684,
+      );
       expect(preview.variance, fixture.id).toBeGreaterThan(
         minimumPreviewLuminanceVariance,
       );

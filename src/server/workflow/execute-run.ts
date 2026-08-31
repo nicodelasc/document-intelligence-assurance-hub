@@ -717,6 +717,11 @@ export async function* executeRun(
           mediaType: input.file.mediaType,
           pageCount: input.file.pageCount,
           signal,
+          visualMode:
+            input.sourceType === "synthetic" &&
+            input.fixture?.handwrittenEvidence
+              ? "text_and_visual"
+              : "text_or_scan",
         });
       } catch (error) {
         if (

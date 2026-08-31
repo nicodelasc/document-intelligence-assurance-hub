@@ -1,6 +1,6 @@
 // Caveat font source: https://github.com/googlefonts/caveat
 // Licence: SIL Open Font License 1.1, copied to assets/fonts/Caveat-OFL.txt
-import { readFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -10,6 +10,11 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const projectDirectory = resolve(scriptDirectory, "..");
 const samplesDirectory = resolve(projectDirectory, "public", "samples");
+const sampleOverridesDirectory = resolve(
+  projectDirectory,
+  "assets",
+  "sample-overrides",
+);
 const fixtureSource = resolve(projectDirectory, "src", "domain", "fixtures.ts");
 const texturePath = resolve(samplesDirectory, "scanned-paper-texture.png");
 const handwritingFontPath = resolve(
@@ -21,6 +26,10 @@ const handwritingFontPath = resolve(
 const generatedAt = new Date("2026-08-28T00:00:00.000Z");
 const pageWidth = 595.28;
 const pageHeight = 841.89;
+const approvedOverrideFilenames = new Set([
+  "invoice-unreadable-approval.pdf",
+  "warehouse-unreadable-damage-note.pdf",
+]);
 
 async function loadSyntheticFixtures() {
   const source = await readFile(fixtureSource, "utf8");
@@ -575,6 +584,14 @@ GlobalFonts.registerFromPath(handwritingFontPath, "Caveat");
 const textureBytes = await preparePageTexture(await readFile(texturePath));
 const assets = { textureBytes };
 for (const fixture of await loadSyntheticFixtures()) {
+  if (approvedOverrideFilenames.has(fixture.filename)) {
+    await copyFile(
+      resolve(sampleOverridesDirectory, fixture.filename),
+      resolve(samplesDirectory, fixture.filename),
+    );
+    console.log(`Copied approved override ${fixture.filename}`);
+    continue;
+  }
   const presentation =
     fixture.family === "supplier_invoice"
       ? invoicePresentation(fixture)

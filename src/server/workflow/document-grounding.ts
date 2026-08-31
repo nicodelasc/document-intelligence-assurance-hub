@@ -16,6 +16,7 @@ export type DocumentGroundingInput = {
   mediaType: string;
   pageCount?: number;
   signal?: AbortSignal;
+  visualMode?: "text_or_scan" | "text_and_visual";
 };
 
 export type DocumentGrounder = (
@@ -243,12 +244,15 @@ async function extractPdfPages(
       throw groundingError("document_grounding_text_failed");
     }
     const pages = [...extracted.text];
-    const scannedPageIndexes = pages.flatMap((page, index) =>
-      page.trim().length < MIN_TEXT_NATIVE_PAGE_CHARS ? [index] : [],
+    const visualPageIndexes = pages.flatMap((page, index) =>
+      input.visualMode === "text_and_visual" ||
+      page.trim().length < MIN_TEXT_NATIVE_PAGE_CHARS
+        ? [index]
+        : [],
     );
-    if (scannedPageIndexes.length > 0) {
+    if (visualPageIndexes.length > 0) {
       const rendered: Uint8Array[] = [];
-      for (const pageIndex of scannedPageIndexes) {
+      for (const pageIndex of visualPageIndexes) {
         throwIfGroundingAborted(input.signal);
         const page = await pdf.getPage(pageIndex + 1);
         const viewport = page.getViewport({ scale: 1 });
@@ -276,8 +280,14 @@ async function extractPdfPages(
         rendered.push(new Uint8Array(image));
       }
       const ocrPages = await ocrImages(rendered, input.signal);
-      scannedPageIndexes.forEach((pageIndex, index) => {
-        pages[pageIndex] = ocrPages[index] ?? "";
+      visualPageIndexes.forEach((pageIndex, index) => {
+        const ocrText = ocrPages[index] ?? "";
+        pages[pageIndex] =
+          input.visualMode === "text_and_visual"
+            ? [pages[pageIndex], ocrText]
+                .filter((pageText) => pageText.trim().length > 0)
+                .join("\n")
+            : ocrText;
       });
     }
     return assertPageText(pages);

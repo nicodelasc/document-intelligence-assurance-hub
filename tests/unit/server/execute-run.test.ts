@@ -1526,6 +1526,20 @@ describe("executeRun", () => {
     expect(JSON.stringify(events)).not.toContain("parser-private-detail");
   });
 
+  it("requests native-plus-visual grounding for a live handwritten fixture", async () => {
+    const fixture = findFixture("invoice-buyer-hold");
+    const { value } = dependencies(provider());
+    let visualMode: string | undefined;
+    value.documentGrounder = async (groundingInput) => {
+      visualMode = groundingInput.visualMode;
+      return [groundedPage];
+    };
+
+    await collect({ ...input, fixture }, value);
+
+    expect(visualMode).toBe("text_and_visual");
+  });
+
   it("grounds a live synthetic response against the real text-native PDF", async () => {
     const response = structuredClone(extraction);
     response.extraction.fields[0].evidence =
@@ -1619,18 +1633,77 @@ describe("executeRun", () => {
   }, 30_000);
 
   it("preserves recorded fixture outcomes without invoking document grounding", async () => {
+    const fixture = findFixture("invoice-clean-match");
     const { value } = dependencies(provider({ executionMode: "recorded" }));
     value.documentGrounder = async () => {
       throw new Error("recorded_replay_must_not_ground");
     };
 
-    const events = await collect(input, value);
+    const events = await collect({ ...input, fixture }, value);
 
     expect(events.at(-1)).toMatchObject({
       type: "completed",
       outcome: "clear",
     });
   });
+
+  it.each([
+    "invoice-unreadable-approval",
+    "warehouse-unreadable-damage-note",
+  ])(
+    "cannot false-clear readable provider text absent from grounded evidence for %s",
+    async (fixtureId) => {
+      const fixture = findFixture(fixtureId);
+      const handwrittenField = fixture.handwrittenEvidence?.fieldKey;
+      if (!handwrittenField) throw new Error("handwritten_field_required");
+      const claimedText = fixture.referenceData[handwrittenField];
+      if (!claimedText) throw new Error("reference_handwriting_required");
+      const response: ProviderExtractionResponse = {
+        extraction: {
+          classification: fixture.family,
+          fields: [
+            {
+              key: handwrittenField,
+              label:
+                fixture.requestedFields.find(
+                  (field) => field.key === handwrittenField,
+                )?.label ?? handwrittenField,
+              extractedValue: claimedText,
+              normalizedValue: claimedText,
+              evidence: claimedText,
+              page: 1,
+            },
+          ],
+          documentInstruction: null,
+          action: null,
+        },
+        usage: extraction.usage,
+        latencyMs: 10,
+      };
+      const { value } = dependencies(
+        provider({ extract: async () => response }),
+      );
+      value.documentGrounder = async () => [
+        `Printed document identifier: ${fixture.filename}`,
+      ];
+      const events = await collect(
+        {
+          ...input,
+          fixture,
+          requestedFields: fixture.requestedFields.filter(
+            (field) => field.key === handwrittenField,
+          ),
+          referenceData: { [handwrittenField]: claimedText },
+        },
+        value,
+      );
+
+      const completed = events.find((event) => event.type === "completed");
+      expect(completed).toBeDefined();
+      expect(completed).not.toMatchObject({ outcome: "clear" });
+      expect(completed).not.toMatchObject({ outcome: "evidence_consistent" });
+    },
+  );
 
   it("replaces equivalent provider normalization with a server-owned canonical value", async () => {
     const response = structuredClone(extraction);

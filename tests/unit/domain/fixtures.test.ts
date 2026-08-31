@@ -8,6 +8,31 @@ import {
 } from "@/domain/fixtures";
 
 describe("synthetic document fixtures", () => {
+  it.each([
+    ["invoice-unreadable-approval", "INV-VIG-3101"],
+    ["warehouse-unreadable-damage-note", "GRN-VIG-6201"],
+  ])(
+    "keeps the approved reviewer PDF byte-exact with native identifiers and raster-only comments for %s",
+    async (fixtureId, printedIdentifier) => {
+      const fixture = syntheticFixtures.find(
+        (candidate) => candidate.id === fixtureId,
+      );
+      if (!fixture) throw new Error(`missing_fixture:${fixtureId}`);
+      const approved = await readFile(
+        resolve("assets/sample-overrides", fixture.filename),
+      );
+      const published = await readFile(
+        resolve("public/samples", fixture.filename),
+      );
+      const pdf = await getDocumentProxy(new Uint8Array(published));
+      const extracted = await extractText(pdf, { mergePages: true });
+
+      expect(published).toEqual(approved);
+      expect(extracted.text).toContain(printedIdentifier);
+      expect(extracted.text).not.toContain(fixture.handwrittenEvidence?.text);
+    },
+  );
+
   it("ships a compact one-page PDF for every fixture with raster-only handwriting", async () => {
     const filenames = syntheticFixtures.map((fixture) => fixture.filename);
     expect(new Set(filenames).size).toBe(syntheticFixtures.length);

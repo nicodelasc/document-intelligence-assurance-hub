@@ -38,7 +38,14 @@ test("loads all ten manifest previews in Chromium", async ({ page }) => {
             height: image.naturalHeight,
           })),
         )
-        .toEqual({ width: 1191, height: 1684 });
+        .toEqual({
+          width: 1191,
+          height:
+            fixture.id === "invoice-unreadable-approval" ||
+            fixture.id === "warehouse-unreadable-damage-note"
+              ? 1687
+              : 1684,
+        });
     }
   }
 
@@ -128,8 +135,10 @@ test("the mobile PDF preview and differences panel stack without page overflow",
     ),
   ).toBe(true);
 
-  await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Clear" })).toBeVisible();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ready for posting decision" }),
+  ).toBeVisible();
   const evidenceLedger = page.getByRole("region", {
     name: "Scrollable extracted field ledger",
   });
