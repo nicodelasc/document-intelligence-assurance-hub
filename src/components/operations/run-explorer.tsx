@@ -144,18 +144,34 @@ function writeUrl(updates: Record<string, string | null>) {
   window.history.pushState({}, "", url);
 }
 
-function reviewDecision(run: ExplorerRun): string {
-  if (run.status === "failed") return "Processing errors";
+function reviewDecision(run: ExplorerRun): {
+  label: string;
+  status: "idle" | "pass" | "warning" | "error";
+  boundary?: string;
+} {
+  if (run.status === "expired") return { label: "Evidence expired", status: "warning" };
+  if (run.status === "deleted") return { label: "Record deleted", status: "warning" };
+  if (run.status === "failed") return { label: "Processing errors", status: "error" };
+  if (run.sourceType === "custom") {
+    const label = run.outcome === "clear" || run.outcome === "evidence_consistent"
+      ? "Evidence-consistent"
+      : run.outcome === "needs_review" || run.outcome === "conflict"
+        ? "Conflict"
+        : run.outcome === "incomplete" || run.outcome === "not_found"
+          ? "Not found"
+          : "Evidence review pending";
+    return { label, status: "idle", boundary: "Evidence only - no business approval" };
+  }
   if (run.outcome === "clear" || run.outcome === "evidence_consistent") {
-    return "Ready for posting decision";
+    return { label: "Ready for posting decision", status: "pass" };
   }
   if (run.outcome === "needs_review" || run.outcome === "conflict") {
-    return "Exception review required";
+    return { label: "Exception review required", status: "warning" };
   }
   if (run.outcome === "incomplete" || run.outcome === "not_found") {
-    return "Awaiting readable evidence";
+    return { label: "Awaiting readable evidence", status: "warning" };
   }
-  return "Triage in progress";
+  return { label: "Triage in progress", status: "warning" };
 }
 
 function fixtureIdentity(run: ExplorerRun) {
@@ -260,35 +276,36 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
           id={operationsTourTargetIds.evidenceExplorer}
           className="explorer-toolbar tour-target"
         >
-          <div><h3 id="run-explorer-heading">Procurement review queue</h3><span>{filtered.length} matching records</span></div>
+          <div><h3 id="run-explorer-heading">Procurement review queue</h3><span>{filtered.length} matching review records</span></div>
           <label>Processing model filter<select value={provider} onChange={(event) => changeFilter("provider", event.target.value)}><option value="all">All processing</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
           <label>Outcome filter<select value={outcome} onChange={(event) => changeFilter("outcome", event.target.value)}><option value="all">All outcomes</option>{outcomeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-          <label className="search-field">Search runs<input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); writeUrl({ q: event.target.value || null, page: null }); }} placeholder="Run ID, document reference or variant" />{query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); writeUrl({ q: null, page: null }); searchRef.current?.focus(); }}>×</button> : null}</label>
+          <label className="search-field">Search review records<input ref={searchRef} type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); writeUrl({ q: event.target.value || null, page: null }); }} placeholder="Document reference or variant" />{query ? <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); writeUrl({ q: null, page: null }); searchRef.current?.focus(); }}>×</button> : null}</label>
         </header>
-        <div className="table-scroll table-overflow-cue" tabIndex={0} role="region" aria-label="Scrollable public run table">
+        <div className="table-scroll table-overflow-cue" tabIndex={0} role="region" aria-label="Scrollable procurement review queue">
           <table>
             <caption className="sr-only">Procurement review queue</caption>
-            <thead><tr><th scope="col">Select</th><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Received time</th></tr></thead>
+            <thead><tr><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Received time</th></tr></thead>
             <tbody>
               {visible.map((run) => {
                 const identity = fixtureIdentity(run);
+                const decision = reviewDecision(run);
+                const retained = run.status === "expired" || run.status === "deleted";
                 return (
                   <tr key={run.id} className={selected === run.id ? "selected-row" : ""}>
-                    <td><input type="radio" name="explorer-run" aria-label={`Select ${run.id}`} checked={selected === run.id} onChange={() => selectRun(run)} /></td>
-                    <td><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></td>
+                    <td><input type="radio" name="explorer-run" aria-label={`Select ${identity.reference}`} checked={selected === run.id} onChange={() => selectRun(run)} /><span className="table-primary">{identity.reference}</span><small>{identity.variant}</small></td>
                     <td>{identity.family}</td>
-                    <td><span className="status-inline"><StatusMark status={run.status === "failed" ? "error" : run.outcome === "clear" || run.outcome === "evidence_consistent" ? "pass" : "warning"} />{reviewDecision(run)}</span></td>
+                    <td><span className="status-inline"><StatusMark status={decision.status} />{decision.label}</span>{decision.boundary ? <small>{decision.boundary}</small> : null}</td>
                     <td>{identity.exception}</td>
-                    <td>{run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
+                    <td>{retained ? "No active handoff" : run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
                     <td><time dateTime={run.createdAt}>{formatSingaporeTime(run.createdAt)}</time></td>
                   </tr>
                 );
               })}
-              {!visible.length ? <tr><td colSpan={7}><EmptyState title={runs.length ? "No matching runs" : "No review records yet"}>{runs.length ? "Clear the filters to restore the review queue." : "Assess a document in Workbench to populate this queue."}</EmptyState></td></tr> : null}
+              {!visible.length ? <tr><td colSpan={6}><EmptyState title={runs.length ? "No matching review records" : "No review records yet"}>{runs.length ? "Clear the filters to restore the review queue." : "Assess a document in Workbench to populate this queue."}</EmptyState></td></tr> : null}
             </tbody>
           </table>
         </div>
-        <nav className="pagination" aria-label="Run explorer pagination">
+        <nav className="pagination" aria-label="Review queue pagination">
           <span>{filtered.length ? `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} of ${filtered.length}` : "0 records"}</span>
           <Button intent="neutral" type="button" aria-label="Previous page" disabled={safePage <= 1} onClick={() => { const next = safePage - 1; setPage(next); writeUrl({ page: String(next) }); }}>Previous</Button>
           <span aria-current="page">Page {safePage} of {pageCount}</span>

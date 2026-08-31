@@ -81,8 +81,8 @@ describe("Run explorer", () => {
     await user.click(screen.getByRole("button", { name: /previous page/i }));
     await user.selectOptions(screen.getByLabelText("Processing model filter"), "anthropic");
     expect(window.location.search).toContain("provider=anthropic");
-    expect(screen.queryByRole("radio", { name: "Select run_4" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: /select run_2/i }));
+    expect(screen.queryByRole("radio", { name: "Select fixture-4.pdf" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Select fixture-2.pdf" }));
     expect(window.location.search).toContain("run=run_2");
   });
 
@@ -96,15 +96,15 @@ describe("Run explorer", () => {
 
     expect(screen.getByLabelText("Processing model filter")).toHaveValue("anthropic");
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("conflict");
-    expect(screen.getByLabelText("Search runs")).toHaveValue("fixture");
+    expect(screen.getByLabelText("Search review records")).toHaveValue("fixture");
 
     window.history.pushState({}, "", "/operations?provider=openai&outcome=not_found&q=run_3&page=1&run=run_3");
     fireEvent(window, new PopStateEvent("popstate"));
 
     await waitFor(() => expect(screen.getByLabelText("Processing model filter")).toHaveValue("openai"));
     expect(screen.getByLabelText("Outcome filter")).toHaveValue("not_found");
-    expect(screen.getByLabelText("Search runs")).toHaveValue("run_3");
-    expect(screen.getByRole("radio", { name: "Select run_3" })).toBeChecked();
+    expect(screen.getByLabelText("Search review records")).toHaveValue("run_3");
+    expect(screen.getByRole("radio", { name: "Select fixture-3.pdf" })).toBeChecked();
     expect(screen.getByText("Page 1 of 1")).toBeVisible();
   });
 
@@ -123,11 +123,69 @@ describe("Run explorer", () => {
     }
   });
 
+  it("keeps custom outcomes evidence-only in the review queue", () => {
+    const customRuns = [
+      { ...runs[1], id: "custom_evidence", filename: "custom-evidence.pdf", sourceType: "custom" as const, outcome: "evidence_consistent" as const },
+      { ...runs[2], id: "custom_conflict", filename: "custom-conflict.pdf", sourceType: "custom" as const, outcome: "conflict" as const },
+      { ...runs[3], id: "custom_missing", filename: "custom-missing.pdf", sourceType: "custom" as const, outcome: "not_found" as const },
+    ];
+    render(<RunExplorer runs={customRuns} onSelect={() => undefined} />);
+
+    const queue = screen.getByRole("table", { name: "Procurement review queue" });
+    expect(within(queue).getAllByRole("columnheader")[0]).toHaveTextContent("Document reference");
+    for (const [reference, label] of [
+      ["custom-evidence.pdf", "Evidence-consistent"],
+      ["custom-conflict.pdf", "Conflict"],
+      ["custom-missing.pdf", "Not found"],
+    ]) {
+      const radio = within(queue).getByRole("radio", { name: `Select ${reference}` });
+      const row = radio.closest("tr")!;
+      expect(within(row).getByText(label)).toBeVisible();
+      expect(within(row).getByText("Evidence only - no business approval")).toBeVisible();
+      expect(within(row).queryByText("Ready for posting decision")).not.toBeInTheDocument();
+    }
+    expect(screen.getByLabelText("Search review records")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Scrollable procurement review queue" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Review queue pagination" })).toBeVisible();
+    expect(screen.getByText("3 matching review records")).toBeVisible();
+  });
+
+  it("uses neutral retention states without active handoffs", () => {
+    const retainedRuns = (["expired", "deleted"] as const).flatMap((status, statusIndex) =>
+      (["clear", "needs_review", "incomplete"] as const).map((outcome, outcomeIndex) => ({
+        ...runs[statusIndex * 3 + outcomeIndex],
+        id: `${status}_${outcome}`,
+        filename: `${status}-${outcome}.pdf`,
+        sourceType: "synthetic" as const,
+        fixtureId: null,
+        status,
+        outcome,
+        latestWorkflowEvent: {
+          action: "approve_and_stage" as const,
+          status: "prepared" as const,
+          timestamp: "2026-08-27T00:04:00.000Z",
+        },
+      })),
+    );
+    render(<RunExplorer runs={retainedRuns} onSelect={() => undefined} />);
+
+    const queue = screen.getByRole("table", { name: "Procurement review queue" });
+    for (const retained of retainedRuns) {
+      const radio = within(queue).getByRole("radio", { name: `Select ${retained.filename}` });
+      const row = radio.closest("tr")!;
+      expect(within(row).getByText(retained.status === "expired" ? "Evidence expired" : "Record deleted")).toBeVisible();
+      expect(within(row).getByText("No active handoff")).toBeVisible();
+      expect(row.querySelector(".status-mark--warning")).toBeInTheDocument();
+      expect(within(row).queryByText("Posting handoff prepared")).not.toBeInTheDocument();
+      expect(within(row).queryByText("Ready for posting decision")).not.toBeInTheDocument();
+    }
+  });
+
   it("does not display evidence or preview for an expired run", async () => {
     const user = userEvent.setup();
     render(<RunExplorer runs={runs} onSelect={() => undefined} />);
     await user.click(screen.getByRole("button", { name: /next page/i }));
-    await user.click(screen.getByRole("radio", { name: /select run_12/i }));
+    await user.click(screen.getByRole("radio", { name: "Select fixture-12.pdf" }));
     expect(screen.getByText(/retention metadata only/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /document preview/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /evidence snippets/i })).not.toBeInTheDocument();
@@ -208,7 +266,7 @@ describe("Run explorer", () => {
     } }), { status: 200 })));
     render(<RunExplorer runs={[active]} onSelect={() => undefined} />);
 
-    await user.click(screen.getByRole("radio", { name: "Select run_1" }));
+    await user.click(screen.getByRole("radio", { name: "Select INV-MP-4101" }));
 
     const runTable = screen.getByRole("table", { name: "Procurement review queue" });
     expect(within(runTable).queryByText("No AI processing")).not.toBeInTheDocument();
@@ -270,7 +328,7 @@ describe("Run explorer", () => {
     } }), { status: 200 })));
     render(<RunExplorer runs={[custom]} onSelect={() => undefined} />);
 
-    await user.click(screen.getByRole("radio", { name: "Select run_2" }));
+    await user.click(screen.getByRole("radio", { name: "Select customer-upload.pdf" }));
 
     expect(await screen.findByTitle("Active document preview for customer-upload.pdf")).toHaveAttribute("src", "/api/runs/run_2/document");
     expect(screen.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/run_2/document");

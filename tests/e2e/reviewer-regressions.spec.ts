@@ -252,18 +252,18 @@ test("Operations restores URL state and exposes the complete active inspector", 
     configuredProvider: index % 2 === 0 ? "openai" : "anthropic",
     configuredModel: index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: "recorded",
-    sourceType: "synthetic",
+    sourceType: index >= 1 && index <= 3 ? "custom" : "synthetic",
     documentFamily: "supplier_invoice",
-    fixtureId: index === 0 ? "invoice-total-mismatch" : "invoice-clean-match",
+    fixtureId: index === 0 ? "invoice-total-mismatch" : index >= 1 && index <= 3 ? null : "invoice-clean-match",
     status: "completed",
-    outcome: index === 0 ? "conflict" : index === 1 ? "not_found" : "evidence_consistent",
+    outcome: index === 0 ? "conflict" : index === 1 ? "evidence_consistent" : index === 2 ? "conflict" : index === 3 ? "not_found" : "evidence_consistent",
     createdAt: "2026-08-27T00:00:00.000Z",
     expiresAt: "2099-08-28T00:00:00.000Z",
     deletedAt: null,
     retryCount: 0,
     latencyMs: 100,
     estimatedCostUsd: 0,
-    filename: `fixture-${index + 1}.pdf`,
+    filename: index === 1 ? "custom-evidence.pdf" : index === 2 ? "custom-conflict.pdf" : index === 3 ? "custom-missing.pdf" : `fixture-${index + 1}.pdf`,
     latestWorkflowEvent: index === 0
       ? { action: "prepare_email", status: "prepared", timestamp: "2026-08-27T00:04:00.000Z" }
       : null,
@@ -332,6 +332,16 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await expect(page.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
   await expect(page.getByText("Provider-neutral contract baseline")).toBeVisible();
   await expect(page.getByText("No confirmed model runs").first()).toBeVisible();
+  for (const [reference, label] of [
+    ["custom-evidence.pdf", "Evidence-consistent"],
+    ["custom-conflict.pdf", "Conflict"],
+    ["custom-missing.pdf", "Not found"],
+  ] as const) {
+    const row = page.getByRole("radio", { name: `Select ${reference}` }).locator("xpath=ancestor::tr");
+    await expect(row.getByText(label, { exact: true })).toBeVisible();
+    await expect(row.getByText("Evidence only - no business approval")).toBeVisible();
+    await expect(row.getByText("Ready for posting decision")).toHaveCount(0);
+  }
   await page.getByLabel("Outcome filter").selectOption("conflict");
   await page.getByLabel("Processing model filter").selectOption("openai");
   await page.goBack();
@@ -339,9 +349,9 @@ test("Operations restores URL state and exposes the complete active inspector", 
   await expect(page.getByLabel("Outcome filter")).toHaveValue("conflict");
   await page.goForward();
   await expect(page.getByLabel("Processing model filter")).toHaveValue("openai");
-  await expect(page.getByText("No matching runs")).toBeVisible();
+  await expect(page.getByText("No matching review records")).toBeVisible();
   await page.getByLabel("Processing model filter").selectOption("all");
-  await page.getByRole("radio", { name: "Select ops_1" }).check();
+  await page.getByRole("radio", { name: "Select INV-MP-4101" }).check();
   await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
   await expect(page.getByRole("img", { name: "Rendered preview of fixture-1.pdf" })).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
   await expect(page.getByRole("link", { name: "Open full document" })).toHaveAttribute("href", "/api/runs/ops_1/document");
