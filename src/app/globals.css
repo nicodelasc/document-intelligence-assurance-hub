@@ -387,7 +387,7 @@ tbody th { font-weight: 600; }
 .timeline-list li { display: grid; grid-template-columns: 12px 1fr auto; gap: 0.5rem; align-items: center; }
 .timeline-list strong { font-family: "IBM Plex Mono", monospace; font-size: 0.7rem; }
 .route-error { max-width: 720px; margin-block: 3rem; padding: 2rem; border: 1px solid var(--rule); background: white; }
-@container operations-workspace (max-width: 68rem) {
+@container operations-workspace (max-width: 74rem) {
   .explorer-layout { grid-template-columns: 1fr; }
   .run-explorer { border-right: 0; border-bottom: 1px solid var(--rule); }
 }

@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+const responsiveWidths = [1536, 1700, 1720, 1760, 1800, 1920] as const;
+const sideBySideMinimumOperationsWidth = 74 * 16;
+
 test("splits Operations and Costs then opens a complete workflow detail", async ({ page }) => {
   const run = {
     id: "run_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -153,36 +156,40 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
 
   await page.getByRole("radio", { name: "Select INV-MP-4101, Exception review required, received 27 Aug 2026, 08:00 SGT" }).check();
   await expect(page.getByRole("heading", { name: "Review record and technical trace", level: 3 })).toBeVisible();
-  const containerGeometry = await page.locator(".explorer-layout").evaluate((layout) => {
-    const operations = layout.closest(".operations-column")!;
-    const explorer = layout.querySelector(".run-explorer")!;
-    const inspector = layout.querySelector(".run-inspector")!;
-    return {
-      operationsWidth: operations.getBoundingClientRect().width,
-      inspectorStartsAfterQueue: inspector.getBoundingClientRect().top >= explorer.getBoundingClientRect().bottom,
-    };
-  });
-  expect(containerGeometry.operationsWidth).toBeLessThan(68 * 16);
-  expect(containerGeometry.inspectorStartsAfterQueue).toBe(true);
-  const overlaps = await page.locator(".explorer-layout").evaluate((layout) => {
-    const toolbarItems = Array.from(layout.querySelectorAll(".explorer-toolbar label, .explorer-toolbar input, .explorer-toolbar select"));
-    const inspectorItems = Array.from(layout.querySelectorAll(".run-inspector .inspector-title, .run-inspector .inspector-sections"));
-    return toolbarItems.flatMap((toolbarItem) => {
-      const toolbarBox = toolbarItem.getBoundingClientRect();
-      return inspectorItems.flatMap((inspectorItem) => {
-        const inspectorBox = inspectorItem.getBoundingClientRect();
-        const intersects = toolbarBox.left < inspectorBox.right
-          && toolbarBox.right > inspectorBox.left
-          && toolbarBox.top < inspectorBox.bottom
-          && toolbarBox.bottom > inspectorBox.top;
-        return intersects ? [{
-          toolbar: `${toolbarItem.tagName.toLowerCase()}:${toolbarItem.textContent?.trim() ?? ""}`,
-          inspector: `${inspectorItem.tagName.toLowerCase()}:${inspectorItem.textContent?.trim().slice(0, 80) ?? ""}`,
-        }] : [];
+  for (const width of responsiveWidths) {
+    await test.step(`keeps the queue and inspector separate at ${width}px`, async () => {
+      await page.setViewportSize({ width, height: 1024 });
+      const containerGeometry = await page.locator(".explorer-layout").evaluate((layout) => {
+        const operations = layout.closest(".operations-column")!;
+        const explorer = layout.querySelector(".run-explorer")!;
+        const inspector = layout.querySelector(".run-inspector")!;
+        const toolbarItems = Array.from(layout.querySelectorAll(".explorer-toolbar label, .explorer-toolbar input, .explorer-toolbar select"));
+        const inspectorItems = Array.from(layout.querySelectorAll(".run-inspector .inspector-title, .run-inspector .inspector-sections"));
+        const overlaps = toolbarItems.flatMap((toolbarItem) => {
+          const toolbarBox = toolbarItem.getBoundingClientRect();
+          return inspectorItems.flatMap((inspectorItem) => {
+            const inspectorBox = inspectorItem.getBoundingClientRect();
+            const intersects = toolbarBox.left < inspectorBox.right
+              && toolbarBox.right > inspectorBox.left
+              && toolbarBox.top < inspectorBox.bottom
+              && toolbarBox.bottom > inspectorBox.top;
+            return intersects ? [{
+              toolbar: `${toolbarItem.tagName.toLowerCase()}:${toolbarItem.textContent?.trim() ?? ""}`,
+              inspector: `${inspectorItem.tagName.toLowerCase()}:${inspectorItem.textContent?.trim().slice(0, 80) ?? ""}`,
+            }] : [];
+          });
+        });
+        return {
+          operationsWidth: operations.getBoundingClientRect().width,
+          inspectorStartsAfterQueue: inspector.getBoundingClientRect().top >= explorer.getBoundingClientRect().bottom,
+          overlaps,
+        };
       });
+      const shouldStack = containerGeometry.operationsWidth <= sideBySideMinimumOperationsWidth;
+      expect(containerGeometry.inspectorStartsAfterQueue).toBe(shouldStack);
+      expect(containerGeometry.overlaps).toEqual([]);
     });
-  });
-  expect(overlaps).toEqual([]);
+  }
   const renderedPreview = page.getByRole("img", { name: `Rendered preview of ${run.filename}` });
   await expect(renderedPreview).toHaveAttribute("src", "/samples/invoice-total-mismatch.png");
   await expect.poll(() => renderedPreview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);

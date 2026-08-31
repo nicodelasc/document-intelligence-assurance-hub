@@ -39,3 +39,32 @@ Regenerated `docs/design/verification/operations-1536x1024.png` through `tests/e
 | `npm run verify:premium` | Passed: 0 findings, violations and warnings. |
 | `git diff --check` | Passed for the staged fix before commit. |
 | `git diff --check b4f7f90..HEAD` | Passed for the complete release range after commit. |
+
+## Fix round 2: close the responsive overlap band
+
+### Red to green geometry evidence
+
+- Base commit: `3ae5bbf0fc3e1f014eaab339ae209f02983a552f`.
+- Added the responsive-width matrix before changing production CSS. It covers 1536, 1700, 1720, 1760, 1800 and 1920px at 1024px height. For every entry it inspects every queue toolbar label, input and select against the inspector title and content then requires zero intersections.
+- RED: the matrix failed at 1700px. The Operations container measured 1090.66px and the layout remained side-by-side although the measured safe side-by-side minimum is 1184px. The review recorded the corresponding `Search review records` and inspector-title collision as 10.53x10.91px.
+- GREEN: raised the `operations-workspace` inline-size cutoff from 68rem to 74rem. The matrix measured 981.33px at 1536, 1090.66px at 1700, 1104.00px at 1720, 1130.66px at 1760 and 1157.33px at 1800. Each stacks and reports zero intersections. At 1920 the container is 1237.33px, returns to side-by-side and reports zero intersections.
+- The stacking expectation is derived from the measured Operations container width rather than the browser viewport. It keeps the existing 390px mobile order and tour behavior unchanged.
+
+### Screenshot decision
+
+No visual capture was regenerated. The approved 1536x1024 screenshot is already in the stacked state under both the 68rem and 74rem cutoffs, so its appearance is unchanged. Its existing SHA-256 remains `59F524AA518BD25A0DFFFC61A362DA87D9D013AD79BB0B0445CFE0F476BE7BEC`.
+
+### Commands and results
+
+| Command | Result |
+| --- | --- |
+| `npx playwright test tests/e2e/operations.spec.ts` before the CSS change | RED at 1700px: expected stack, received side-by-side. |
+| `npx playwright test tests/e2e/operations.spec.ts` after the CSS change | Passed: responsive geometry matrix is green. |
+| `npm run test:component -- tests/component/operations.test.tsx` | Passed: 4 files and 96 tests. |
+| `npx playwright test tests/e2e/operations.spec.ts tests/e2e/reviewer-regressions.spec.ts tests/e2e/dual-guided-tours.spec.ts tests/e2e/accessibility.spec.ts` | Passed: 17 browser tests. |
+| `npm run typecheck` | Passed. |
+| `npm run lint` | Passed. |
+| `npm run design:lint` | Passed with 0 errors and the existing 9 orphan-token warnings. |
+| `python C:/Users/nicho/.codex/plugins/cache/openai-curated-remote/frontend-design-premium/1.4.0/skills/frontend-design-premium/scripts/audit_project.py . --mode strict --no-write` | Passed: 0 findings, violations and warnings. |
+| `npm run verify:premium` | Passed: 0 findings, violations and warnings. |
+| `git diff --check b4f7f90..HEAD` | Passed after the round-2 commit. |
