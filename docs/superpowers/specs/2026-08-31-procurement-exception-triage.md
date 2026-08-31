@@ -133,4 +133,3 @@ No provider key or paid model call is required for this release. Configured mode
 - Desktop and 390 px mobile layouts have no horizontal page overflow.
 - Unit, component, contract, accessibility, browser, build, premium, dependency and public-surface checks pass before deployment.
 - The pre-change commit remains available as a named rollback point.
-

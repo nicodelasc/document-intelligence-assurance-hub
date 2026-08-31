@@ -284,4 +284,3 @@ docs: align release package with procurement triage
 - [ ] **Step 8: Preserve rollback, merge, push and deploy**
 
 Create a named rollback tag or branch at `b4f7f90`. Review the complete feature diff. Merge the verified feature branch into `main`, push both rollback reference and `main`, wait for Vercel production deployment then smoke-test `/workbench`, `/operations`, `/api/models` and `/api/metrics`.
-
