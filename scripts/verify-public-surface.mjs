@@ -45,10 +45,47 @@ const signatures = [
     category: "retired public copy",
     pattern: /synthetic benchmark quality/gi,
   },
+  {
+    category: "retired public copy",
+    pattern: /\bapprove and stage\b/gi,
+  },
+  {
+    category: "retired public copy",
+    pattern: /\brun explorer\b/gi,
+  },
+  {
+    category: "retired public copy",
+    pattern: /\bprocess document\b/gi,
+  },
+  {
+    category: "retired public copy",
+    pattern: /\bresolve and prepare action\b/gi,
+  },
 ];
 
 const requiredUiCopy = [
+  {
+    label: "Review incoming procurement documents",
+    pattern: /review incoming procurement documents/i,
+  },
+  {
+    label: "Assess for exceptions",
+    pattern: /assess for exceptions/i,
+  },
+  {
+    label: "Exception triage decision",
+    pattern: /exception triage decision/i,
+  },
+  { label: "Prepared next step", pattern: /prepared next step/i },
   { label: "Processing model", pattern: /processing model/i },
+  {
+    label: "Procurement review operations",
+    pattern: /procurement review operations/i,
+  },
+  {
+    label: "Procurement review queue",
+    pattern: /procurement review queue/i,
+  },
   { label: "Reference quality suite", pattern: /reference quality suite/i },
   { label: "Prepared only - not sent", pattern: /prepared only - not sent/i },
 ];

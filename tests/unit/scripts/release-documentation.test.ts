@@ -13,6 +13,18 @@ const readme = readProjectFile("README.md");
 const architecture = readProjectFile("docs/architecture.md");
 const evaluation = readProjectFile("docs/evaluation-report.md");
 const privacy = readProjectFile("docs/privacy-and-retention.md");
+const design = readProjectFile("DESIGN.md");
+const uxContract = readProjectFile("UX-CONTRACT.md");
+const walkthrough = readProjectFile("docs/walkthrough-script.md");
+
+const releaseFacingDocumentation = [
+  design,
+  uxContract,
+  readme,
+  architecture,
+  evaluation,
+  walkthrough,
+].join("\n");
 
 const pendingRoutes = [
   "Built-in sample through OpenAI",
@@ -44,6 +56,82 @@ function expectPendingProcessingRoutes(markdown: string) {
 }
 
 describe("Operations release documentation", () => {
+  it("states the procurement exception-triage problem and controlled handoff boundary", () => {
+    expect(readme).toMatch(
+      /finance and warehouse teams.*supplier invoices.*goods receipts.*before payment or inventory posting/is,
+    );
+    expect(readme).toMatch(
+      /extracts evidence.*trusted synthetic records.*identifies exceptions.*controlled human handoff/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /all documents and reference records are synthetic/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /ERP posting, payment, inventory, email and archive integrations are simulated/is,
+    );
+  });
+
+  it("records only the approved outcome-specific Workbench actions", () => {
+    for (const label of [
+      "Prepare posting handoff",
+      "Assign exception review",
+      "Draft clarification request",
+      "Request clearer evidence",
+      "Assign manual review",
+      "Replace document",
+      "Retry processing",
+      "Replace with a supported procurement document",
+    ]) {
+      expect(uxContract).toContain(label);
+    }
+
+    expect(uxContract).toMatch(/approve_and_stage.*internal identifier/is);
+    expect(uxContract).toMatch(/new events.*prepared/is);
+  });
+
+  it("documents queue-first Operations while keeping technical detail in the inspector", () => {
+    expect(design).toMatch(
+      /Procurement review queue.*before.*Processing performance.*Reference quality suite/is,
+    );
+    expect(uxContract).toMatch(
+      /Procurement review queue.*before.*processing-performance.*assurance/is,
+    );
+    expect(architecture).toMatch(
+      /document reference.*document type.*review decision.*exception.*prepared next step.*received time/is,
+    );
+    expect(architecture).toMatch(
+      /run ID.*model.*token.*latency.*expiry.*safe diagnostics.*inspector/is,
+    );
+  });
+
+  it("records approved sample overrides and the fail-closed visual-grounding boundary", () => {
+    expect(architecture).toMatch(/assets\/sample-overrides/i);
+    expect(architecture).toMatch(
+      /sample generator.*copies.*approved.*instead of.*overwrit/is,
+    );
+    expect(architecture).toMatch(
+      /text-native PDF.*rendered.*local OCR.*native text.*OCR text.*merged/is,
+    );
+    expect(architecture).toMatch(
+      /recorded synthetic runs.*do not invoke OCR or a provider/is,
+    );
+    expect(evaluation).toMatch(
+      /visual evidence.*conflicts.*Needs review.*cannot be decoded confidently.*Incomplete/is,
+    );
+    expect(evaluation).toMatch(/zero false-clear/i);
+  });
+
+  it("rejects retired primary labels from release-facing documentation", () => {
+    for (const retiredLabel of [
+      /\bApprove and stage\b/i,
+      /\bRun explorer\b/i,
+      /\bProcess document\b/i,
+      /\bResolve and prepare action\b/i,
+    ]) {
+      expect(releaseFacingDocumentation).not.toMatch(retiredLabel);
+    }
+  });
+
   it("separates bounded operational detail from repository-wide anonymous metrics", () => {
     expect(readme).toMatch(/newest 100 public run summaries/i);
     expect(architecture).toMatch(/repository-wide anonymous run aggregate/i);

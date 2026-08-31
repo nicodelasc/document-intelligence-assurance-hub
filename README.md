@@ -1,6 +1,6 @@
 # Document Intelligence Assurance Hub
 
-Interpret ten synthetic supplier invoice and warehouse goods receipt variants then inspect field evidence, a deterministic assurance decision and one constrained action proposal. The Workbench turns each verified outcome into simulated preparation options with a durable activity timeline. Operations exposes public-safe traces, workflow readiness, the provider-neutral Reference quality suite and an illustrative resource calculator.
+Finance and warehouse teams manually review supplier invoices and goods receipts before payment or inventory posting. Typed fields, handwritten notes and reference mismatches can be missed. The Hub extracts evidence, compares it with trusted synthetic records, identifies exceptions and prepares a controlled human handoff before downstream posting. The Workbench supports the finance and warehouse checkpoints while Operations leads with the procurement review queue and keeps technical traceability in the selected-record inspector.
 
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
@@ -15,11 +15,11 @@ This is a public-safe portfolio application. Use synthetic fixtures unless you c
 
 `POST /api/runs` derives execution mode from the validated model provider and current server-owned provider availability. The multipart execution mode and matching preflight header are request-consistency metadata only. They cannot force fallback, force live processing or switch providers.
 
-For a built-in sample the selected model controls the route. When its provider is available `Process document` sends the sample through that selected model adapter. When the provider is unavailable the same button uses the checked-in deterministic result and the interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
+For a built-in sample the selected model controls the route. When its provider is available `Assess for exceptions` sends the sample through that selected model adapter. When the provider is unavailable the same button uses the checked-in deterministic result and the interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
 
-Custom uploads have no recorded fallback. An unavailable selected provider disables `Process document` and shows `Processing unavailable for this model`. The file, requested fields and consent remain local to the form until the reviewer can choose an available route.
+Custom uploads have no recorded fallback. An unavailable selected provider disables `Assess for exceptions` and shows `Processing unavailable for this model`. The file, requested fields and consent remain local to the form until the reviewer can choose an available route.
 
-Only `Process document` can create a model-budget reservation. Browsing samples, opening previews, comparing runs and preparing simulated workflow actions cannot reserve model spend. Persisted `providerDispatched=true` is the only execution fact used to report a provider call. Configured provider and model values remain separate from actual attribution.
+Only `Assess for exceptions` can create a model-budget reservation. Browsing samples, opening previews, comparing runs and preparing simulated workflow actions cannot reserve model spend. Persisted `providerDispatched=true` is the only execution fact used to report a provider call. Configured provider and model values remain separate from actual attribution.
 
 ## Model catalogue
 
@@ -55,7 +55,7 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 - Model output must pass a structured schema before evaluation.
 - Provider-routed evidence must map to a contiguous span on its claimed page before server-owned normalization can pass it.
 - Typed fixture evidence is native PDF text. Handwritten reviewer and receiver comments are embedded as raster images so the selected model must interpret the visible handwriting rather than selectable comment text.
-- Text-native PDFs are parsed locally. PNG, JPEG and scanned PDF pages use bounded local OCR with bundled English language data. Document bytes are not sent to another grounding service.
+- Text-native PDFs are parsed locally. Live synthetic fixtures with handwritten evidence use explicit visual grounding: each validated PDF page is also rendered for bounded local OCR then native text and OCR text are merged for page-scoped evidence checks. PNG, JPEG and scanned PDF pages use the bounded local OCR path with bundled English language data. Document bytes are not sent to another grounding service.
 - Unclear critical handwriting must return null and resolve as Not found. The model is instructed not to guess or reconstruct obscured characters from business context.
 - Clear requires every requested field to pass deterministic checks and any supplied reference comparison.
 - Provider failures use stable public error codes. Hidden provider details are not returned.
@@ -67,7 +67,23 @@ See [docs/architecture.md](docs/architecture.md) for adapter boundaries and trus
 - Action policy runs on the server after evaluation. A proposal cannot approve or execute a business action.
 - Workflow actions use the browser-held run capability plus server-owned status, outcome and recipient-role policy. Recipient-required actions accept one synthetic business-role label and never an address.
 - `Prepare email copy` returns a bounded preview labelled `Prepared only - not sent`. Its subject and body are not persisted. The interface can copy the text but cannot send it.
-- `/api/runs/:id/stage-action` remains an idempotent compatibility mapping to the simulated `approve_and_stage` event. Real email and every ERP, ticketing, payment, inventory or access-control connector remain out of scope.
+- `/api/runs/:id/stage-action` remains an idempotent compatibility mapping to the internal `approve_and_stage` identifier. New posting-handoff events use status `prepared`. Real email and every ERP, ticketing, payment, inventory or access-control connector remain out of scope.
+
+The approved reviewer-written files live under `assets/sample-overrides/` with matching PNG previews. The sample generator copies these approved PDF sources instead of overwriting them with generated placeholder handwriting. Recorded synthetic runs keep their deterministic result and do not invoke OCR or a provider. Custom uploads keep the bounded text-or-scan path. Visual grounding stays local, cancellable, page-limited and fail-closed without introducing a second provider call.
+
+## Outcome-specific actions
+
+The Workbench exposes only the controls needed to prepare the next responsible review step:
+
+| Result                                  | Controls                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| Ready for posting decision              | `Prepare posting handoff`                                                 |
+| Exception review required               | `Assign exception review` and `Draft clarification request`               |
+| Awaiting readable evidence              | `Request clearer evidence`, `Assign manual review` and `Replace document` |
+| Failed                                  | `Retry processing`                                                        |
+| Irrelevant or uncertain custom document | `Replace with a supported procurement document`                           |
+
+`Draft clarification request` uses the prepared-email preview. It remains `Prepared only - not sent` and accepts only a server-approved synthetic role.
 
 ## Evaluation status
 
@@ -77,7 +93,7 @@ A separate 10 by 2 recorded-adapter matrix contains 20 schema and configuration 
 
 ## Operations and Costs metric populations
 
-Operations combines six server-side data sources behind a 15-second cache. The summary cards use a repository-wide anonymous run aggregate. Lifecycle uses a repository-wide active-detail aggregate plus the repository-wide cleanup backlog. Workflow status, workflow activity, processing performance and the run explorer use the newest 100 public run summaries with active detail where available.
+Operations combines six server-side data sources behind a 15-second cache. The summary cards use a repository-wide anonymous run aggregate. Lifecycle uses a repository-wide active-detail aggregate plus the repository-wide cleanup backlog. `Procurement review queue` appears before `Triage status`, processing performance and the `Reference quality suite`. The queue leads with document reference, document type, review decision, exception, prepared next step and received time. Run ID, model, token, latency, expiry and safe diagnostics remain in `Review record and technical trace`. The queue plus workflow and performance panels use the newest 100 public run summaries with active detail where available.
 
 Costs keeps provider execution evidence separate from budget accounting. Confirmed provider usage, model and document-family breakdowns plus completed-run cost estimates use only confirmed dispatched completed runs with trustworthy nonzero token usage. When that population is empty the dashboard shows `No confirmed model runs` and US$0.00. A failed dispatched request can contribute conservative settled spend but it is excluded from completed-run estimates and their average.
 
@@ -101,6 +117,7 @@ Keep `AI_LIVE_ENABLED=false` when provider credentials are not intentionally und
 
 ```bash
 npm run format:check
+npm run design:lint
 npm run lint
 npm run typecheck
 npm run test:unit
@@ -114,7 +131,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows both document families, current Workbench and Operations labels plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
+The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows `Review incoming procurement documents`, `Assess for exceptions`, `Exception triage decision`, `Prepared next step`, `Procurement review operations` and the queue-first Operations story plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
 
 ## Connected persistence
 
@@ -159,18 +176,18 @@ The application does not provide user accounts or private per-user run visibilit
 
 ## API routes
 
-| Method   | Route                            | Purpose                                                                                                                                                  |
-| -------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`   | `/api/runs`                      | Derive server-owned admission, validate quota then stream one assurance run. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
-| `GET`    | `/api/models`                    | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                                                      |
-| `GET`    | `/api/runs`                      | List bounded active public run summaries.                                                                                                                |
-| `GET`    | `/api/runs/:id`                  | Read one public-safe active run.                                                                                                                         |
-| `POST`   | `/api/runs/:id/workflow-actions` | Persist one capability-protected simulated workflow event under outcome and recipient-role policy.                                                       |
-| `POST`   | `/api/runs/:id/stage-action`     | Compatibility mapping that persists the same idempotent `approve_and_stage` event.                                                                       |
-| `DELETE` | `/api/runs/:id`                  | Tombstone details with the one-time deletion token.                                                                                                      |
-| `GET`    | `/api/runs/:id/document`         | Serve one active document through a no-store same-origin response.                                                                                       |
-| `GET`    | `/api/metrics`                   | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                                                 |
-| `GET`    | `/api/cron/purge-expired`        | Tombstone expired details and retry physical cleanup.                                                                                                    |
+| Method   | Route                            | Purpose                                                                                                                                                         |
+| -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/runs`                      | Derive server-owned admission, validate quota then stream one exception assessment. Requires `Idempotency-Key`, `X-Run-Source-Type` and `X-Run-Execution-Mode`. |
+| `GET`    | `/api/models`                    | Return the server-owned catalogue, defaults and provider-availability booleans without credentials.                                                             |
+| `GET`    | `/api/runs`                      | List bounded active public run summaries.                                                                                                                       |
+| `GET`    | `/api/runs/:id`                  | Read one public-safe active run.                                                                                                                                |
+| `POST`   | `/api/runs/:id/workflow-actions` | Persist one capability-protected simulated workflow event under outcome and recipient-role policy.                                                              |
+| `POST`   | `/api/runs/:id/stage-action`     | Compatibility mapping that persists the same idempotent `approve_and_stage` event.                                                                              |
+| `DELETE` | `/api/runs/:id`                  | Tombstone details with the one-time deletion token.                                                                                                             |
+| `GET`    | `/api/runs/:id/document`         | Serve one active document through a no-store same-origin response.                                                                                              |
+| `GET`    | `/api/metrics`                   | Return public-safe operational, action-readiness and deterministic benchmark aggregates.                                                                        |
+| `GET`    | `/api/cron/purge-expired`        | Tombstone expired details and retry physical cleanup.                                                                                                           |
 
 ## Deployment readiness
 
@@ -181,6 +198,8 @@ Follow [docs/deployment-checklist.md](docs/deployment-checklist.md). The stable 
 ## Limitations and live-acceptance gate
 
 This application lacks authentication, private tenant boundaries, malware scanning, data-loss prevention and a formally approved enterprise retention policy. Public custom uploads are voluntary and unsuitable for sensitive information. Its workflow capability persists simulated internal state only. Prepared email copy is response-only and no route can send email or contact an external business system.
+
+All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
 All four visible live model routes remain a post-key rollout gate:
 

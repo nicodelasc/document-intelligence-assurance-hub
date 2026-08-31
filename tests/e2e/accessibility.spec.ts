@@ -21,7 +21,11 @@ test("Workbench preserves source preview trace order on mobile", async ({ page }
   await page.goto("/workbench");
 
   const headings = await Promise.all(
-    ["1. Document library", "Document preview", "Assurance trace"].map(async (name) => {
+    [
+      "1. Select a procurement document",
+      "Document preview",
+      "Assurance trace",
+    ].map(async (name) => {
       const box = await page.getByRole("heading", { name }).boundingBox();
       expect(box).not.toBeNull();
       return box!;
@@ -38,10 +42,14 @@ test("Workbench workflow role dialog has no serious or critical axe violations",
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/workbench");
   await page.getByRole("button", { name: /Total mismatch/i }).click();
-  await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible();
-  await page.getByRole("button", { name: "Assign for review" }).click();
-  await expect(page.getByRole("dialog", { name: "Assign for review" })).toBeVisible();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Exception review required" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Assign exception review" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Assign exception review" }),
+  ).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
   const blocking = results.violations.filter(

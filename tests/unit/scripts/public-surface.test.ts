@@ -47,21 +47,23 @@ describe("public-surface verifier", () => {
     );
   });
 
-  it("rejects only retired public copy and requires the current UI labels", () => {
+  it("rejects retired public copy and requires the procurement triage labels", () => {
     const retiredFindings = scanText(
       [
         "Live custom-run",
         "Live-call provider",
         "Synthetic benchmark quality",
+        "Approve and stage",
+        "Run explorer",
+        "Process document",
+        "Resolve and prepare action",
       ].join("\n"),
       "ui-source.tsx",
     );
 
-    expect(retiredFindings.map((finding) => finding.category)).toEqual([
-      "retired public copy",
-      "retired public copy",
-      "retired public copy",
-    ]);
+    expect(retiredFindings.map((finding) => finding.category)).toEqual(
+      Array.from({ length: 7 }, () => "retired public copy"),
+    );
     expect(
       scanText(
         'executionMode: "live"; recordedRuns: 10; providerDispatched: false;',
@@ -71,13 +73,32 @@ describe("public-surface verifier", () => {
 
     expect(
       scanRequiredUiCopy(
-        "Processing model\nReference quality suite\nPrepared only - not sent",
+        [
+          "Review incoming procurement documents",
+          "Assess for exceptions",
+          "Exception triage decision",
+          "Prepared next step",
+          "Processing model",
+          "Procurement review operations",
+          "Procurement review queue",
+          "Reference quality suite",
+          "Prepared only - not sent",
+        ].join("\n"),
         "aggregated UI source",
       ),
     ).toEqual([]);
     expect(
       scanRequiredUiCopy(
-        "Processing model\nReference quality suite",
+        [
+          "Review incoming procurement documents",
+          "Assess for exceptions",
+          "Exception triage decision",
+          "Prepared next step",
+          "Processing model",
+          "Procurement review operations",
+          "Procurement review queue",
+          "Reference quality suite",
+        ].join("\n"),
         "aggregated UI source",
       ),
     ).toEqual([

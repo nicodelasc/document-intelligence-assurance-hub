@@ -111,17 +111,23 @@ describe("Release artifact hardening", () => {
       "Supplier invoices",
       "Warehouse goods receipts",
       "10 provider-neutral observations",
-      "Process document",
+      "Review incoming procurement documents",
+      "Assess for exceptions",
       "Processing model",
       "Understand document",
       "Verify evidence",
-      "Resolve and prepare action",
+      "Triage exception and prepare handoff",
+      "Exception triage decision",
       "Clean match",
       "Total mismatch",
+      "Prepare posting handoff",
+      "Draft clarification request",
       "Prepared only - not sent",
       "Run A",
       "Run B",
-      "Operations workspace",
+      "Procurement review operations",
+      "Procurement review queue",
+      "Review record and technical trace",
       "Costs workspace",
       "No AI processing",
       "Illustrative resource scenario",
@@ -139,9 +145,12 @@ describe("Release artifact hardening", () => {
     expect(recorder).toMatch(
       /getByRole\(["']button["'], \{ name: \/Total mismatch\/i \}\)/,
     );
-    expect(recorder).toMatch(/Prepare email to the selected role/);
+    expect(recorder).toMatch(
+      /getByRole\("button",\s*\{ name: "Assurance trace details" \}\)[\s\S]*?\.click\(\)/,
+    );
+    expect(recorder).toMatch(/Draft clarification request/);
     expect(recorder).toMatch(/Recipient role/);
-    expect(recorder).toMatch(/Prepare copy/);
+    expect(recorder).toMatch(/Prepare request/);
     expect(walkthrough).toMatch(
       /node scripts\/record-walkthrough\.mjs --base-url/,
     );
@@ -152,22 +161,31 @@ describe("Release artifact hardening", () => {
       /waitForTimeout\(durationMs\);[\s\S]*caption\?\.remove\(\)/,
     );
     expect(recorder).toMatch(
-      /getByRole\("heading", \{ name: "Operations", exact: true \}\)/,
+      /getByRole\("heading",\s*\{\s*name: "Procurement review operations",\s*exact: true,?\s*\}\)/,
+    );
+    expect(recorder).toMatch(
+      /getByRole\("table",\s*\{\s*name: "Procurement review queue",?\s*\}\)/,
+    );
+    expect(recorder).toContain(
+      "All documents and reference records are synthetic.",
+    );
+    expect(recorder).toContain(
+      "ERP posting, payment, inventory, email and archive integrations are simulated",
     );
   });
 
   it("starts the Total mismatch chapter only after processing reaches Needs review", () => {
     const mismatchSelection = recorder.indexOf("name: /Total mismatch/i");
     const nextWorkflowAction = recorder.indexOf(
-      'name: "Prepare email to the selected role"',
+      'name: "Draft clarification request"',
       mismatchSelection,
     );
     const mismatchFlow = recorder.slice(mismatchSelection, nextWorkflowAction);
     const processClick = mismatchFlow.indexOf(
-      'await page.getByRole("button", { name: "Process document"',
+      'await page.getByRole("button", { name: "Assess for exceptions"',
     );
     const needsReviewWait = mismatchFlow.indexOf(
-      'await page.getByRole("heading", { name: "Needs review"',
+      'name: "Exception review required"',
       processClick,
     );
     const mismatchChapter = mismatchFlow.indexOf("await showChapter(");
@@ -223,7 +241,7 @@ describe("Release artifact hardening", () => {
     }
   });
 
-  it("preserves approved reviewer PDF overrides during sample regeneration", () => {
+  it("preserves approved reviewer PDF and PNG overrides during sample regeneration", () => {
     const generation = spawnSync(
       process.execPath,
       [join(projectRoot, "scripts/generate-sample-documents.mjs")],
@@ -234,7 +252,9 @@ describe("Release artifact hardening", () => {
     expect(generation.status, generation.stderr).toBe(0);
     for (const filename of [
       "invoice-unreadable-approval.pdf",
+      "invoice-unreadable-approval.png",
       "warehouse-unreadable-damage-note.pdf",
+      "warehouse-unreadable-damage-note.png",
     ]) {
       expect(readFileSync(join(projectRoot, "public/samples", filename))).toEqual(
         readFileSync(join(projectRoot, "assets/sample-overrides", filename)),
@@ -242,7 +262,7 @@ describe("Release artifact hardening", () => {
     }
   }, 60_000);
 
-  it("fully decodes one 1440x900 VP8 stream within half a second of 2:08", () => {
+  it("fully decodes one 1440x900 VP8 stream within half a second of its documented duration", () => {
     const artifactPath = join(projectRoot, "artifacts/walkthrough.webm");
     if (!ffmpegPath) {
       throw new Error("ffmpeg_static_binary_unavailable");
@@ -282,9 +302,9 @@ describe("Release artifact hardening", () => {
     );
     expect(duration).not.toBeNull();
     expect(
-      Math.abs(durationSeconds(duration?.[1] ?? "00:00:00") - 128),
+      Math.abs(durationSeconds(duration?.[1] ?? "00:00:00") - 127.28),
     ).toBeLessThanOrEqual(0.5);
-    expect(walkthrough).toMatch(/measured duration is 2:07\.64/i);
+    expect(walkthrough).toMatch(/measured duration is 2:07\.28/i);
     expect(walkthrough).toContain("## 1:58–2:08 — Disclosure and gate");
   }, 60_000);
 
@@ -344,5 +364,14 @@ describe("Release artifact hardening", () => {
     expect(releaseArtifacts).not.toMatch(
       /\bprovider acceptance (?:is|was|has been) (?:complete|confirmed|established|verified)\b/i,
     );
+    const currentPrimaryArtifacts = [walkthrough, recorder, readme].join("\n");
+    for (const retiredLabel of [
+      /\bApprove and stage\b/i,
+      /\bRun explorer\b/i,
+      /\bProcess document\b/i,
+      /\bResolve and prepare action\b/i,
+    ]) {
+      expect(currentPrimaryArtifacts).not.toMatch(retiredLabel);
+    }
   });
 });

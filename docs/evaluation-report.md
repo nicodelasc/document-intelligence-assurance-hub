@@ -27,6 +27,10 @@ The reference totals are:
 
 Typed business evidence remains native PDF text. Reviewer and receiver comments are raster images so their handwriting is not available as selectable comment text. Unclear critical handwriting is represented as missing evidence and must resolve as Not found rather than a guessed value.
 
+The two approved handwriting fixtures are fail-closed. If visual evidence is decoded and conflicts with the trusted synthetic reference then the result is Needs review and appears as `Exception review required`. If the evidence cannot be decoded confidently then the result is Incomplete and appears as `Awaiting readable evidence`. Neither path may produce a clear result. The reference suite retains zero false-clear results.
+
+Live synthetic processing uses explicit visual grounding for these fixtures. A validated text-native page is rendered for bounded local OCR then native text and OCR text are merged for page-scoped checks. Recorded synthetic runs retain their deterministic outcome and do not invoke OCR or a provider. This distinction verifies the grounding contract without turning recorded cases into provider observations.
+
 This suite demonstrates fixture routing, schema conformance, deterministic field evaluation and action policy. It is a provider-neutral contract baseline. Fallback observations make no provider claim. It does not measure provider accuracy, production reliability or financial impact.
 
 ## Recorded-adapter schema and configuration coverage
@@ -47,7 +51,7 @@ Operations displays exactly 10 provider-neutral observations as one Reference qu
 
 Enabled built-in samples use the selected model route. If the selected provider is unavailable a built-in sample uses the deterministic result and states `Sample results - no AI processing`. Custom uploads have no fallback. The unavailable selected model is disabled for custom processing and the interface states `Processing unavailable for this model`.
 
-Only `Process document` can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
+Only `Assess for exceptions` can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
 
 Configuration is not acceptance. All four processing routes remain pending until their own connected production smoke tests pass:
 
@@ -78,3 +82,5 @@ The table below is a historical baseline, not the current final suite. It record
 | Public-surface verification | Passed | `npm run verify:public` scanned local source and built artifacts with zero findings. The verifier rejects the three exact retired phrases, requires the current Processing model and Reference quality suite labels from the aggregated UI source and includes `/api/models` in configured-origin scans. |
 
 No API key was supplied to these gates and no provider call was made. The four production processing routes remain Pending.
+
+All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.

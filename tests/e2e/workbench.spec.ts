@@ -55,8 +55,8 @@ test("browses document families without processing then runs the selected fixtur
 
   const modelSelect = page.getByLabel("Processing model");
   await modelSelect.selectOption("claude-haiku-4-5");
-  await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible({
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await expect(page.getByRole("heading", { name: "Exception review required" })).toBeVisible({
     timeout: connectedRunTimeout,
   });
   expect(runPosts).toHaveLength(1);
@@ -66,19 +66,18 @@ test("browses document families without processing then runs the selected fixtur
   for (const stage of [
     "Understand document",
     "Verify evidence",
-    "Resolve and prepare action",
+    "Triage exception and prepare handoff",
   ]) {
     await expect(page.getByText(stage, { exact: true })).toBeVisible();
   }
   await expect(page.getByText("Publish telemetry", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Review goods receipt" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assign for review" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Request clarification" })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Prepare email to the selected role" }),
+    page.getByRole("button", { name: "Assign exception review" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Replace document and reprocess" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download discrepancy summary" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Draft clarification request" }),
+  ).toBeVisible();
 
   const sectionHeadings = await page
     .locator(".assurance-rail")
@@ -86,7 +85,7 @@ test("browses document families without processing then runs the selected fixtur
     .allTextContents();
   expect(sectionHeadings).toEqual([
     "Assurance trace",
-    "Decision and next steps",
+    "Exception triage decision",
     "Evidence ledger",
     "Activity timeline",
   ]);
@@ -219,19 +218,21 @@ test("prepares a role-scoped email without sending and records the workflow acti
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Needs review" })).toBeVisible();
-  await page.getByRole("button", { name: "Prepare email to the selected role" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Exception review required" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Draft clarification request" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Prepare email copy" });
+  const dialog = page.getByRole("dialog", { name: "Draft clarification request" });
   const role = dialog.getByLabel("Recipient role");
   await expect(role).toHaveValue("");
   await expect(role.getByRole("option", { name: "Accounts Payable Analyst" })).toBeAttached();
   await expect(role.getByRole("option", { name: "Buyer" })).toBeAttached();
   await expect(role.getByRole("option", { name: "Supplier Contact" })).toBeAttached();
-  await expect(dialog.getByRole("button", { name: "Prepare copy" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Prepare request" })).toBeDisabled();
   await role.selectOption("Buyer");
-  await dialog.getByRole("button", { name: "Prepare copy" }).click();
+  await dialog.getByRole("button", { name: "Prepare request" }).click();
 
   const previewDialog = page.getByRole("dialog", { name: "Prepared email copy" });
   await expect(previewDialog.getByText("Prepared only - not sent", { exact: true })).toBeVisible();
@@ -357,7 +358,7 @@ test("retries a failed run after delayed diagnostics establish safe controls", a
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
   expect(detailReleased).toBe(false);
   releaseDetail();
@@ -388,7 +389,9 @@ test("the upload tile directly opens the picker and explains unavailable custom 
   await expect(
     page.getByText("Processing unavailable for this model", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Process document" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Assess for exceptions" }),
+  ).toBeDisabled();
 
   await page.getByRole("button", { name: /Clean match/i }).click();
   await expect(page.getByRole("button", { name: /Clean match/i })).toHaveAttribute(
@@ -512,7 +515,7 @@ test("a custom partial result uses incomplete evidence wording", async ({ page }
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await expect(page.getByText("Sample results - no AI processing")).toHaveCount(0);
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
 
   await expect(
     page.getByRole("heading", {

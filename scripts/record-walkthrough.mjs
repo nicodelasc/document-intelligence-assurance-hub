@@ -153,7 +153,9 @@ try {
 
     await assertKeylessProviderAvailability(page);
     await page.goto(new URL("/workbench", origin).href);
-    await page.getByRole("heading", { name: "Review a document" }).waitFor();
+    await page
+      .getByRole("heading", { name: "Review incoming procurement documents" })
+      .waitFor();
     await page.getByRole("tab", { name: "Supplier invoices" }).waitFor();
     await page.getByRole("tab", { name: "Warehouse goods receipts" }).waitFor();
     await page.getByLabel("Processing model").waitFor();
@@ -164,8 +166,8 @@ try {
     await showChapter(
       page,
       "Document Intelligence Assurance Hub",
-      "Supplier invoices and Warehouse goods receipts",
-      "The library contains 10 provider-neutral observations. The native Processing model selector changes configuration only until Process document is pressed.",
+      "Review incoming procurement documents",
+      "Finance and warehouse teams verify synthetic supplier invoices and goods receipts before a controlled downstream handoff. The Processing model selector changes configuration only until Assess for exceptions is pressed.",
       7_000,
     );
 
@@ -187,57 +189,71 @@ try {
     await page.getByRole("button", { name: /Clean match/i }).click();
     await waitForRenderedImage(page, ".document-preview__image");
     await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
-    await page.getByRole("button", { name: "Process document" }).click();
-    await page.getByRole("heading", { name: "Clear" }).waitFor();
-    await page.getByRole("heading", { name: "Clear" }).scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "Assess for exceptions" }).click();
+    await page
+      .getByRole("heading", { name: "Ready for posting decision" })
+      .waitFor();
+    await page
+      .getByRole("heading", { name: "Exception triage decision" })
+      .scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "Assurance trace details" }).click();
     for (const stage of [
       "Understand document",
       "Verify evidence",
-      "Resolve and prepare action",
+      "Triage exception and prepare handoff",
     ]) {
       await page.getByText(stage, { exact: true }).waitFor();
     }
+    await page
+      .getByRole("button", { name: "Prepare posting handoff" })
+      .waitFor();
     await showChapter(
       page,
       "1 / 7 · Correct fixture",
-      "Clean match reaches a Clear outcome",
-      "Understand document, Verify evidence and Resolve and prepare action are the three visible stages. This fallback result has No AI processing attribution.",
+      "Clean match is ready for a posting decision",
+      "Understand document, Verify evidence and Triage exception and prepare handoff are the three visible stages. Prepare posting handoff records preparation only. This fallback result has No AI processing attribution.",
       14_000,
     );
 
     await page.getByRole("button", { name: /Total mismatch/i }).click();
     await waitForRenderedImage(page, ".document-preview__image");
     await page.getByLabel("Processing model").selectOption("claude-haiku-4-5");
-    await page.getByRole("button", { name: "Process document" }).click();
-    await page.getByRole("heading", { name: "Needs review" }).waitFor();
+    await page.getByRole("button", { name: "Assess for exceptions" }).click();
     await page
-      .getByRole("heading", { name: "Needs review" })
+      .getByRole("heading", { name: "Exception review required" })
+      .waitFor();
+    await page
+      .getByRole("heading", { name: "Exception review required" })
       .scrollIntoViewIfNeeded();
     await showChapter(
       page,
       "2 / 7 · Needs attention",
       "The invoice-total conflict is not cleared",
-      "The evidence remains visible and the deterministic evaluator returns Needs review. This outcome does not approve payment or contact an external system.",
+      "The evidence remains visible and the deterministic evaluator requires exception review. Assign exception review and Draft clarification request are the only preparation controls. This outcome does not approve payment or contact an external system.",
       12_000,
     );
 
     await page
-      .getByRole("button", { name: "Prepare email to the selected role" })
+      .getByRole("button", { name: "Draft clarification request" })
       .click();
     const prepareDialog = page.getByRole("dialog", {
-      name: "Prepare email copy",
+      name: "Draft clarification request",
     });
     await prepareDialog.getByLabel("Recipient role").waitFor();
-    await prepareDialog.getByRole("button", { name: "Prepare copy" }).waitFor();
+    await prepareDialog
+      .getByRole("button", { name: "Prepare request" })
+      .waitFor();
     await showChapter(
       page,
       "3 / 7 · Simulated workflow",
       "A recipient role is required",
-      "The blank role keeps Prepare copy disabled. The role is a synthetic workflow label rather than an address or delivery destination.",
+      "The blank role keeps Prepare request disabled. The role is a synthetic workflow label rather than an address or delivery destination.",
       4_000,
     );
     await prepareDialog.getByLabel("Recipient role").selectOption("Buyer");
-    await prepareDialog.getByRole("button", { name: "Prepare copy" }).click();
+    await prepareDialog
+      .getByRole("button", { name: "Prepare request" })
+      .click();
     const previewDialog = page.getByRole("dialog", {
       name: "Prepared email copy",
     });
@@ -248,7 +264,7 @@ try {
       page,
       "3 / 7 · Prepared only - not sent",
       "The copy remains inside the requesting browser",
-      "The application exposes no delivery control. Closing the preview leaves one prepared simulated Workflow activity event.",
+      "The application exposes no delivery control. Closing the preview leaves one prepared case handoff event.",
       12_000,
     );
     await previewDialog.getByRole("button", { name: "Close preview" }).click();
@@ -274,33 +290,43 @@ try {
 
     await page.getByRole("link", { name: "Operations" }).click();
     await page
-      .getByRole("heading", { name: "Operations", exact: true })
+      .getByRole("heading", {
+        name: "Procurement review operations",
+        exact: true,
+      })
       .waitFor();
+    const reviewQueue = page.getByRole("table", {
+      name: "Procurement review queue",
+    });
+    await reviewQueue.waitFor();
+    await reviewQueue.scrollIntoViewIfNeeded();
     await page
-      .getByRole("heading", { name: "Operations workspace", level: 2 })
-      .scrollIntoViewIfNeeded();
+      .getByRole("heading", { name: "Processing performance", level: 3 })
+      .waitFor();
     await page
       .getByRole("heading", { name: "Reference quality suite", level: 3 })
       .waitFor();
     await showChapter(
       page,
-      "5 / 7 · Operations workspace",
-      "Workflow, performance and reference quality",
-      "Reference quality suite reports 10 provider-neutral observations: five Supplier invoices and five Warehouse goods receipts. It is not provider acceptance.",
+      "5 / 7 · Procurement review operations",
+      "The review queue comes first",
+      "Procurement review queue leads with the business decision and prepared next step before processing performance and the Reference quality suite. The 10 provider-neutral observations do not establish provider acceptance.",
       13_000,
     );
 
     const firstRunSelector = page.locator('input[name="explorer-run"]').first();
     await firstRunSelector.scrollIntoViewIfNeeded();
     await firstRunSelector.check();
-    await page.getByRole("heading", { name: "Run detail" }).waitFor();
     await page
-      .getByRole("heading", { name: "Run detail" })
+      .getByRole("heading", { name: "Review record and technical trace" })
+      .waitFor();
+    await page
+      .getByRole("heading", { name: "Review record and technical trace" })
       .scrollIntoViewIfNeeded();
     await waitForRenderedImage(page, ".inspector-preview img");
     await showChapter(
       page,
-      "5 / 7 · Run explorer",
+      "5 / 7 · Review record and technical trace",
       "Confirmed attribution remains truthful",
       "The selected fallback run reads No AI processing. A configured model is never promoted into confirmed dispatch attribution.",
       9_000,
@@ -344,7 +370,7 @@ try {
       page,
       "7 / 7 · Release disclosure",
       "Provider acceptance is not established",
-      "This walkthrough made no model request. Prepared workflow activity cannot deliver email or execute an external action because no external connector is present.",
+      "All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed. This walkthrough made no model request.",
       10_000,
     );
   } catch (error) {

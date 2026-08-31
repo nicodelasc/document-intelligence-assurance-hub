@@ -1,10 +1,51 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+const recorder = readFileSync("scripts/record-walkthrough.mjs", "utf8");
+
+describe("Walkthrough recorder release vocabulary", () => {
+  it("records the procurement problem, scoped actions and queue-first Operations story", () => {
+    for (const marker of [
+      "Review incoming procurement documents",
+      "Assess for exceptions",
+      "Exception triage decision",
+      "Prepare posting handoff",
+      "Draft clarification request",
+      "Procurement review operations",
+      "Procurement review queue",
+      "Review record and technical trace",
+    ]) {
+      expect(recorder).toContain(marker);
+    }
+
+    expect(recorder.indexOf("Procurement review queue")).toBeLessThan(
+      recorder.indexOf("Processing performance"),
+    );
+    expect(recorder).toContain(
+      "All documents and reference records are synthetic.",
+    );
+    expect(recorder).toContain(
+      "ERP posting, payment, inventory, email and archive integrations are simulated",
+    );
+  });
+
+  it("contains no retired primary labels", () => {
+    for (const retiredLabel of [
+      /\bApprove and stage\b/i,
+      /\bRun explorer\b/i,
+      /\bProcess document\b/i,
+      /\bResolve and prepare action\b/i,
+    ]) {
+      expect(recorder).not.toMatch(retiredLabel);
+    }
+  });
+});
 
 function runRecorder(baseUrl: string, outputPath: string) {
   return new Promise<{ code: number | null; stderr: string; stdout: string }>(

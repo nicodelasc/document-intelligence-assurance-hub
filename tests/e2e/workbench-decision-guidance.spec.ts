@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const stageNames = [
   "Understand document",
   "Verify evidence",
-  "Resolve and prepare action",
+  "Triage exception and prepare handoff",
 ] as const;
 
 const successRunId = "run_guidance_success";
@@ -156,10 +156,14 @@ test("opens the Workbench purpose overview from the app header then restores foc
   await expect(page.locator(".app-header").getByRole("button", { name: "How it works" })).toBeVisible();
   await trigger.focus();
   await trigger.click();
-  const overview = page.getByRole("dialog", { name: "What this workbench does" });
+  const overview = page.getByRole("dialog", {
+    name: "How procurement exception triage works",
+  });
   await expect(overview).toBeVisible();
-  await expect(overview).toContainText("agentic document-assurance workflow");
-  await expect(overview).toContainText("Built-in documents and reference records are synthetic");
+  await expect(overview).toContainText("agentic workflow");
+  await expect(overview).toContainText(
+    "Documents and reference records are synthetic",
+  );
   await expect(overview.getByRole("button", { name: "Start guided tour" })).toBeVisible();
 
   await overview.getByRole("button", { name: "Close" }).click();
@@ -177,11 +181,11 @@ test("walks the spotlight steps in order then exits with Escape", async ({ page 
   await page.getByRole("button", { name: "Start guided tour" }).click();
 
   const steps = [
-    "Document library",
+    "Select a procurement document",
     "Processing model",
-    "Process document",
+    "Assess for exceptions",
     "Assurance trace",
-    "Decision and next steps",
+    "Exception triage decision",
   ] as const;
   for (let index = 0; index < steps.length; index += 1) {
     const callout = page.getByRole("dialog", { name: steps[index] });
@@ -214,7 +218,9 @@ test("keeps the intermediate header and first spotlight collision-free", async (
   const spotlight = page.locator(".guided-tour__spotlight");
   await expect(spotlight).toHaveCSS("opacity", "1");
   const [calloutBox, spotlightBox, targetBox] = await Promise.all([
-    page.getByRole("dialog", { name: "Document library" }).boundingBox(),
+    page
+      .getByRole("dialog", { name: "Select a procurement document" })
+      .boundingBox(),
     spotlight.boundingBox(),
     page.locator("#workbench-tour-document-library").boundingBox(),
   ]);
@@ -238,8 +244,10 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
   await page.emulateMedia({ reducedMotion: "reduce" });
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
-  await expect(page.getByRole("heading", { name: "Decision and next steps" })).toBeVisible();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Exception triage decision" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "How it works" }).click();
   await page.getByRole("button", { name: "Start guided tour" }).click();
   for (let index = 0; index < 3; index += 1) {
@@ -248,7 +256,7 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
 
   for (const step of [
     { title: "Assurance trace", targetId: "workbench-tour-assurance-trace" },
-    { title: "Decision and next steps", targetId: "workbench-tour-decision" },
+    { title: "Exception triage decision", targetId: "workbench-tour-decision" },
   ]) {
     const spotlight = page.locator(".guided-tour__spotlight");
     await expect(spotlight).toHaveCSS("opacity", "1");
@@ -299,9 +307,11 @@ test("keeps the spotlight and arrow visible in forced colors", async ({ page }) 
 test("collapses a successful trace then exposes all stages and ordered decision content", async ({ page }) => {
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
 
-  await expect(page.getByRole("heading", { name: "Decision and next steps" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Exception triage decision" }),
+  ).toBeVisible();
   const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
   await expect(traceToggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("3 of 3 stages completed", { exact: false })).toBeVisible();
@@ -317,27 +327,31 @@ test("collapses a successful trace then exposes all stages and ordered decision 
     .locator(".decision-panel .decision-panel__section")
     .evaluateAll((sections) => sections.map((section) => section.querySelector("h3")?.textContent?.trim()));
   expect(decisionHeadings).toEqual([
-    "Needs review",
+    "Exception review required",
     "Decision brief",
     "Evidence differences",
-    "Workflow controls",
+    "Prepared next step",
   ]);
   await expect(
     page.locator(".decision-brief").getByText("Keep the invoice in review until the discrepancy is resolved."),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assign for review" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Assign exception review" }),
+  ).toBeVisible();
 });
 
 test("keeps a failed trace expanded for safe diagnostics", async ({ page }) => {
   await interceptWorkbenchApi(page, "failure");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Process document" }).click();
+  await page.getByRole("button", { name: "Assess for exceptions" }).click();
 
   await expect(page.getByText("The document could not be parsed safely.", { exact: true })).toBeVisible();
   const traceToggle = page.getByRole("button", { name: "Assurance trace details" });
   await expect(traceToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".assurance-trace .trace-list")).toBeVisible();
-  await expect(page.getByText("Resolve and prepare action", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Triage exception and prepare handoff", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("document parse failed", { exact: true })).toBeVisible();
 });
 
@@ -348,9 +362,11 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
   await page.goto("/workbench");
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  const heading = page.getByRole("heading", { name: "Review a document" });
+  const heading = page.getByRole("heading", {
+    name: "Review incoming procurement documents",
+  });
   const description = page.getByText(
-    "Use synthetic samples or a custom file you voluntarily choose to make public for a limited review.",
+    "Verify supplier invoices and goods receipts before finance or inventory handoff.",
     { exact: true },
   );
   const trigger = page.getByRole("button", { name: "How it works" });
@@ -404,7 +420,9 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
   expect(transitionMilliseconds).toBeLessThanOrEqual(0.01);
   await trigger.click();
   await page.getByRole("button", { name: "Start guided tour" }).click();
-  const callout = page.getByRole("dialog", { name: "Document library" });
+  const callout = page.getByRole("dialog", {
+    name: "Select a procurement document",
+  });
   await expect(callout).toBeVisible();
   const spotlight = page.locator(".guided-tour__spotlight");
   await expect(spotlight).toHaveCSS("opacity", "1");
@@ -434,9 +452,11 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
     : Number.parseFloat(animationDuration) * 1_000;
   expect(animationMilliseconds).toBeLessThanOrEqual(0.01);
   await page.keyboard.press("Escape");
-  const process = page.getByRole("button", { name: "Process document" });
+  const process = page.getByRole("button", { name: "Assess for exceptions" });
   await process.scrollIntoViewIfNeeded();
   await expect(process).toBeEnabled();
   await process.click();
-  await expect(page.getByRole("heading", { name: "Decision and next steps" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Exception triage decision" }),
+  ).toBeVisible();
 });
