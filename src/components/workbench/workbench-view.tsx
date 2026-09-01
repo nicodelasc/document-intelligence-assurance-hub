@@ -6,6 +6,7 @@ import type {
   ActionProposal,
   DocumentClassification,
   DocumentFamily,
+  SourceOriginStatus,
   FieldResult,
   Outcome,
   Provider,
@@ -86,6 +87,7 @@ type PublicRunHydration = {
   documentFamily: DocumentFamily | null;
   documentFamilyPresent: boolean;
   documentClassification: DocumentClassification | null;
+  sourceOriginStatus: SourceOriginStatus | null;
   proposal: ActionProposal | null;
   workflowEvents: WorkflowEvent[];
   fields: FieldResult[];
@@ -306,6 +308,12 @@ function publicRunHydration(payload: unknown): PublicRunHydration | null {
     documentClassifications.has(result.documentClassification as DocumentClassification)
       ? (result.documentClassification as DocumentClassification)
       : null;
+  const sourceOriginStatus =
+    record.sourceOriginStatus === "server_original" ||
+    record.sourceOriginStatus === "recognized_copy" ||
+    record.sourceOriginStatus === "unverified"
+      ? record.sourceOriginStatus
+      : null;
   return {
     status,
     outcome,
@@ -313,6 +321,7 @@ function publicRunHydration(payload: unknown): PublicRunHydration | null {
     documentFamilyPresent:
       record.documentFamily === null || documentFamily !== null,
     documentClassification,
+    sourceOriginStatus,
     proposal: parsedAction?.success ? parsedAction.data : null,
     workflowEvents,
     fields,
@@ -408,6 +417,8 @@ export function WorkbenchView() {
     useState<DocumentFamily | null>(null);
   const [documentClassification, setDocumentClassification] =
     useState<DocumentClassification | null>(null);
+  const [sourceOriginStatus, setSourceOriginStatus] =
+    useState<SourceOriginStatus | null>(null);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEvent[]>([]);
   const [safeDiagnosticCodes, setSafeDiagnosticCodes] = useState<string[]>([]);
   const [actionDetailStatus, setActionDetailStatus] = useState<ActionDetailStatus>("idle");
@@ -610,6 +621,7 @@ export function WorkbenchView() {
         setActiveRunFamily(hydration.documentFamily);
       }
       setDocumentClassification(hydration.documentClassification);
+      setSourceOriginStatus(hydration.sourceOriginStatus);
       setPreparedAction(hydration.proposal);
       setWorkflowEvents((current) =>
         mergeWorkflowEvents(current, hydration.workflowEvents),
@@ -674,6 +686,7 @@ export function WorkbenchView() {
     setActiveRunStatus(null);
     setActiveRunFamily(null);
     setDocumentClassification(null);
+    setSourceOriginStatus(null);
     setWorkflowEvents([]);
     setSafeDiagnosticCodes([]);
     setActionDetailStatus("idle");
@@ -1080,6 +1093,7 @@ export function WorkbenchView() {
                       capabilityToken={actionCapability}
                       documentFamily={activeRunFamily}
                       documentClassification={documentClassification}
+                      sourceOriginStatus={sourceOriginStatus}
                       controlsAvailable={
                         actionDetailStatus !== "loading" &&
                         (activeRunStatus === "failed" ||

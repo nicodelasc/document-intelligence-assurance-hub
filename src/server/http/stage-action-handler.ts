@@ -140,6 +140,9 @@ export async function handleStageActionPost(
       !allowedWorkflowActionsForRun({
         status: run.status,
         outcome: run.outcome,
+        documentClassification:
+          run.details?.result?.documentClassification ?? null,
+        sourceOriginStatus: run.sourceOriginStatus,
       }).includes("approve_and_stage")
     ) {
       return respond(

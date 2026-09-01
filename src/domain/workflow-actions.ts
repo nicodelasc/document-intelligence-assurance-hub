@@ -5,6 +5,7 @@ import type {
   FieldResult,
   Outcome,
   RunStatus,
+  SourceOriginStatus,
   WorkflowActionType,
   WorkflowEventStatus,
 } from "./types";
@@ -37,6 +38,9 @@ const noWorkflowActions: readonly WorkflowActionType[] = Object.freeze([]);
 const guardedDocumentActions: readonly WorkflowActionType[] = Object.freeze([
   "replace_document",
 ]);
+
+const unverifiedEvidenceConsistentActions: readonly WorkflowActionType[] =
+  Object.freeze<WorkflowActionType[]>(["assign_review", "prepare_email"]);
 
 const outcomeGroup: Readonly<Record<Outcome, OutcomeGroup>> = Object.freeze({
   clear: "clear",
@@ -94,6 +98,7 @@ export function allowedWorkflowActionsForRun(input: {
   status: RunStatus;
   outcome: Outcome | null;
   documentClassification?: DocumentClassification | null;
+  sourceOriginStatus?: SourceOriginStatus;
 }): readonly WorkflowActionType[] {
   if (
     input.documentClassification === "irrelevant" ||
@@ -106,6 +111,12 @@ export function allowedWorkflowActionsForRun(input: {
   }
   if (input.status !== "completed" || input.outcome === null) {
     return noWorkflowActions;
+  }
+  if (
+    input.sourceOriginStatus === "unverified" &&
+    (input.outcome === "clear" || input.outcome === "evidence_consistent")
+  ) {
+    return unverifiedEvidenceConsistentActions;
   }
   return actionsByOutcomeGroup[outcomeGroup[input.outcome]];
 }

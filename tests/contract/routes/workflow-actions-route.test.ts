@@ -44,6 +44,7 @@ async function seedRun(input: {
   status?: RunStatus;
   outcome?: Outcome;
   documentClassification?: DocumentClassification;
+  sourceOriginStatus?: "server_original" | "recognized_copy" | "unverified";
   family?: DocumentFamily | null;
   expiresAt?: string;
   resultFields?: FieldResult[];
@@ -62,7 +63,7 @@ async function seedRun(input: {
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
-    sourceOriginStatus: "server_original",
+    sourceOriginStatus: input.sourceOriginStatus ?? "server_original",
     documentFamily: input.family ?? "supplier_invoice",
     fixtureId: "invoice-clean-match",
     file: {
@@ -379,6 +380,23 @@ describe("POST /api/runs/[id]/workflow-actions", () => {
   it("rejects an action outside the run outcome policy", async () => {
     const container = createTestContainer({ clock: () => now });
     await seedRun({ container, outcome: "needs_review" });
+
+    const response = await postWorkflow(container, {
+      body: { action: "approve_and_stage", recipientRole: null },
+    });
+
+    expect(response.status).toBe(409);
+    expect(await errorCode(response)).toBe("workflow_action_not_allowed");
+    expectPrivateHeaders(response);
+  });
+
+  it("denies a directly submitted posting handoff for an unverified evidence-consistent run", async () => {
+    const container = createTestContainer({ clock: () => now });
+    await seedRun({
+      container,
+      outcome: "evidence_consistent",
+      sourceOriginStatus: "unverified",
+    });
 
     const response = await postWorkflow(container, {
       body: { action: "approve_and_stage", recipientRole: null },

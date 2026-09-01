@@ -10,6 +10,7 @@ import type {
   FieldResult,
   Outcome,
   RunStatus,
+  SourceOriginStatus,
   WorkflowActionType,
   WorkflowEvent,
 } from "@/domain/types";
@@ -89,11 +90,13 @@ function controlsForRun(
   status: RunStatus,
   outcome: Outcome | null,
   documentClassification: DocumentClassification | null,
+  sourceOriginStatus: SourceOriginStatus | null,
 ): readonly ActionControl[] {
   const allowed = new Set(allowedWorkflowActionsForRun({
     status,
     outcome,
     documentClassification,
+    sourceOriginStatus: sourceOriginStatus ?? undefined,
   }));
   const controls =
     documentClassification === "irrelevant" || documentClassification === "uncertain"
@@ -231,6 +234,7 @@ export function WorkflowPanel({
   capabilityToken,
   documentFamily,
   documentClassification = null,
+  sourceOriginStatus = null,
   controlsAvailable = true,
   fields,
   safeDiagnosticCodes,
@@ -246,6 +250,7 @@ export function WorkflowPanel({
   capabilityToken: string;
   documentFamily: DocumentFamily | null;
   documentClassification?: DocumentClassification | null;
+  sourceOriginStatus?: SourceOriginStatus | null;
   controlsAvailable?: boolean;
   fields: readonly FieldResult[];
   safeDiagnosticCodes: readonly string[];
@@ -255,9 +260,9 @@ export function WorkflowPanel({
 }) {
   const controls = useMemo(
     () => controlsAvailable
-      ? controlsForRun(status, outcome, documentClassification)
+      ? controlsForRun(status, outcome, documentClassification, sourceOriginStatus)
       : [],
-    [controlsAvailable, documentClassification, outcome, status],
+    [controlsAvailable, documentClassification, outcome, sourceOriginStatus, status],
   );
   const roles = allowedRecipientRoles(documentFamily);
   const [dialogAction, setDialogAction] =

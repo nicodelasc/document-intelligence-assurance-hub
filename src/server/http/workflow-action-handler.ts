@@ -229,6 +229,7 @@ export async function handleWorkflowActionPost(
       outcome: run.outcome,
       documentClassification:
         run.details.result?.documentClassification ?? null,
+      sourceOriginStatus: run.sourceOriginStatus,
     });
     if (!allowedActions.includes(actionRequest.action)) {
       return respond(

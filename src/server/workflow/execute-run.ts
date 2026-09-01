@@ -806,6 +806,7 @@ export async function* executeRun(
         response.extraction.action,
         input.sourceType === "synthetic" ? (input.fixture ?? null) : null,
         response.extraction.classification,
+        input.sourceOriginStatus,
       ),
       stagedAt: null,
     };

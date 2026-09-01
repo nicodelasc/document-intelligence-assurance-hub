@@ -24,6 +24,20 @@ function field(overrides: Partial<FieldResult> = {}): FieldResult {
 }
 
 describe("workflow action policy", () => {
+  it.each(["clear", "evidence_consistent"] as const)(
+    "requires review actions for an unverified %s result",
+    (outcome) => {
+      expect(
+        allowedWorkflowActionsForRun({
+          status: "completed",
+          outcome,
+          documentClassification: "supplier_invoice",
+          sourceOriginStatus: "unverified",
+        }),
+      ).toEqual(["assign_review", "prepare_email"]);
+    },
+  );
+
   it.each([
     {
       status: "completed" as const,

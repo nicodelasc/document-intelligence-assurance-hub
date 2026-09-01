@@ -3,6 +3,7 @@ import type {
   ActionStatus,
   DocumentClassification,
   Outcome,
+  SourceOriginStatus,
   SyntheticFixture,
 } from "./types";
 
@@ -44,6 +45,7 @@ export function applyActionPolicy(
   proposed: ActionProposal,
   fixture: SyntheticFixture | null,
   documentClassification?: DocumentClassification,
+  sourceOriginStatus?: SourceOriginStatus,
 ): ActionProposal {
   if (
     documentClassification === "irrelevant" ||
@@ -52,12 +54,17 @@ export function applyActionPolicy(
     return structuredClone(guardedDocumentAction);
   }
   const status = statusForVerifiedOutcome(outcome, fixture);
+  const requiresOriginReview =
+    sourceOriginStatus === "unverified" &&
+    (outcome === "clear" || outcome === "evidence_consistent");
   if (!fixture) {
     return {
       ...proposed,
-      status,
+      status: requiresOriginReview ? "needs_review" : status,
       reason:
-        outcome === "evidence_consistent"
+        requiresOriginReview
+          ? "Evidence was extracted consistently but the source is unverified. Assign a reviewer before any posting handoff."
+          : outcome === "evidence_consistent"
           ? "Evidence is consistent. The action is ready for posting handoff preparation."
           : outcome === "not_found"
             ? "Incomplete evidence - one or more requested fields were not found"
@@ -69,9 +76,11 @@ export function applyActionPolicy(
 
   return {
     ...fixture.action,
-    status,
+    status: requiresOriginReview ? "needs_review" : status,
     reason:
-      fixture.expectedOutcome === outcome
+      requiresOriginReview
+        ? "Evidence was extracted consistently but the source is unverified. Assign a reviewer before any posting handoff."
+        : fixture.expectedOutcome === outcome
         ? fixture.action.reason
         : "Verified outcome conflicts with the fixture expectation.",
   };

@@ -52,6 +52,22 @@ describe("applyActionPolicy", () => {
     });
   });
 
+  it("requires review when evidence-consistent custom content has an unverified source", () => {
+    expect(
+      applyActionPolicy(
+        "evidence_consistent",
+        proposal,
+        null,
+        "supplier_invoice",
+        "unverified",
+      ),
+    ).toMatchObject({
+      status: "needs_review",
+      reason:
+        "Evidence was extracted consistently but the source is unverified. Assign a reviewer before any posting handoff.",
+    });
+  });
+
   it("describes a custom conflict as requiring review before handoff preparation", () => {
     expect(applyActionPolicy("conflict", proposal, null)).toMatchObject({
       status: "needs_review",
