@@ -6,6 +6,7 @@ import type {
   FieldResult,
   RunEvent,
   RunStatus,
+  SourceOriginStatus,
   SyntheticFixture,
 } from "@/domain/types";
 import {
@@ -45,6 +46,7 @@ class PersistenceWriteError extends Error {
 
 export type ExecuteRunInput = {
   sourceType: SourceType;
+  sourceOriginStatus: SourceOriginStatus;
   file: {
     filename: string;
     mediaType: string;
@@ -580,8 +582,7 @@ export async function* executeRun(
       executionMode: dependencies.provider.executionMode,
       providerDispatched: false,
       sourceType: input.sourceType,
-      sourceOriginStatus:
-        input.sourceType === "synthetic" ? "server_original" : "unverified",
+      sourceOriginStatus: input.sourceOriginStatus,
       documentFamily: input.fixture?.family ?? null,
       fixtureId: input.fixture?.id ?? null,
       file: {
@@ -650,16 +651,22 @@ export async function* executeRun(
                 if (!quotaMarked) throw new Error("quota_dispatch_mark_failed");
               }
               signal?.throwIfAborted();
-              const attributed = await dependencies.repository.markProviderDispatched(runId);
-              if (!attributed) throw new Error("provider_dispatch_attribution_failed");
+              const attributed =
+                await dependencies.repository.markProviderDispatched(runId);
+              if (!attributed)
+                throw new Error("provider_dispatch_attribution_failed");
             } catch (error) {
               if (quotaMarked && dependencies.quotaReservation) {
                 const cleared = await dependencies.quotaReservation.repository
-                  .clearLiveReservationDispatched(dependencies.quotaReservation.reservationId)
+                  .clearLiveReservationDispatched(
+                    dependencies.quotaReservation.reservationId,
+                  )
                   .catch(() => false);
                 if (!cleared) {
                   await dependencies.quotaReservation.repository
-                    .releaseLiveReservation(dependencies.quotaReservation.reservationId)
+                    .releaseLiveReservation(
+                      dependencies.quotaReservation.reservationId,
+                    )
                     .catch(() => false);
                 }
               }

@@ -146,6 +146,7 @@ function dependencies(
 
 const input = {
   sourceType: "synthetic" as const,
+  sourceOriginStatus: "server_original" as const,
   file: {
     filename: "clean-match-invoice.pdf",
     mediaType: "application/pdf",
@@ -175,6 +176,7 @@ describe("executeRun", () => {
     const partialInput: ExecuteRunInput = {
       ...input,
       sourceType: "custom",
+      sourceOriginStatus: "unverified",
       consent: true,
       requestedFields: [
         { key: "vendor_name", label: "Vendor name" },
@@ -222,6 +224,7 @@ describe("executeRun", () => {
     const customInput: ExecuteRunInput = {
       ...input,
       sourceType: "custom",
+      sourceOriginStatus: "recognized_copy",
       consent: true,
     };
     const { value, repository } = dependencies(provider());
@@ -241,7 +244,7 @@ describe("executeRun", () => {
     expect(run).toMatchObject({
       documentFamily: null,
       fixtureId: null,
-      sourceOriginStatus: "unverified",
+      sourceOriginStatus: "recognized_copy",
     });
   });
 
@@ -253,6 +256,7 @@ describe("executeRun", () => {
       const customInput: ExecuteRunInput = {
         ...input,
         sourceType: "custom",
+        sourceOriginStatus: "unverified",
         consent: true,
       };
       const { value, repository } = dependencies(
@@ -265,7 +269,10 @@ describe("executeRun", () => {
         new Date("2026-08-27T01:00:00.000Z"),
       );
 
-      expect(events.at(-1)).toMatchObject({ type: "completed", outcome: "not_found" });
+      expect(events.at(-1)).toMatchObject({
+        type: "completed",
+        outcome: "not_found",
+      });
       expect(run?.details?.result).toMatchObject({
         outcome: "not_found",
         documentClassification: classification,
@@ -1437,6 +1444,7 @@ describe("executeRun", () => {
     const events = await collect(
       {
         sourceType: "custom",
+        sourceOriginStatus: "unverified",
         file: {
           filename: "review.png",
           mediaType: "image/png",
@@ -1497,6 +1505,7 @@ describe("executeRun", () => {
     const events = await collect(
       {
         sourceType: "custom",
+        sourceOriginStatus: "unverified",
         file: {
           filename: "review.png",
           mediaType: "image/png",
@@ -1620,6 +1629,7 @@ describe("executeRun", () => {
     const events = await collect(
       {
         sourceType: "custom",
+        sourceOriginStatus: "unverified",
         file: {
           filename: "invoice.png",
           mediaType: "image/png",
@@ -1652,10 +1662,7 @@ describe("executeRun", () => {
     });
   });
 
-  it.each([
-    "invoice-unreadable-approval",
-    "warehouse-unreadable-damage-note",
-  ])(
+  it.each(["invoice-unreadable-approval", "warehouse-unreadable-damage-note"])(
     "cannot false-clear readable provider text absent from grounded evidence for %s",
     async (fixtureId) => {
       const fixture = findFixture(fixtureId);

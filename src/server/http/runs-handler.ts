@@ -1,4 +1,7 @@
-import { MultipartInputError, parseRunMultipart } from "@/server/http/multipart";
+import {
+  MultipartInputError,
+  parseRunMultipart,
+} from "@/server/http/multipart";
 import type { HttpContainer } from "@/server/http/container";
 import {
   attachBucketCookie,
@@ -59,11 +62,14 @@ function idempotentRunId(idempotencyKey: string): string {
 
 function quotaError(reason: string, requestId: string): Response {
   const messages: Record<string, string> = {
-    custom_upload_limit: "This browser has reached the daily custom-upload limit.",
-    global_custom_upload_limit: "The public daily custom-upload limit has been reached.",
+    custom_upload_limit:
+      "This browser has reached the daily custom-upload limit.",
+    global_custom_upload_limit:
+      "The public daily custom-upload limit has been reached.",
     live_run_limit: "This browser has reached the daily live-run limit.",
     recorded_run_limit: "This browser has reached the daily demo-run limit.",
-    global_recorded_run_limit: "The public daily demo-run limit has been reached.",
+    global_recorded_run_limit:
+      "The public daily demo-run limit has been reached.",
     daily_budget: "The daily live model budget is unavailable.",
     live_disabled:
       "Live processing is disabled. Choose a synthetic sample to continue.",
@@ -141,7 +147,8 @@ export async function handleRunsPost(
       return attachBucketCookie(
         safeErrorResponse({
           code: "run_preflight_mismatch",
-          message: "Run admission metadata does not match the multipart request.",
+          message:
+            "Run admission metadata does not match the multipart request.",
           requestId,
           status: 400,
           headers: noIndexHeaders,
@@ -220,6 +227,7 @@ export async function handleRunsPost(
       container.execute(
         {
           sourceType: input.sourceType,
+          sourceOriginStatus: input.sourceOriginStatus,
           file: input.file,
           requestedFields: input.requestedFields,
           consent: input.consent,
@@ -252,7 +260,9 @@ export async function handleRunsPost(
     );
   } catch (error) {
     if (claimedRunId && !workflowStarted) {
-      await container.repository.releaseRunRequest(claimedRunId).catch(() => undefined);
+      await container.repository
+        .releaseRunRequest(claimedRunId)
+        .catch(() => undefined);
     }
     if (error instanceof MultipartInputError) {
       return attachBucketCookie(
@@ -300,7 +310,8 @@ export async function handleRunsGet(
       return respond(
         safeErrorResponse({
           code: "run_list_rate_limited",
-          message: "Run history has been requested too frequently. Retry shortly.",
+          message:
+            "Run history has been requested too frequently. Retry shortly.",
           requestId,
           status: 429,
           headers: noIndexHeaders,

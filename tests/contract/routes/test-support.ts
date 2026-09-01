@@ -9,6 +9,7 @@ import { createRecordedExtractionProvider } from "@/server/workflow/recorded-pro
 import { InMemoryAbuseControl } from "@/server/security/abuse-control";
 import { defaultModelForProvider } from "@/domain/live-model-catalog";
 import type { Provider } from "@/domain/types";
+import { classifyCustomSourceOrigin } from "@/server/security/source-origin";
 
 let idempotencySequence = 0;
 
@@ -27,12 +28,14 @@ export function createTestContainer(
     abuseControl: new InMemoryAbuseControl(),
     clock: () => new Date("2026-08-27T00:00:00.000Z"),
     requestIdSource: () => "request-test-1",
-    bucketTokenSource: () => "test-browser-bucket-token-with-enough-entropy-1234567890",
+    bucketTokenSource: () =>
+      "test-browser-bucket-token-with-enough-entropy-1234567890",
     replayStageDelayMs: 0,
     liveModeEnabled,
     providerAvailability,
     cronSecret: "test-cron-secret",
     execute: executeRun,
+    classifyCustomSourceOrigin,
     async createProvider(input) {
       if (input.executionMode !== "recorded" || !input.sampleId) {
         throw new Error("test_live_provider_not_injected");
@@ -93,13 +96,16 @@ export function syntheticRequest(
   idempotencyKey?: string,
   model: string = defaultModelForProvider(provider as Provider),
 ): Request {
-  return formRequest([
-    ["sourceType", "synthetic"],
-    ["provider", provider],
-    ["model", model],
-    ["sampleId", sampleId],
-    ["executionMode", "recorded"],
-  ], idempotencyKey);
+  return formRequest(
+    [
+      ["sourceType", "synthetic"],
+      ["provider", provider],
+      ["model", model],
+      ["sampleId", sampleId],
+      ["executionMode", "recorded"],
+    ],
+    idempotencyKey,
+  );
 }
 
 export function makePdf(pageCount: number): Uint8Array<ArrayBuffer> {

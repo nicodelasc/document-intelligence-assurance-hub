@@ -1,7 +1,11 @@
 import { PDFDocument } from "pdf-lib";
 import { syntheticFixtures } from "@/domain/fixtures";
 import { validateUpload } from "@/domain/file-validation";
-import type { Provider, SyntheticFixture } from "@/domain/types";
+import type {
+  Provider,
+  SourceOriginStatus,
+  SyntheticFixture,
+} from "@/domain/types";
 import type {
   ExecutionMode,
   RequestedField,
@@ -17,6 +21,7 @@ const MAX_FIELD_LABEL_LENGTH = 80;
 
 export type ParsedRunRequest = {
   sourceType: SourceType;
+  sourceOriginStatus: SourceOriginStatus;
   provider: Provider;
   model: string;
   executionMode: ExecutionMode;
@@ -47,7 +52,11 @@ export class MultipartInputError extends Error {
 function requiredString(form: FormData, key: string): string {
   const value = form.get(key);
   if (typeof value !== "string" || !value.trim()) {
-    throw new MultipartInputError("missing_field", `The ${key} field is required.`, 400);
+    throw new MultipartInputError(
+      "missing_field",
+      `The ${key} field is required.`,
+      400,
+    );
   }
   return value.trim();
 }
@@ -161,7 +170,12 @@ function validationError(code: string): MultipartInputError {
 }
 
 async function parseForm(request: Request): Promise<FormData> {
-  if (!request.headers.get("content-type")?.toLocaleLowerCase().startsWith("multipart/form-data")) {
+  if (
+    !request.headers
+      .get("content-type")
+      ?.toLocaleLowerCase()
+      .startsWith("multipart/form-data")
+  ) {
     throw new MultipartInputError(
       "invalid_content_type",
       "Submit the run as multipart form data.",
@@ -169,7 +183,8 @@ async function parseForm(request: Request): Promise<FormData> {
     );
   }
   const contentLengthHeader = request.headers.get("content-length");
-  const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
+  const contentLength =
+    contentLengthHeader === null ? null : Number(contentLengthHeader);
   if (
     contentLength !== null &&
     Number.isFinite(contentLength) &&
@@ -232,7 +247,10 @@ async function parseForm(request: Request): Promise<FormData> {
 
 export async function parseRunMultipart(
   request: Request,
-  container: Pick<HttpContainer, "loadSyntheticDocument">,
+  container: Pick<
+    HttpContainer,
+    "classifyCustomSourceOrigin" | "loadSyntheticDocument"
+  >,
 ): Promise<ParsedRunRequest> {
   const form = await parseForm(request);
   const sourceValue = requiredString(form, "sourceType");
@@ -246,11 +264,16 @@ export async function parseRunMultipart(
   const sourceType: SourceType = sourceValue;
   const provider = parseProvider(requiredString(form, "provider"));
   const model = parseModel(provider, requiredString(form, "model"));
-  const executionMode = parseExecutionMode(form.get("executionMode"), sourceType);
+  const executionMode = parseExecutionMode(
+    form.get("executionMode"),
+    sourceType,
+  );
 
   if (sourceType === "synthetic") {
     const sampleId = requiredString(form, "sampleId");
-    const fixture = syntheticFixtures.find((candidate) => candidate.id === sampleId);
+    const fixture = syntheticFixtures.find(
+      (candidate) => candidate.id === sampleId,
+    );
     if (!fixture) {
       throw new MultipartInputError(
         "sample_not_found",
@@ -260,7 +283,9 @@ export async function parseRunMultipart(
     }
     const bytes = await container.loadSyntheticDocument(fixture.filename);
     const pageCount = await pdfPageCount(bytes);
-    const requestedFields = fixture.requestedFields.map((field) => ({ ...field }));
+    const requestedFields = fixture.requestedFields.map((field) => ({
+      ...field,
+    }));
     const validation = validateUpload({
       bytes,
       filename: fixture.filename,
@@ -273,6 +298,7 @@ export async function parseRunMultipart(
     if (!validation.valid) throw validationError(validation.errors[0]);
     return {
       sourceType,
+      sourceOriginStatus: "server_original",
       provider,
       model,
       executionMode,
@@ -290,22 +316,32 @@ export async function parseRunMultipart(
   }
 
   const documentEntry = form.get("document");
-  if (!(documentEntry instanceof Blob) || typeof documentEntry.name !== "string") {
+  if (
+    !(documentEntry instanceof Blob) ||
+    typeof documentEntry.name !== "string"
+  ) {
     throw new MultipartInputError(
       "document_required",
       "Choose one document to upload.",
       400,
     );
   }
-  if (documentEntry.size > MAX_FILE_BYTES) throw validationError("file_too_large");
+  if (documentEntry.size > MAX_FILE_BYTES)
+    throw validationError("file_too_large");
   const bytes = new Uint8Array(await documentEntry.arrayBuffer());
   const pageCount = looksLikePdf(bytes) ? await pdfPageCount(bytes) : undefined;
   const labels = form
     .getAll("requestedField")
     .filter((value): value is string => typeof value === "string")
     .map(sanitizeFieldLabel);
-  const requestedFields = labels.map((label) => ({ key: fieldKey(label), label }));
-  if (new Set(requestedFields.map((field) => field.key)).size !== requestedFields.length) {
+  const requestedFields = labels.map((label) => ({
+    key: fieldKey(label),
+    label,
+  }));
+  if (
+    new Set(requestedFields.map((field) => field.key)).size !==
+    requestedFields.length
+  ) {
     throw new MultipartInputError(
       "duplicate_field_key",
       "Field labels must remain unique after normalization.",
@@ -327,6 +363,7 @@ export async function parseRunMultipart(
 
   return {
     sourceType,
+    sourceOriginStatus: container.classifyCustomSourceOrigin(bytes),
     provider,
     model,
     executionMode,

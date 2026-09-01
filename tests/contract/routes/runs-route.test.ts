@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { syntheticFixtures } from "@/domain/fixtures";
 import { runEventSchema } from "@/domain/run-schema";
 import type { RunEvent } from "@/domain/types";
@@ -7,6 +9,7 @@ import type { ExtractionProvider } from "@/server/workflow/provider";
 import { ProviderRequestError } from "@/server/workflow/provider";
 import { InMemoryQuotaRepository } from "@/server/security/rate-limit";
 import { handleRunsGet, handleRunsPost } from "@/server/http/runs-handler";
+import { parseRunMultipart } from "@/server/http/multipart";
 import { handleRunGet } from "@/server/http/run-detail-handler";
 import { InMemoryDocumentStore } from "@/server/storage/document-store";
 import {
@@ -19,6 +22,181 @@ import {
 } from "./test-support";
 
 describe("POST /api/runs", () => {
+  it("derives fixture and custom origin status after admitting each source", async () => {
+    const container = createTestContainer({ liveModeEnabled: true });
+    const exactCopy = new Uint8Array(
+      await readFile(
+        join(process.cwd(), "public", "samples", "invoice-clean-match.pdf"),
+      ),
+    );
+    const screenshotBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0,
+    ]);
+    const parsedSynthetic = await parseRunMultipart(
+      syntheticRequest(),
+      container,
+    );
+    const parsedExactCopy = await parseRunMultipart(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        [
+          "document",
+          new Blob([exactCopy], { type: "application/pdf" }),
+          "fixture-copy.pdf",
+        ],
+      ]),
+      container,
+    );
+    const parsedScreenshot = await parseRunMultipart(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        [
+          "document",
+          new Blob([screenshotBytes], { type: "image/png" }),
+          "screenshot.png",
+        ],
+      ]),
+      container,
+    );
+    expect(parsedSynthetic.sourceOriginStatus).toBe("server_original");
+    expect(parsedExactCopy.sourceOriginStatus).toBe("recognized_copy");
+    expect(parsedScreenshot.sourceOriginStatus).toBe("unverified");
+  });
+
+  it("keeps a recognized custom fixture copy on the live provider path", async () => {
+    let providerCreations = 0;
+    const fixtureBytes = new Uint8Array(
+      await readFile(
+        join(process.cwd(), "public", "samples", "invoice-clean-match.pdf"),
+      ),
+    );
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      providerAvailability: { openai: true, anthropic: false },
+      async createProvider(input) {
+        providerCreations += 1;
+        return {
+          provider: input.provider,
+          model: input.model,
+          promptVersion: "origin-admission-test.v1",
+          executionMode: "live",
+          async extract(request) {
+            await request.onDispatch?.();
+            return {
+              extraction: {
+                classification: "supplier_invoice",
+                fields: request.requestedFields.map((field) => ({
+                  key: field.key,
+                  label: field.label,
+                  extractedValue: null,
+                  normalizedValue: null,
+                  evidence: null,
+                  page: null,
+                })),
+                documentInstruction: null,
+                action: structuredClone(syntheticFixtures[0].action),
+              },
+              usage: { inputTokens: 0, outputTokens: 0 },
+              latencyMs: 0,
+            };
+          },
+        };
+      },
+    });
+
+    const response = await handleRunsPost(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        [
+          "document",
+          new Blob([fixtureBytes], { type: "application/pdf" }),
+          "fixture-copy.pdf",
+        ],
+      ]),
+      container,
+    );
+    const events = await readLines(response);
+    const completed = events.at(-1) as { runId: string };
+    const stored = await container.repository.readPublicRun(
+      completed.runId,
+      container.clock(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(providerCreations).toBe(1);
+    expect(stored?.sourceOriginStatus).toBe("recognized_copy");
+  });
+
+  it("ignores a client origin status and passes the derived unverified status into execution", async () => {
+    let providerCreations = 0;
+    let executeInput: Parameters<HttpContainer["execute"]>[0] | undefined;
+    const screenshotBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0,
+    ]);
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      providerAvailability: { openai: true, anthropic: false },
+      async createProvider(input) {
+        providerCreations += 1;
+        return {
+          provider: input.provider,
+          model: input.model,
+          promptVersion: "origin-admission-test.v1",
+          executionMode: "live",
+          async extract() {
+            throw new Error("provider_must_not_extract_in_route_boundary_test");
+          },
+        };
+      },
+      execute: async function* (input) {
+        executeInput = input;
+        yield {
+          type: "completed",
+          runId: "run-origin-unverified",
+          outcome: "needs_review",
+          executionMode: "live",
+          provider: "openai",
+          model: "gpt-5.6-luna",
+          deletionToken: "delete-once",
+          timestamp: "2026-08-27T00:00:00.000Z",
+        } as RunEvent;
+      } as HttpContainer["execute"],
+    });
+
+    const response = await handleRunsPost(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        ["sourceOriginStatus", "server_original"],
+        [
+          "document",
+          new Blob([screenshotBytes], { type: "image/png" }),
+          "screenshot.png",
+        ],
+      ]),
+      container,
+    );
+    await response.text();
+
+    expect(providerCreations).toBe(1);
+    expect(executeInput?.sourceOriginStatus).toBe("unverified");
+  });
+
   it("runs an operational fixture with its verified action semantics", async () => {
     const container = createTestContainer();
     const response = await handleRunsPost(
@@ -56,7 +234,9 @@ describe("POST /api/runs", () => {
       "receiver_comments",
     ]);
     expect(stored?.details?.result?.action).toEqual(
-      syntheticFixtures.find((fixture) => fixture.id === "warehouse-clean-receipt")?.action,
+      syntheticFixtures.find(
+        (fixture) => fixture.id === "warehouse-clean-receipt",
+      )?.action,
     );
   });
 
@@ -689,14 +869,16 @@ describe("POST /api/runs", () => {
       container,
     );
     expect(await listResponse.json()).toMatchObject({
-      runs: [{
-        id: completed.runId,
-        providerCalled: true,
-        provider: "anthropic",
-        model: "claude-haiku-4-5",
-        configuredProvider: "anthropic",
-        configuredModel: "claude-haiku-4-5",
-      }],
+      runs: [
+        {
+          id: completed.runId,
+          providerCalled: true,
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          configuredProvider: "anthropic",
+          configuredModel: "claude-haiku-4-5",
+        },
+      ],
     });
     expect(
       (await container.quotaRepository.snapshot(container.clock()))
@@ -716,7 +898,10 @@ describe("POST /api/runs", () => {
     });
     const claimRunRequest = vi.spyOn(container.repository, "claimRunRequest");
     const reserveQuota = vi.spyOn(container.quotaRepository, "reserve");
-    const storePrivateDocument = vi.spyOn(documentStore, "storePrivateDocument");
+    const storePrivateDocument = vi.spyOn(
+      documentStore,
+      "storePrivateDocument",
+    );
     const request = formRequest([
       ["sourceType", "custom"],
       ["provider", "openai"],
@@ -770,18 +955,28 @@ describe("POST /api/runs", () => {
         };
       },
     });
-    const response = await handleRunsPost(formRequest([
-      ["sourceType", "custom"],
-      ["provider", "openai"],
-      ["requestedField", "Vendor name"],
-      ["requestedField", "Invoice total"],
-      ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
-    ]), container);
+    const response = await handleRunsPost(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "openai"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        [
+          "document",
+          new Blob([makePdf(1)], { type: "application/pdf" }),
+          "invoice.pdf",
+        ],
+      ]),
+      container,
+    );
     const events = await readLines(response);
     const failed = events.at(-1) as { runId: string };
 
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "storage_unavailable" });
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "storage_unavailable",
+    });
     expect(providerCalls).toBe(0);
     const detailResponse = await handleRunGet(
       new Request(`http://local.test/api/runs/${failed.runId}`),
@@ -809,18 +1004,28 @@ describe("POST /api/runs", () => {
         };
       },
     });
-    const response = await handleRunsPost(formRequest([
-      ["sourceType", "custom"],
-      ["provider", "anthropic"],
-      ["requestedField", "Vendor name"],
-      ["requestedField", "Invoice total"],
-      ["consent", "true"],
-      ["document", new Blob([makePdf(1)], { type: "application/pdf" }), "invoice.pdf"],
-    ]), container);
+    const response = await handleRunsPost(
+      formRequest([
+        ["sourceType", "custom"],
+        ["provider", "anthropic"],
+        ["requestedField", "Vendor name"],
+        ["requestedField", "Invoice total"],
+        ["consent", "true"],
+        [
+          "document",
+          new Blob([makePdf(1)], { type: "application/pdf" }),
+          "invoice.pdf",
+        ],
+      ]),
+      container,
+    );
     const events = await readLines(response);
     const failed = events.at(-1) as { runId: string };
 
-    expect(events.at(-1)).toMatchObject({ type: "failed", code: "provider_request_rejected" });
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_request_rejected",
+    });
     const detailResponse = await handleRunGet(
       new Request(`http://local.test/api/runs/${failed.runId}`),
       { id: failed.runId },
@@ -1067,9 +1272,7 @@ describe("GET /api/runs", () => {
         return {
           provider: input.provider,
           model:
-            input.provider === "openai"
-              ? "gpt-5.6-luna"
-              : "claude-haiku-4-5",
+            input.provider === "openai" ? "gpt-5.6-luna" : "claude-haiku-4-5",
           promptVersion: "live-cookie-limit-test.v1",
           executionMode: "live",
           async extract(request) {

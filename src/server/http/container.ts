@@ -17,7 +17,11 @@ import {
   InMemoryDocumentStore,
   type DocumentStore,
 } from "@/server/storage/document-store";
-import { executeRun, type ExecuteRunInput, type ExecuteRunDependencies } from "@/server/workflow/execute-run";
+import {
+  executeRun,
+  type ExecuteRunInput,
+  type ExecuteRunDependencies,
+} from "@/server/workflow/execute-run";
 import type { RunEvent } from "@/domain/types";
 import type { Provider } from "@/domain/types";
 import { defaultBucketTokenSource } from "@/server/http/anonymous-bucket";
@@ -30,6 +34,7 @@ import {
   InMemoryAbuseControl,
   type AbuseControl,
 } from "@/server/security/abuse-control";
+import { classifyCustomSourceOrigin } from "@/server/security/source-origin";
 
 type SyntheticFixtureId = (typeof syntheticFixtures)[number]["id"];
 
@@ -63,6 +68,9 @@ export type HttpContainer = {
     dependencies: ExecuteRunDependencies,
   ) => AsyncGenerator<RunEvent>;
   createProvider: (input: ProviderFactoryInput) => Promise<ExtractionProvider>;
+  classifyCustomSourceOrigin: (
+    bytes: Uint8Array,
+  ) => "recognized_copy" | "unverified";
   loadSyntheticDocument: (filename: string) => Promise<Uint8Array>;
 };
 
@@ -71,11 +79,15 @@ type Environment = Record<string, string | undefined>;
 function parseDailyModelBudget(value: string | undefined): number {
   if (value === undefined) return DEFAULT_DAILY_MODEL_BUDGET_USD;
   if (!value.trim()) {
-    throw new HttpContainerConfigurationError("invalid_global_daily_model_budget_usd");
+    throw new HttpContainerConfigurationError(
+      "invalid_global_daily_model_budget_usd",
+    );
   }
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new HttpContainerConfigurationError("invalid_global_daily_model_budget_usd");
+    throw new HttpContainerConfigurationError(
+      "invalid_global_daily_model_budget_usd",
+    );
   }
   return parsed;
 }
@@ -96,16 +108,24 @@ export function createDefaultHttpContainer(
     environment.GLOBAL_DAILY_MODEL_BUDGET_USD,
   );
   if (hasDatabase !== hasBlob) {
-    throw new HttpContainerConfigurationError("connected_persistence_must_be_coherent");
+    throw new HttpContainerConfigurationError(
+      "connected_persistence_must_be_coherent",
+    );
   }
   if (
     environment.NODE_ENV === "production" &&
     !hasDatabase &&
     environment.ALLOW_IN_MEMORY_PERSISTENCE !== "true"
   ) {
-    throw new HttpContainerConfigurationError("production_persistence_required");
+    throw new HttpContainerConfigurationError(
+      "production_persistence_required",
+    );
   }
-  if (environment.NODE_ENV === "production" && liveModeEnabled && !hasDatabase) {
+  if (
+    environment.NODE_ENV === "production" &&
+    liveModeEnabled &&
+    !hasDatabase
+  ) {
     throw new HttpContainerConfigurationError(
       "production_live_mode_requires_database",
     );
@@ -143,6 +163,7 @@ export function createDefaultHttpContainer(
     },
     cronSecret: environment.CRON_SECRET,
     execute: executeRun,
+    classifyCustomSourceOrigin,
     async createProvider(input) {
       if (input.executionMode === "recorded") {
         if (!input.sampleId) throw new Error("recorded_fixture_required");

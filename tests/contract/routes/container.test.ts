@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   HttpContainerConfigurationError,
   createDefaultHttpContainer,
@@ -9,8 +11,22 @@ describe("HTTP persistence container", () => {
     const container = createDefaultHttpContainer({ NODE_ENV: "test" });
 
     expect(container.repository.constructor.name).toBe("InMemoryRunRepository");
-    expect(container.documentStore.constructor.name).toBe("InMemoryDocumentStore");
-    expect(container.abuseControl.constructor.name).toBe("InMemoryAbuseControl");
+    expect(container.documentStore.constructor.name).toBe(
+      "InMemoryDocumentStore",
+    );
+    expect(container.abuseControl.constructor.name).toBe(
+      "InMemoryAbuseControl",
+    );
+  });
+
+  it("classifies an exact committed fixture copy through the HTTP container", async () => {
+    const container = createDefaultHttpContainer({ NODE_ENV: "test" });
+    const bytes = new Uint8Array(
+      await readFile(
+        join(process.cwd(), "public", "samples", "invoice-clean-match.pdf"),
+      ),
+    );
+    expect(container.classifyCustomSourceOrigin(bytes)).toBe("recognized_copy");
   });
 
   it("constructs both lazy connected ports when database and Blob are configured", () => {
@@ -21,9 +37,15 @@ describe("HTTP persistence container", () => {
       CRON_SECRET: "cron-secret-with-at-least-32-characters",
     });
 
-    expect(container.repository.constructor.name).not.toBe("InMemoryRunRepository");
-    expect(container.documentStore.constructor.name).not.toBe("InMemoryDocumentStore");
-    expect(container.abuseControl.constructor.name).not.toBe("InMemoryAbuseControl");
+    expect(container.repository.constructor.name).not.toBe(
+      "InMemoryRunRepository",
+    );
+    expect(container.documentStore.constructor.name).not.toBe(
+      "InMemoryDocumentStore",
+    );
+    expect(container.abuseControl.constructor.name).not.toBe(
+      "InMemoryAbuseControl",
+    );
   });
 
   it.each([
@@ -53,9 +75,9 @@ describe("HTTP persistence container", () => {
   });
 
   it("requires connected persistence in production without a server-only override", () => {
-    expect(() => createDefaultHttpContainer({ NODE_ENV: "production" })).toThrowError(
-      HttpContainerConfigurationError,
-    );
+    expect(() =>
+      createDefaultHttpContainer({ NODE_ENV: "production" }),
+    ).toThrowError(HttpContainerConfigurationError);
 
     expect(() =>
       createDefaultHttpContainer({
