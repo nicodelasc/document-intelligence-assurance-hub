@@ -1826,6 +1826,7 @@ describe("InMemoryRunRepository", () => {
               evidence_consistent_runs: 0,
               conflict_runs: 1,
               not_found_runs: 0,
+              review_required_runs: 3,
             },
           ];
         }
@@ -1838,12 +1839,48 @@ describe("InMemoryRunRepository", () => {
       totalRuns: 5,
       completedRuns: 4,
       failedRuns: 1,
+      reviewRequiredRuns: 3,
       providerCounts: { openai: 3, anthropic: 2 },
       outcomeCounts: { clear: 1, needs_review: 1, incomplete: 1, conflict: 1 },
     });
     expect(aggregateSql).toContain("COUNT(*) FILTER");
     expect(aggregateSql).toContain("provider_dispatched");
+    expect(aggregateSql).toMatch(
+      /source_origin_status = 'unverified'[\s\S]*outcome IN \('clear', 'evidence_consistent'\)/,
+    );
     expect(aggregateSql).not.toContain("SELECT provider, outcome");
+  });
+
+  it("counts an unverified evidence-consistent completion as review required", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({
+      ...runRecord("unverified-evidence-consistent"),
+      sourceType: "custom",
+      sourceOriginStatus: "unverified",
+      documentFamily: null,
+      fixtureId: null,
+    });
+    await repository.saveResults("unverified-evidence-consistent", {
+      fields,
+      outcome: "evidence_consistent",
+      documentInstruction: null,
+      action: {
+        ...structuredClone(syntheticFixtures[0].action),
+        status: "needs_review",
+      },
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimatedCostUsd: 0,
+      retryCount: 0,
+      latencyMs: 1,
+      stepDurations: {},
+      completedAt: "2026-08-29T10:00:01.000Z",
+    });
+
+    await expect(repository.aggregateAnonymousUsage()).resolves.toMatchObject({
+      completedRuns: 1,
+      outcomeCounts: { evidence_consistent: 1 },
+      reviewRequiredRuns: 1,
+    });
   });
 
   it("uses an unbounded Neon source-check aggregate with stable zero fallbacks", async () => {

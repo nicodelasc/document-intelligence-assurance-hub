@@ -12,6 +12,7 @@ import type {
   WorkflowEventStatus,
 } from "@/domain/types";
 import { actionProposalSchema } from "@/domain/run-schema";
+import { requiresHumanReview } from "@/domain/action-policy";
 
 export type ExecutionMode = "recorded" | "live";
 export type SourceType = "synthetic" | "custom";
@@ -101,6 +102,7 @@ export type AnonymousUsageAggregate = {
   estimatedCostUsd: number;
   providerCounts: Record<Provider, number>;
   outcomeCounts: Partial<Record<Outcome, number>>;
+  reviewRequiredRuns: number;
 };
 
 export type MarkRunFailedInput = {
@@ -348,6 +350,7 @@ export class InMemoryRunRepository implements RunRepository {
     estimatedCostUsd: 0,
     providerCounts: { openai: 0, anthropic: 0 },
     outcomeCounts: {},
+    reviewRequiredRuns: 0,
   };
 
   async claimRunRequest(runId: string, expiresAt: string, now: Date): Promise<boolean> {
@@ -424,6 +427,11 @@ export class InMemoryRunRepository implements RunRepository {
       this.aggregate.estimatedCostUsd += result.estimatedCostUsd;
       this.aggregate.outcomeCounts[result.outcome] =
         (this.aggregate.outcomeCounts[result.outcome] ?? 0) + 1;
+      if (
+        requiresHumanReview(result.outcome, run.record.sourceOriginStatus)
+      ) {
+        this.aggregate.reviewRequiredRuns += 1;
+      }
     }
   }
 
@@ -1321,7 +1329,16 @@ class NeonRunRepository implements RunRepository {
         COUNT(*) FILTER (WHERE outcome = 'incomplete') AS incomplete_runs,
         COUNT(*) FILTER (WHERE outcome = 'evidence_consistent') AS evidence_consistent_runs,
         COUNT(*) FILTER (WHERE outcome = 'conflict') AS conflict_runs,
-        COUNT(*) FILTER (WHERE outcome = 'not_found') AS not_found_runs
+        COUNT(*) FILTER (WHERE outcome = 'not_found') AS not_found_runs,
+        COUNT(*) FILTER (
+          WHERE was_completed AND (
+            outcome IN ('needs_review', 'incomplete', 'conflict', 'not_found')
+            OR (
+              source_origin_status = 'unverified'
+              AND outcome IN ('clear', 'evidence_consistent')
+            )
+          )
+        ) AS review_required_runs
       FROM runs`,
     );
     const row = rows[0] ?? {};
@@ -1350,6 +1367,7 @@ class NeonRunRepository implements RunRepository {
         anthropic: Number(row.anthropic_runs ?? 0),
       },
       outcomeCounts,
+      reviewRequiredRuns: Number(row.review_required_runs ?? 0),
     };
     return aggregate;
   }

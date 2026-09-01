@@ -141,7 +141,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   await expect(page.getByText("INV-MP-4101")).toBeVisible();
   await expect(page.getByText("Invoice total differs from the purchase-order reference.")).toBeVisible();
   await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Exception review required")).toBeVisible();
-  await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Unverified uploads")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Source unverified")).toBeVisible();
   await expect(page.getByText(/live-call|live provider|public prototype|recorded replay/i)).toHaveCount(0);
   const operationsHeadings = await page.locator(".operations-column h3").allTextContents();
   expect(operationsHeadings.indexOf("Procurement review queue")).toBeLessThan(

@@ -3,6 +3,9 @@ BEGIN;
 ALTER TABLE runs
   ADD COLUMN IF NOT EXISTS source_origin_status TEXT;
 
+ALTER TABLE runs
+  ALTER COLUMN source_origin_status SET DEFAULT 'unverified';
+
 UPDATE runs
 SET source_origin_status = CASE
   WHEN source_type = 'synthetic' THEN 'server_original'

@@ -40,6 +40,29 @@ function statusForVerifiedOutcome(
   return fixture.action.status;
 }
 
+export function requiresSourceOriginReview(
+  outcome: Outcome,
+  sourceOriginStatus?: SourceOriginStatus,
+): boolean {
+  return (
+    sourceOriginStatus === "unverified" &&
+    (outcome === "clear" || outcome === "evidence_consistent")
+  );
+}
+
+export function requiresHumanReview(
+  outcome: Outcome,
+  sourceOriginStatus?: SourceOriginStatus,
+): boolean {
+  return (
+    requiresSourceOriginReview(outcome, sourceOriginStatus) ||
+    outcome === "needs_review" ||
+    outcome === "incomplete" ||
+    outcome === "conflict" ||
+    outcome === "not_found"
+  );
+}
+
 export function applyActionPolicy(
   outcome: Outcome,
   proposed: ActionProposal,
@@ -54,9 +77,10 @@ export function applyActionPolicy(
     return structuredClone(guardedDocumentAction);
   }
   const status = statusForVerifiedOutcome(outcome, fixture);
-  const requiresOriginReview =
-    sourceOriginStatus === "unverified" &&
-    (outcome === "clear" || outcome === "evidence_consistent");
+  const requiresOriginReview = requiresSourceOriginReview(
+    outcome,
+    sourceOriginStatus,
+  );
   if (!fixture) {
     return {
       ...proposed,

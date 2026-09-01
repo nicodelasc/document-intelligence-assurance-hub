@@ -27,12 +27,14 @@ function metricsRun({
   outcome = "clear",
   workflowEvents = [],
   latencyMs = 100,
+  sourceOriginStatus = "server_original",
 }: {
   id: string;
   status?: RunStatus;
   outcome?: Outcome | null;
   workflowEvents?: WorkflowEvent[];
   latencyMs?: number | null;
+  sourceOriginStatus?: PublicRunRecord["sourceOriginStatus"];
 }): PublicRunRecord {
   return {
     id,
@@ -42,7 +44,7 @@ function metricsRun({
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
-    sourceOriginStatus: "server_original",
+    sourceOriginStatus,
     documentFamily: "supplier_invoice",
     fixtureId: "invoice-clean-match",
     file: {
@@ -143,6 +145,47 @@ const quotaSnapshot: QuotaSnapshot = {
 };
 
 describe("recorded benchmark metrics", () => {
+  it("routes an unverified evidence-consistent completion to human review", async () => {
+    const container = createTestContainer({
+      clock: () => new Date("2026-08-29T12:00:00.000Z"),
+    });
+    container.repository.aggregateAnonymousUsage = async () => ({
+      totalRuns: 1,
+      completedRuns: 1,
+      failedRuns: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      estimatedCostUsd: 0,
+      providerCounts: { openai: 0, anthropic: 0 },
+      outcomeCounts: { evidence_consistent: 1 },
+      reviewRequiredRuns: 1,
+    });
+    container.repository.listPublicRuns = async () => [
+      metricsRun({
+        id: "unverified-evidence-consistent",
+        outcome: "evidence_consistent",
+        sourceOriginStatus: "unverified",
+      }),
+    ];
+
+    const response = await handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    const body = (await response.json()) as {
+      operations: { workflowStatus: Record<string, number> };
+      summary: { reviewRate: number };
+    };
+
+    expect(body.operations.workflowStatus).toEqual({
+      ready: 0,
+      needsAttention: 1,
+      incomplete: 0,
+      processingErrors: 0,
+    });
+    expect(body.summary.reviewRate).toBe(1);
+  });
+
   it("builds allow-listed Operations and Costs metrics from distinct populations", async () => {
     const container = createTestContainer({
       clock: () => new Date("2026-08-29T12:00:00.000Z"),
@@ -238,6 +281,7 @@ describe("recorded benchmark metrics", () => {
         incomplete: 4,
         not_found: 2,
       },
+      reviewRequiredRuns: 26,
     });
     container.repository.aggregateConfirmedModelCosts = async () =>
       structuredClone(confirmedCosts);

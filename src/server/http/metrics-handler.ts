@@ -4,6 +4,7 @@ import {
   type RecordedDocumentRunResult,
 } from "@/domain/fixtures";
 import { calculateResourceScenario } from "@/domain/resource-model";
+import { requiresSourceOriginReview } from "@/domain/action-policy";
 import { pricingAsOf } from "@/domain/pricing";
 import type {
   DocumentFamily,
@@ -454,11 +455,6 @@ export async function handleMetricsGet(
       const latencies = runs.flatMap((run) =>
         run.latencyMs === null ? [] : [run.latencyMs],
       );
-      const reviewRuns =
-        (aggregate.outcomeCounts.needs_review ?? 0) +
-        (aggregate.outcomeCounts.incomplete ?? 0) +
-        (aggregate.outcomeCounts.conflict ?? 0) +
-        (aggregate.outcomeCounts.not_found ?? 0);
       const recordedRuns = runs.filter(
         (run) => run.executionMode === "recorded",
       ).length;
@@ -479,6 +475,13 @@ export async function handleMetricsGet(
       for (const run of terminalActiveRuns) {
         if (run.status === "failed") {
           workflowStatus.processingErrors += 1;
+          continue;
+        }
+        if (
+          run.outcome !== null &&
+          requiresSourceOriginReview(run.outcome, run.sourceOriginStatus)
+        ) {
+          workflowStatus.needsAttention += 1;
           continue;
         }
         switch (run.outcome) {
@@ -602,7 +605,10 @@ export async function handleMetricsGet(
         summary: {
           totalRuns: aggregate.totalRuns,
           completionRate: ratio(aggregate.completedRuns, aggregate.totalRuns),
-          reviewRate: ratio(reviewRuns, aggregate.completedRuns),
+          reviewRate: ratio(
+            aggregate.reviewRequiredRuns,
+            aggregate.completedRuns,
+          ),
           failureRate: ratio(aggregate.failedRuns, aggregate.totalRuns),
         },
         performance,

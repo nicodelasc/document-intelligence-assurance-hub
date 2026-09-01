@@ -1,3 +1,12 @@
+import { spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   scanOrigin,
@@ -6,6 +15,59 @@ import {
 } from "../../../scripts/verify-public-surface.mjs";
 
 describe("public-surface verifier", () => {
+  it("redacts every sensitive match from command diagnostics", () => {
+    const root = mkdtempSync(join(tmpdir(), "public-surface-redaction-"));
+    const sourceDirectory = join(root, "src", "app");
+    mkdirSync(sourceDirectory, { recursive: true });
+    const credential = "sk-proj-redactionSentinelCredential1234567890";
+    const deletionCapability = "redaction-delete-capability-sentinel";
+    const digestPrefix = "abcdeffedcba00112233445566778899";
+    const manifestPrefix = "deadbeefcafebabe0011223344556677";
+    const promptContent = "prompt-content-redaction-sentinel";
+    writeFileSync(
+      join(sourceDirectory, "leak.tsx"),
+      [
+        `const credential = "${credential}";`,
+        `"deletionToken":"${deletionCapability}"`,
+        `"documentDigest":"${digestPrefix}${"d".repeat(64 - digestPrefix.length)}"`,
+        `"invoice.pdf":"${manifestPrefix}${"e".repeat(64 - manifestPrefix.length)}"`,
+        `"systemPrompt":"${promptContent}"`,
+      ].join("\n"),
+      "utf8",
+    );
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [resolve("scripts/verify-public-surface.mjs")],
+        { cwd: root, encoding: "utf8" },
+      );
+
+      expect(result.status).toBe(1);
+      for (const category of [
+        "credential-shaped value",
+        "raw deletion token",
+        "document digest",
+        "sample-origin manifest entry",
+        "full prompt text",
+      ]) {
+        expect(result.stderr).toContain(`[${category}]`);
+      }
+      expect(result.stderr).toContain("[redacted sensitive match]");
+      for (const sentinel of [
+        credential,
+        deletionCapability,
+        digestPrefix,
+        manifestPrefix,
+        promptContent,
+      ]) {
+        expect(result.stderr).not.toContain(sentinel);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("reports credential values without treating safe environment names as leaks", () => {
     expect(scanText("OPENAI_API_KEY=\nANTHROPIC_API_KEY=", "safe.env")).toEqual(
       [],

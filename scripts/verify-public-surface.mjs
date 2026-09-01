@@ -145,6 +145,8 @@ const scannedExtensions = new Set([
   ".txt",
 ]);
 
+const redactedSensitiveMarker = "[redacted sensitive match]";
+
 function lineNumber(text, index) {
   return text.slice(0, index).split("\n").length;
 }
@@ -157,7 +159,7 @@ export function scanText(text, pathLabel) {
       findings.push({
         category: signature.category,
         location: `${pathLabel}:${lineNumber(text, match.index ?? 0)}`,
-        marker: match[0].slice(0, 80),
+        marker: redactedSensitiveMarker,
       });
     }
   }

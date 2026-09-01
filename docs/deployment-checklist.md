@@ -64,7 +64,7 @@ psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER
 - [ ] `workflow_events_idempotency_idx` exists as the unique idempotency index.
 - [ ] `workflow_events_run_created_idx` exists as the chronological run index.
 - [ ] `runs.completed_at` exists.
-- [ ] `runs.source_origin_status` exists with the three server-owned values and the historical conservative backfill.
+- [ ] `runs.source_origin_status` exists with the three server-owned values, the historical conservative backfill and the rollback-compatible `unverified` database default.
 - [ ] The safe completed-row backfill leaves zero rows where `was_completed = true` and `runs.completed_at IS NULL`.
 - [ ] `runs_confirmed_model_cost_idx` exists with the confirmed-dispatch completed-row predicate.
 - [ ] Parallel requests from rotated test cookies stop at the configured global minute ceiling.

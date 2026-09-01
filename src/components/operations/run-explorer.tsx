@@ -329,7 +329,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                     <td>{identity.exception}</td>
                     <td>{retained ? "No active handoff" : run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
                     <td><time dateTime={run.createdAt}>{receivedTime}</time></td>
-                    <td>{sourceOriginLabel(run.sourceOriginStatus, "summary")}</td>
+                    <td>{sourceOriginLabel(run.sourceOriginStatus)}</td>
                   </tr>
                 );
               })}

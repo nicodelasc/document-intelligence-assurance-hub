@@ -230,7 +230,7 @@ export function OperationsDashboard() {
       >
         <Metric label="Documents triaged" value={String(summary.totalRuns)} detail="Anonymous procurement reviews" />
         <Metric label="Completion rate" value={percent.format(summary.completionRate)} detail="Completed triage records" />
-        <Metric label="Exception rate" value={percent.format(summary.reviewRate)} detail="Completed records requiring review" />
+        <Metric label="Review-required rate" value={percent.format(summary.reviewRate)} detail="Completed records requiring human review" />
         <Metric label="Failure rate" value={percent.format(summary.failureRate)} detail="Safe terminal failures" />
       </section>
       {metrics ? (

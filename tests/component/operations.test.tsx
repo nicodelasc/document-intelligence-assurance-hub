@@ -139,6 +139,29 @@ describe("Run explorer", () => {
     ]);
   });
 
+  it("uses individual source labels in review queue rows", () => {
+    render(<RunExplorer runs={runs.slice(0, 3)} onSelect={() => undefined} />);
+
+    const queue = screen.getByRole("table", { name: "Procurement review queue" });
+    for (const [reference, sourceLabel] of [
+      ["INV-MP-4101", "Original demo document"],
+      ["fixture-2.pdf", "Source unverified"],
+      ["fixture-3.pdf", "Exact copy of a demo document"],
+    ]) {
+      const row = within(queue)
+        .getByRole("radio", { name: new RegExp(`^Select ${reference},`) })
+        .closest("tr")!;
+      expect(within(row).getByText(sourceLabel)).toBeVisible();
+    }
+    for (const aggregateLabel of [
+      "Original demo runs",
+      "Exact-copy uploads",
+      "Unverified uploads",
+    ]) {
+      expect(within(queue).queryByText(aggregateLabel)).not.toBeInTheDocument();
+    }
+  });
+
   it("keeps custom outcomes evidence-only in the review queue", () => {
     const customRuns = [
       { ...runs[1], id: "custom_evidence", filename: "custom-evidence.pdf", sourceType: "custom" as const, outcome: "evidence_consistent" as const },
@@ -634,7 +657,7 @@ describe("Operations metric claims", () => {
     expect(screen.getByRole("heading", { name: "Costs workspace", level: 2 })).toBeVisible();
     for (const label of [
       "Documents triaged",
-      "Exception rate",
+      "Review-required rate",
       "Prepared case handoffs",
       "Public demo retention",
     ]) {
