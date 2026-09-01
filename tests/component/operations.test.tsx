@@ -53,6 +53,7 @@ describe("Run explorer", () => {
       index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: index === 1 || index === 2 ? ("live" as const) : ("recorded" as const),
     sourceType: index === 1 || index === 2 ? ("custom" as const) : ("synthetic" as const),
+    sourceOriginStatus: index === 1 ? ("unverified" as const) : index === 2 ? ("recognized_copy" as const) : ("server_original" as const),
     status: index === 11 ? ("expired" as const) : ("completed" as const),
     outcome: "clear" as const,
     createdAt: "2026-08-27T00:00:00.000Z",
@@ -260,7 +261,7 @@ describe("Run explorer", () => {
 
   it("shows an active same-origin preview and honest inspector sections", async () => {
     const user = userEvent.setup();
-    const active = { ...runs[0], latencyMs: 100.276 };
+    const active = { ...runs[0], latencyMs: 100.276, sourceOriginStatus: "unverified" as const };
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ run: {
       ...active,
       promptVersion: "document-extraction-2026-08-27.v1",
@@ -377,6 +378,8 @@ describe("Run explorer", () => {
     const metadata = screen.getByRole("heading", { name: "Metadata" }).closest("section")!;
     expect(within(metadata).getAllByText("No AI processing")).toHaveLength(2);
     expect(within(metadata).queryByText("gpt-5-mini")).not.toBeInTheDocument();
+    expect(within(metadata).getByText("Source check")).toBeVisible();
+    expect(within(metadata).getByText("Source unverified")).toBeVisible();
     expect(document.querySelector(".run-inspector")).not.toHaveAttribute("aria-live");
   });
 
@@ -422,6 +425,7 @@ describe("Operations metric claims", () => {
         expiryBuckets: { lessThanOneHour: 1, oneToSixHours: 3, sixToTwentyFourHours: 4 },
         cleanupBacklog: 1,
       },
+      origin: { serverOriginal: 2, recognizedCopy: 1, unverified: 3 },
     },
     costs: {
       estimated: true,
@@ -595,6 +599,7 @@ describe("Operations metric claims", () => {
     ]) {
       expect(screen.getByText(status)).toBeVisible();
     }
+    expect(screen.getByText("Unverified uploads")).toBeVisible();
     const queueHeading = screen.getByRole("heading", { name: "Procurement review queue" });
     const processingHeading = screen.getByRole("heading", { name: "Processing performance" });
     const assuranceHeading = screen.getByRole("heading", { name: "Reference quality suite" });

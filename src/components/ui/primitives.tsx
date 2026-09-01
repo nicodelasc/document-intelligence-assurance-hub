@@ -101,11 +101,30 @@ export function ProcessingStatus({
   );
 }
 
-const sourceOriginLabels: Record<SourceOriginStatus, string> = {
-  server_original: "Original demo document",
-  recognized_copy: "Exact copy of a demo document",
-  unverified: "Source unverified",
+const sourceOriginLabels: Record<
+  SourceOriginStatus,
+  { detail: string; summary: string }
+> = {
+  server_original: {
+    detail: "Original demo document",
+    summary: "Original demo runs",
+  },
+  recognized_copy: {
+    detail: "Exact copy of a demo document",
+    summary: "Exact-copy uploads",
+  },
+  unverified: {
+    detail: "Source unverified",
+    summary: "Unverified uploads",
+  },
 };
+
+export function sourceOriginLabel(
+  status: SourceOriginStatus,
+  format: "detail" | "summary" = "detail",
+): string {
+  return sourceOriginLabels[status][format];
+}
 
 export function SourceOriginStatusNote({ status }: { status: SourceOriginStatus | null }) {
   if (!status) return null;
@@ -113,7 +132,7 @@ export function SourceOriginStatusNote({ status }: { status: SourceOriginStatus 
     <aside className={`source-origin-status source-origin-status--${status}`} role="note">
       <StatusMark status={status === "unverified" ? "warning" : "pass"} />
       <div>
-        <strong>{sourceOriginLabels[status]}</strong>
+        <strong>{sourceOriginLabel(status)}</strong>
         {status === "unverified" ? (
           <p>The document was processed but its source was not verified. A person must review it before any posting handoff.</p>
         ) : null}

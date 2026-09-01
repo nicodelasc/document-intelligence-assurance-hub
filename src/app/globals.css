@@ -300,6 +300,8 @@ tbody th { font-weight: 600; }
 .workspace-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
 .workspace-stat-grid > div { min-width: 0; display: grid; gap: 0.2rem; padding: 0.75rem 0.8rem; border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); }
 .workspace-stat-grid > div:nth-child(4n) { border-right: 0; }
+.origin-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.origin-summary-grid > div:last-child { border-right: 0; }
 .workspace-stat-grid dt, .inline-stat-list dt { color: var(--muted); font-size: 0.67rem; }
 .workspace-stat-grid dd, .inline-stat-list dd { margin: 0; font: 650 1.12rem/1.2 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
 .performance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

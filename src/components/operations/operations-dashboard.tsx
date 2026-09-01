@@ -42,6 +42,11 @@ export type OperationsMetrics = {
     };
     cleanupBacklog: number;
   };
+  origin: {
+    serverOriginal: number;
+    recognizedCopy: number;
+    unverified: number;
+  };
 };
 
 export type ReferenceQualityMetrics = {

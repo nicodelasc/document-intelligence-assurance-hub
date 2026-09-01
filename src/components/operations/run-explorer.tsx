@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, StatusMark } from "@/components/ui/primitives";
+import { Button, EmptyState, sourceOriginLabel, StatusMark } from "@/components/ui/primitives";
 import { syntheticFixtures } from "@/domain/fixtures";
 import type {
   ActionProposal,
@@ -11,6 +11,7 @@ import type {
   Outcome,
   Provider,
   RunStatus,
+  SourceOriginStatus,
   WorkflowActionType,
   WorkflowEvent,
   WorkflowEventStatus,
@@ -44,6 +45,7 @@ export type ExplorerRun = {
   configuredModel: string;
   executionMode: "recorded" | "live";
   sourceType: "synthetic" | "custom";
+  sourceOriginStatus: SourceOriginStatus;
   documentFamily?: DocumentFamily | null;
   fixtureId?: string | null;
   status: RunStatus;
@@ -312,7 +314,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
         <div className="table-scroll table-overflow-cue" tabIndex={0} role="region" aria-label="Scrollable procurement review queue">
           <table>
             <caption className="sr-only">Procurement review queue</caption>
-            <thead><tr><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Received time</th></tr></thead>
+            <thead><tr><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Source check</th><th scope="col">Received time</th></tr></thead>
             <tbody>
               {visible.map((run) => {
                 const identity = fixtureIdentity(run);
@@ -326,11 +328,12 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                     <td><span className="status-inline"><StatusMark status={decision.status} />{decision.label}</span>{decision.boundary ? <small>{decision.boundary}</small> : null}</td>
                     <td>{identity.exception}</td>
                     <td>{retained ? "No active handoff" : run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
+                    <td>{sourceOriginLabel(run.sourceOriginStatus, "summary")}</td>
                     <td><time dateTime={run.createdAt}>{receivedTime}</time></td>
                   </tr>
                 );
               })}
-              {!visible.length ? <tr><td colSpan={6}><EmptyState title={runs.length ? "No matching review records" : "No review records yet"}>{runs.length ? "Clear the filters to restore the review queue." : "Assess a document in Workbench to populate this queue."}</EmptyState></td></tr> : null}
+              {!visible.length ? <tr><td colSpan={7}><EmptyState title={runs.length ? "No matching review records" : "No review records yet"}>{runs.length ? "Clear the filters to restore the review queue." : "Assess a document in Workbench to populate this queue."}</EmptyState></td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -406,7 +409,7 @@ function Inspector({ run }: { run: ExplorerRun }) {
           <section><h4>Processing diagnostics</h4><dl><div><dt>Latency</dt><dd>{detail.latencyMs === null ? "Unavailable" : formatMilliseconds(detail.latencyMs)}</dd></div><div><dt>Retries</dt><dd>{detail.retryCount}</dd></div><div><dt>Estimated API cost</dt><dd>US${detail.estimatedCostUsd.toFixed(4)}</dd></div></dl>{steps.length ? <ol className="inspector-steps">{steps.map((step, index) => <li key={`${step.timestamp}-${index}`}><span>{step.stage.replaceAll("_", " ")}</span><span className="mono">{formatMilliseconds(step.durationMs)}</span></li>)}</ol> : <p>No step telemetry is available.</p>}</section>
           <section><h4>Safe diagnostics</h4>{safeErrors.length ? <ul className="safe-error-list">{safeErrors.map((step, index) => <li key={`${step.timestamp}-${index}`}><code>{step.safeCode}</code><span>{step.stage.replaceAll("_", " ")}</span></li>)}</ul> : <p>No safe diagnostic codes were recorded.</p>}</section>
           <section><h4>Workflow activity</h4>{workflowEvents.length ? <ol className="workflow-event-list">{workflowEvents.map((event) => <li key={event.id}><strong>{workflowActionLabels[event.action]}</strong><span>{event.status}{event.recipientRole ? ` · ${event.recipientRole}` : ""}</span><time dateTime={event.createdAt}>{formatSingaporeTime(event.createdAt)}</time></li>)}</ol> : <p>No simulated workflow activity is available.</p>}</section>
-          <section><h4>Metadata</h4><dl><div><dt>Provider</dt><dd>{processingDisplay(detail.providerCalled, detail.provider)}</dd></div><div><dt>Model</dt><dd>{processingDisplay(detail.providerCalled, detail.model)}</dd></div><div><dt>Mode</dt><dd>{detail.executionMode}</dd></div><div><dt>Source</dt><dd>{detail.sourceType}</dd></div><div><dt>Created</dt><dd><time dateTime={detail.createdAt}>{formatSingaporeTime(detail.createdAt)}</time></dd></div><div><dt>Expires</dt><dd><time dateTime={detail.expiresAt}>{formatSingaporeTime(detail.expiresAt)}</time></dd></div><div><dt>File</dt><dd>{detail.file.filename}</dd></div><div><dt>Pages</dt><dd>{detail.file.pageCount ?? "Unavailable"}</dd></div><div><dt>Prompt version ID</dt><dd className="mono">{detail.promptVersion}</dd></div><div><dt>Input tokens</dt><dd>{detail.usage.inputTokens}</dd></div><div><dt>Output tokens</dt><dd>{detail.usage.outputTokens}</dd></div></dl></section>
+          <section><h4>Metadata</h4><dl><div><dt>Provider</dt><dd>{processingDisplay(detail.providerCalled, detail.provider)}</dd></div><div><dt>Model</dt><dd>{processingDisplay(detail.providerCalled, detail.model)}</dd></div><div><dt>Mode</dt><dd>{detail.executionMode}</dd></div><div><dt>Source</dt><dd>{detail.sourceType}</dd></div><div><dt>Source check</dt><dd>{sourceOriginLabel(detail.sourceOriginStatus)}</dd></div><div><dt>Created</dt><dd><time dateTime={detail.createdAt}>{formatSingaporeTime(detail.createdAt)}</time></dd></div><div><dt>Expires</dt><dd><time dateTime={detail.expiresAt}>{formatSingaporeTime(detail.expiresAt)}</time></dd></div><div><dt>File</dt><dd>{detail.file.filename}</dd></div><div><dt>Pages</dt><dd>{detail.file.pageCount ?? "Unavailable"}</dd></div><div><dt>Prompt version ID</dt><dd className="mono">{detail.promptVersion}</dd></div><div><dt>Input tokens</dt><dd>{detail.usage.inputTokens}</dd></div><div><dt>Output tokens</dt><dd>{detail.usage.outputTokens}</dd></div></dl></section>
         </div>
       )}
     </div>

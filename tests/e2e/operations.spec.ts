@@ -13,6 +13,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
     configuredModel: "gpt-5.6-luna",
     executionMode: "recorded",
     sourceType: "synthetic",
+    sourceOriginStatus: "unverified",
     documentFamily: "supplier_invoice",
     fixtureId: "invoice-total-mismatch",
     status: "completed",
@@ -55,6 +56,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
       workflowActivity: { prepared: 1, staged: 0, simulated: 0 },
       performance,
       lifecycle,
+      origin: { serverOriginal: 2, recognizedCopy: 1, unverified: 3 },
     },
     costs: {
       estimated: true,
@@ -139,6 +141,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   await expect(page.getByText("INV-MP-4101")).toBeVisible();
   await expect(page.getByText("Invoice total differs from the purchase-order reference.")).toBeVisible();
   await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Exception review required")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Procurement review queue" }).getByText("Unverified uploads")).toBeVisible();
   await expect(page.getByText(/live-call|live provider|public prototype|recorded replay/i)).toHaveCount(0);
   const operationsHeadings = await page.locator(".operations-column h3").allTextContents();
   expect(operationsHeadings.indexOf("Procurement review queue")).toBeLessThan(
@@ -204,6 +207,8 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
   const metadata = page.getByRole("heading", { name: "Metadata" }).locator("..");
   await expect(metadata.getByText("No AI processing")).toHaveCount(2);
   await expect(metadata).not.toContainText("gpt-5.6-luna");
+  await expect(metadata.getByText("Source check")).toBeVisible();
+  await expect(metadata.getByText("Source unverified")).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
   const order = await page.locator(".operations-costs-layout").evaluate((layout) => {

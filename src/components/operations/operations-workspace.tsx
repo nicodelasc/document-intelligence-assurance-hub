@@ -29,6 +29,14 @@ export function OperationsWorkspace({ operations, referenceQuality, runs, summar
 
       <RunExplorer runs={runs} onSelect={() => undefined} />
 
+      <RulePanel title="Source checks" headingLevel={3}>
+        <dl className="workspace-stat-grid origin-summary-grid">
+          <div><dt>Original demo runs</dt><dd>{operations.origin.serverOriginal}</dd></div>
+          <div><dt>Exact-copy uploads</dt><dd>{operations.origin.recognizedCopy}</dd></div>
+          <div><dt>Unverified uploads</dt><dd>{operations.origin.unverified}</dd></div>
+        </dl>
+      </RulePanel>
+
       <RulePanel
         title="Triage status"
         headingLevel={3}

@@ -27,6 +27,7 @@ import type {
   ConfirmedModelCostAggregate,
   ExpiryBucketCounts,
   PublicRunRecord,
+  SourceOriginAggregate,
 } from "@/server/repositories/run-repository";
 
 const METRICS_CACHE_TTL_MS = 15_000;
@@ -94,6 +95,7 @@ export type MetricsPayload = {
     workflowActivity: Record<WorkflowEventStatus, number>;
     performance: MetricsPerformance;
     lifecycle: LifecycleMetrics;
+    origin: SourceOriginAggregate;
   };
   costs: {
     estimated: true;
@@ -430,6 +432,7 @@ export async function handleMetricsGet(
     const pending = (async (): Promise<MetricsPayload> => {
       const [
         aggregate,
+        sourceOrigin,
         confirmedCosts,
         quota,
         runs,
@@ -437,6 +440,7 @@ export async function handleMetricsGet(
         cleanupBacklog,
       ] = await Promise.all([
         container.repository.aggregateAnonymousUsage(),
+        container.repository.aggregateSourceOrigins(),
         container.repository.aggregateConfirmedModelCosts(now),
         container.quotaRepository.snapshot(now),
         container.repository.listPublicRuns(now, {
@@ -555,6 +559,7 @@ export async function handleMetricsGet(
           workflowActivity,
           performance,
           lifecycle: operationalLifecycle,
+          origin: sourceOrigin,
         },
         costs: {
           estimated: true,

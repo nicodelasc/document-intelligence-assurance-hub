@@ -9,6 +9,7 @@ import type {
   ActiveDetailLifecycleAggregate,
   ConfirmedModelCostAggregate,
   PublicRunRecord,
+  SourceOriginAggregate,
 } from "@/server/repositories/run-repository";
 import type { QuotaSnapshot } from "@/server/security/rate-limit";
 import {
@@ -120,6 +121,12 @@ const lifecycle: ActiveDetailLifecycleAggregate = {
     oneToSixHours: 1,
     sixToTwentyFourHours: 1,
   },
+};
+
+const sourceOrigins: SourceOriginAggregate = {
+  serverOriginal: 2,
+  recognizedCopy: 1,
+  unverified: 3,
 };
 
 const quotaSnapshot: QuotaSnapshot = {
@@ -234,6 +241,8 @@ describe("recorded benchmark metrics", () => {
     });
     container.repository.aggregateConfirmedModelCosts = async () =>
       structuredClone(confirmedCosts);
+    container.repository.aggregateSourceOrigins = async () =>
+      structuredClone(sourceOrigins);
     container.quotaRepository.snapshot = async () =>
       ({
         ...structuredClone(quotaSnapshot),
@@ -255,6 +264,7 @@ describe("recorded benchmark metrics", () => {
         workflowActivity: Record<string, number>;
         performance: { sampleCount: number };
         lifecycle: Record<string, unknown>;
+        origin: SourceOriginAggregate;
       };
       costs: Record<string, unknown>;
       usage: Record<string, unknown>;
@@ -284,6 +294,11 @@ describe("recorded benchmark metrics", () => {
     expect(body.operations.lifecycle).toEqual({
       ...lifecycle,
       cleanupBacklog: 4,
+    });
+    expect(body.operations.origin).toEqual({
+      serverOriginal: 2,
+      recognizedCopy: 1,
+      unverified: 3,
     });
     expect(body.costs).toEqual({
       estimated: true,

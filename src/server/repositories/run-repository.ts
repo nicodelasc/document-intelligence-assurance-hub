@@ -180,6 +180,12 @@ export type ActiveDetailLifecycleAggregate = {
   expiryBuckets: ExpiryBucketCounts;
 };
 
+export type SourceOriginAggregate = {
+  serverOriginal: number;
+  recognizedCopy: number;
+  unverified: number;
+};
+
 export type CreateWorkflowEventResult =
   | { status: "created" | "already_created"; event: WorkflowEvent }
   | {
@@ -208,6 +214,7 @@ export interface RunRepository {
   listPublicRuns(now: Date, options?: PublicRunListOptions): Promise<PublicRunRecord[]>;
   countCleanupBacklog(now: Date): Promise<number>;
   aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate>;
+  aggregateSourceOrigins(): Promise<SourceOriginAggregate>;
   aggregateConfirmedModelCosts(now: Date): Promise<ConfirmedModelCostAggregate>;
   aggregateActiveDetailLifecycle(
     now: Date,
@@ -300,6 +307,10 @@ function emptyConfirmedModelCostAggregate(): ConfirmedModelCostAggregate {
     byModel: [],
     byFamily: [],
   };
+}
+
+function emptySourceOriginAggregate(): SourceOriginAggregate {
+  return { serverOriginal: 0, recognizedCopy: 0, unverified: 0 };
 }
 
 function compareModelCostRows(
@@ -533,6 +544,24 @@ export class InMemoryRunRepository implements RunRepository {
 
   async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
     return clone(this.aggregate);
+  }
+
+  async aggregateSourceOrigins(): Promise<SourceOriginAggregate> {
+    const aggregate = emptySourceOriginAggregate();
+    for (const run of this.runs.values()) {
+      switch (run.record.sourceOriginStatus) {
+        case "server_original":
+          aggregate.serverOriginal += 1;
+          break;
+        case "recognized_copy":
+          aggregate.recognizedCopy += 1;
+          break;
+        case "unverified":
+          aggregate.unverified += 1;
+          break;
+      }
+    }
+    return aggregate;
   }
 
   async aggregateConfirmedModelCosts(
@@ -1323,6 +1352,23 @@ class NeonRunRepository implements RunRepository {
       outcomeCounts,
     };
     return aggregate;
+  }
+
+  async aggregateSourceOrigins(): Promise<SourceOriginAggregate> {
+    const driver = await this.readyDriver();
+    const rows = await driver.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE source_origin_status = 'server_original') AS server_original_runs,
+        COUNT(*) FILTER (WHERE source_origin_status = 'recognized_copy') AS recognized_copy_runs,
+        COUNT(*) FILTER (WHERE source_origin_status = 'unverified') AS unverified_runs
+      FROM runs`,
+    );
+    const row = rows[0] ?? {};
+    return {
+      serverOriginal: Number(row.server_original_runs ?? 0),
+      recognizedCopy: Number(row.recognized_copy_runs ?? 0),
+      unverified: Number(row.unverified_runs ?? 0),
+    };
   }
 
   async aggregateConfirmedModelCosts(
