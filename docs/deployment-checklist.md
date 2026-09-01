@@ -4,7 +4,7 @@ Use this checklist for each controlled rollout. The 2026-08-28 keyless productio
 
 The completed keyless rollout record is in [evaluation-report.md](evaluation-report.md). Keep the checklist below reusable for later releases.
 
-Local acceptance is mocked. Two controlled production requests were dispatched and both used OpenAI GPT-5.6 Luna with zero retries. Each failed closed during local evidence grounding. Conservative settled spend is US$0.0028036. Anthropic has not been called and connected acceptance remains incomplete. The model-selection race and serverless OCR cold-start limit are patched but have not received a post-fix paid rerun.
+Local acceptance is mocked. Six controlled production requests were dispatched with zero provider retries: five used OpenAI GPT-5.6 Luna and one used Anthropic Claude Haiku 4.5. Four OpenAI runs failed closed before the selection and OCR bundle defects were corrected. The final original PDF completed OpenAI `Clear` and the unverified PNG completed Anthropic `Conflict` with no posting handoff. Conservative settled spend is US$0.0128216. Connected evidence now covers these two bounded provider routes while retention simulation and enterprise rollout gates remain separate.
 
 The release demonstrates `Review incoming procurement documents`: finance and warehouse teams review supplier invoices and goods receipts before a finance or inventory handoff. All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
@@ -144,18 +144,18 @@ Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_M
 
 ## Provider acceptance gate
 
-Connected gate status on 2026-09-02: incomplete. Migration 0010 is applied and the guarded harness plus one-attempt server cap are deployed. Two one-attempt requests reached OpenAI GPT-5.6 Luna. Both failed closed during evidence grounding and settled US$0.0028036 conservatively in total. No Anthropic request was dispatched.
+Connected model-route evidence on 2026-09-02 covers the two bounded routes. Migration 0010 is applied and the guarded harness plus one-attempt server cap are deployed. Six one-attempt requests were dispatched. Five reached OpenAI GPT-5.6 Luna and one reached Anthropic Claude Haiku 4.5. Four OpenAI observations failed closed before the identified defects were fixed. The final OpenAI original PDF completed `Clear` and the Anthropic unverified PNG completed `Conflict`. Total conservative settled spend is US$0.0128216. The remaining checklist items still block a broader provider-acceptance claim.
 
 - [x] Nicholas explicitly authorizes a controlled provider-key session.
 - [x] Confirm zero paid calls were made during the historical mocked release matrix.
-- [x] Make one built-in OpenAI GPT-5.6 Luna observation through one deliberate reviewer click with no automatic retry. It failed closed at evidence grounding.
-- [ ] Make one custom Anthropic Claude Haiku 4.5 observation through one deliberate reviewer click with no automatic retry.
-- [ ] Confirm the Anthropic result says `Source unverified`, exposes no posting handoff and keeps `Prepared only - not sent` for any clarification copy.
+- [x] Make one successful built-in OpenAI GPT-5.6 Luna observation through one deliberate reviewer click with no automatic retry. It completed `Clear` with eight passing fields.
+- [x] Make one custom Anthropic Claude Haiku 4.5 observation through one deliberate reviewer click with no automatic retry. It completed `Conflict`.
+- [x] Confirm the Anthropic result says `Source unverified`, exposes no posting handoff and keeps `Prepared only - not sent` for any clarification copy.
 - [x] One deliberate provider failure returns only the safe mapped error.
 - [ ] One production retention simulation proves logical denial before physical cleanup.
 - [x] Daily budget reservation and conservative settlement are visible in durable state.
-- [ ] One text-native PDF proves contiguous evidence grounding on the target runtime.
-- [ ] One PNG or scanned PDF proves local OCR grounding on the target runtime.
+- [x] One text-native PDF proves contiguous evidence grounding on the target runtime through the completed OpenAI original-sample run.
+- [x] One PNG proves local OCR grounding on the target runtime through the completed Anthropic unverified-upload run.
 - [ ] Provider credentials are removed or rotated after the session as required.
 - [ ] In connected staging verify real lifecycle buckets, cleanup backlog and the newest-100 explorer scope.
 - [ ] In connected staging verify expiry or Delete now denies detail before physical cleanup.

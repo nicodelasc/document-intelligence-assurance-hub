@@ -77,9 +77,18 @@ async function expectGuardedCompletedRun(input: {
   expect(await readProviderAttemptLimitHeader(input.response.request())).toBe(
     "1",
   );
-  expect(await input.response.finished()).toBeNull();
   const runId = await submittedRunId(input.response.request());
 
+  await expect
+    .poll(
+      async () => (await readPublicRun(input.request, runId)).status,
+      {
+        message: "the persisted paid run reaches a terminal state",
+        timeout: 90_000,
+        intervals: [250, 500, 1_000, 2_000],
+      },
+    )
+    .toMatch(/^(?:completed|failed)$/);
   const run = await readPublicRun(input.request, runId);
   expect(run).toMatchObject({
     id: runId,

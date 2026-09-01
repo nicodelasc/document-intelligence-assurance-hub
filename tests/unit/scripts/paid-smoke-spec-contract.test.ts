@@ -61,8 +61,9 @@ describe("paid smoke spec wiring", () => {
     );
 
     expect(source).toContain("idempotentRunId");
-    expect(source).toContain("input.response.finished()");
+    expect(source).toMatch(/expect\s*\.poll/);
     expect(source).toContain('getByText("Review complete", { exact: true })');
+    expect(source).not.toContain("input.response.finished()");
     expect(source).not.toContain("input.response.text()");
     expect(source).not.toContain("terminalEvent(");
   });

@@ -87,6 +87,8 @@ export function verifyServerBundle(
   );
   const requiredOcrRuntimeDependencies = [
     { label: "bmp-js", pattern: /bmp-js\/index\.js$/ },
+    { label: "bmp-js decoder", pattern: /bmp-js\/lib\/decoder\.js$/ },
+    { label: "bmp-js encoder", pattern: /bmp-js\/lib\/encoder\.js$/ },
     { label: "is-url", pattern: /is-url\/index\.js$/ },
     { label: "node-fetch", pattern: /node-fetch\/lib\/index\.js$/ },
     {
@@ -96,6 +98,50 @@ export function verifyServerBundle(
     {
       label: "tesseract.js-core",
       pattern: /tesseract\.js-core\/tesseract-core\.js$/,
+    },
+    {
+      label: "tesseract.js-core wasm",
+      pattern: /tesseract\.js-core\/tesseract-core\.wasm$/,
+    },
+    {
+      label: "tesseract.js-core LSTM",
+      pattern: /tesseract\.js-core\/tesseract-core-lstm\.js$/,
+    },
+    {
+      label: "tesseract.js-core LSTM wasm",
+      pattern: /tesseract\.js-core\/tesseract-core-lstm\.wasm$/,
+    },
+    {
+      label: "tesseract.js-core SIMD",
+      pattern: /tesseract\.js-core\/tesseract-core-simd\.js$/,
+    },
+    {
+      label: "tesseract.js-core SIMD wasm",
+      pattern: /tesseract\.js-core\/tesseract-core-simd\.wasm$/,
+    },
+    {
+      label: "tesseract.js-core SIMD LSTM",
+      pattern: /tesseract\.js-core\/tesseract-core-simd-lstm\.js$/,
+    },
+    {
+      label: "tesseract.js-core SIMD LSTM wasm",
+      pattern: /tesseract\.js-core\/tesseract-core-simd-lstm\.wasm$/,
+    },
+    {
+      label: "tesseract.js-core relaxed SIMD",
+      pattern: /tesseract\.js-core\/tesseract-core-relaxedsimd\.js$/,
+    },
+    {
+      label: "tesseract.js-core relaxed SIMD wasm",
+      pattern: /tesseract\.js-core\/tesseract-core-relaxedsimd\.wasm$/,
+    },
+    {
+      label: "tesseract.js-core relaxed SIMD LSTM",
+      pattern: /tesseract\.js-core\/tesseract-core-relaxedsimd-lstm\.js$/,
+    },
+    {
+      label: "tesseract.js-core relaxed SIMD LSTM wasm",
+      pattern: /tesseract\.js-core\/tesseract-core-relaxedsimd-lstm\.wasm$/,
     },
     {
       label: "wasm-feature-detect",

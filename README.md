@@ -5,7 +5,7 @@ Finance and warehouse teams manually review supplier invoices and goods receipts
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
 
-The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Mocked release evidence is separate from connected production observation. Two controlled production requests were dispatched and both used OpenAI GPT-5.6 Luna with zero retries. Each failed closed during local evidence grounding before a result. Conservative settled spend is US$0.0028036 in total. Anthropic has not been called. The model-selection race and serverless OCR cold-start limit found by these observations are patched but no post-fix paid rerun has been made. Connected acceptance remains incomplete.
+The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Mocked release evidence is separate from connected production observation. Six controlled production requests were dispatched with zero provider retries: five used OpenAI GPT-5.6 Luna and one used Anthropic Claude Haiku 4.5. Four earlier OpenAI observations failed closed while revealing a model-selection defect and incomplete OCR worker packaging. After those fixes one original demo PDF completed `Clear` through OpenAI and one unverified PNG completed `Conflict` through Anthropic with a review-only action. Conservative settled spend is US$0.0128216 including US$0.006198 in failed-request settlements and US$0.0066236 for the two completed runs. Connected evidence now covers these two bounded provider routes. It does not establish broad production reliability or enterprise readiness.
 
 This is a public-safe portfolio application. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
@@ -210,13 +210,13 @@ This application lacks authentication, private tenant boundaries, malware scanni
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
-Connected acceptance remains incomplete:
+Connected evidence now covers these two bounded provider routes:
 
-| Route                           | Status               | Connected evidence                                                                                                        |
-| ------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Built-in sample through OpenAI  | Failed closed        | OpenAI dispatch was confirmed then PDF evidence grounding failed safely. Conservative settlement was US$0.001723.         |
-| Custom upload through Anthropic | Pending - not called | A pre-fix selection race sent the custom PNG to OpenAI instead. That request failed safely during OCR evidence grounding. |
+| Route                           | Status    | Connected evidence                                                                                                                         |
+| ------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Built-in sample through OpenAI  | Completed | The original demo PDF completed `Clear`. All eight requested fields passed. Estimated completed-run cost was US$0.0016606.                 |
+| Custom upload through Anthropic | Completed | The PNG remained `Source unverified`, completed `Conflict` and exposed only a review action. Estimated completed-run cost was US$0.004963. |
 
-These are connected production observations rather than mocked evidence. The second OpenAI request added a conservative US$0.0010806 settlement. There is no automatic retry. Another paid call requires fresh approval. Prepared workflow events remain simulated and `Prepared only - not sent` remains true after connected model processing.
+These are connected production observations rather than mocked evidence. Across all six dispatches conservative settled spend is US$0.0128216. No provider retry occurred. Four earlier OpenAI failures account for US$0.006198 in conservative settlements and remain useful fail-closed evidence. Prepared workflow events remain simulated and `Prepared only - not sent` remains true after connected model processing.
 
-The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.
+These observations exercised one text-native PDF and one PNG on the target Vercel Linux runtime. They prove the two bounded model routes and local grounding path for those samples. They do not replace retention simulation, authenticated tenancy or broader reliability testing.

@@ -53,16 +53,16 @@ Enabled built-in samples use the selected model route. The available route uses 
 
 Only a live submission can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
 
-Mocked acceptance evidence is separate from connected production observations. Two controlled production requests were dispatched and both used OpenAI GPT-5.6 Luna with zero retries. Each failed closed during local evidence grounding before a result. Anthropic has not been called. Connected acceptance remains incomplete.
+Mocked acceptance evidence is separate from connected production observations. Six controlled production requests were dispatched with zero provider retries: five used OpenAI GPT-5.6 Luna and one used Anthropic Claude Haiku 4.5. Four earlier OpenAI observations failed closed and revealed the selection plus OCR worker packaging defects. After correction the OpenAI built-in route completed `Clear` and the Anthropic custom route completed `Conflict`. Connected evidence now covers these two bounded provider routes.
 
 The deployed harness enforces one submitted run and one server-owned provider attempt per opted-in test. It now also blocks the request before network continuation when the multipart provider or model does not match the intended paid test.
 
-| Connected production observation  | Status               | Observed evidence                                                                                                                     |
-| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| OpenAI GPT-5.6 Luna built-in      | Failed closed        | Dispatch was confirmed then the server-original PDF failed safely during evidence grounding. Conservative settlement was US$0.001723. |
-| Anthropic Claude Haiku 4.5 custom | Pending - not called | A pre-fix selection race reset the custom PNG to OpenAI. That OpenAI request failed safely during OCR evidence grounding.             |
+| Connected production observation  | Status    | Observed evidence                                                                                                                                       |
+| --------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI GPT-5.6 Luna built-in      | Completed | The original demo PDF completed `Clear`. Eight of eight fields passed. Usage was 3,737 input and 761 output tokens. Estimated cost was US$0.0016606.    |
+| Anthropic Claude Haiku 4.5 custom | Completed | The PNG remained `Source unverified` and completed `Conflict`. It exposed a review-only action with no posting handoff. Estimated cost was US$0.004963. |
 
-The second OpenAI request added a conservative US$0.0010806 settlement for a total of US$0.0028036. The selection race and serverless OCR cold-start limit are patched. No post-fix paid rerun has been made. Another paid call requires fresh approval. `Prepared only - not sent` remains the workflow truth because real email and external business-system connectors are out of scope.
+Four failed OpenAI dispatches settled US$0.006198 conservatively. The completed OpenAI run cost US$0.0016606 and the completed Anthropic run cost US$0.004963 for US$0.0128216 in total settled spend. The selection defect and incomplete OCR worker package were fixed before the two successful observations. `Prepared only - not sent` remains the workflow truth because real email and external business-system connectors are out of scope.
 
 ## Source-origin evidence boundary
 
@@ -70,7 +70,7 @@ The public labels are `Original demo document`, `Exact copy of a demo document` 
 
 ## Task 7 mocked release checkpoint — 2026-09-01
 
-This checkpoint used mocked providers and keyless local execution. Zero paid calls have been made. It remains separate from the two connected production observations above.
+This checkpoint used mocked providers and keyless local execution. Zero paid calls were made during the checkpoint. It remains separate from the connected production observations above.
 
 | Gate                 | Result               | Fresh evidence                                                                                                                                                                                                                                                |
 | -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -105,6 +105,6 @@ The table below is a historical baseline, not the current final suite. It record
 | Production build            | Passed | `npm run build:production` compiled Next.js 16.3.3 and generated all six static pages plus the declared dynamic API routes.                                                                                                                                                                              |
 | Public-surface verification | Passed | `npm run verify:public` scanned local source and built artifacts with zero findings. The verifier rejects the three exact retired phrases, requires the current Processing model and Reference quality suite labels from the aggregated UI source and includes `/api/models` in configured-origin scans. |
 
-No API key was supplied to these historical gates and no provider call was made. The historical baseline is mocked evidence only. The later connected observations above remain separate and acceptance is incomplete.
+No API key was supplied to these historical gates and no provider call was made. The historical baseline is mocked evidence only. The later bounded connected observations above remain separate.
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.

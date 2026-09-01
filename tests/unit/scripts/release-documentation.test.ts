@@ -30,8 +30,8 @@ const releaseFacingDocumentation = [
 ].join("\n");
 
 const routeStatuses = new Map([
-  ["Built-in sample through OpenAI", "Failed closed"],
-  ["Custom upload through Anthropic", "Pending - not called"],
+  ["Built-in sample through OpenAI", "Completed"],
+  ["Custom upload through Anthropic", "Completed"],
 ]);
 
 function expectCurrentProcessingRoutes(markdown: string) {
@@ -62,17 +62,16 @@ function expectCompleteConnectedBoundary(markdown: string, path: string) {
     /local acceptance is mocked/i,
   );
   expect(markdown, `${path} must report the connected call count`).toMatch(
-    /two controlled production requests were dispatched.*both used OpenAI GPT-5\.6 Luna/is,
+    /six controlled production requests were dispatched.*five used OpenAI GPT-5\.6 Luna.*one used Anthropic Claude Haiku 4\.5/is,
   );
   expect(markdown, `${path} must report the settled total`).toMatch(
-    /US\$0\.0028036/,
+    /US\$0\.0128216/,
   );
-  expect(
-    markdown,
-    `${path} must preserve the uncalled provider boundary`,
-  ).toMatch(/Anthropic has not been called/i);
-  expect(markdown, `${path} must keep acceptance incomplete`).toMatch(
-    /connected acceptance remains incomplete/i,
+  expect(markdown, `${path} must report both accepted routes`).toMatch(
+    /OpenAI.*Clear.*Anthropic.*Conflict/is,
+  );
+  expect(markdown, `${path} must keep evidence bounded`).toMatch(
+    /connected evidence now covers these two bounded provider routes/i,
   );
 }
 
@@ -100,17 +99,17 @@ describe("Operations release documentation", () => {
     );
   });
 
-  it("documents the deliberate paid-call boundary and observed connected failures", () => {
+  it("documents the deliberate paid-call boundary and observed connected results", () => {
     expect(releaseFacingDocumentation).toMatch(
       /one deliberate reviewer click/i,
     );
     expect(releaseFacingDocumentation).toContain("Prepared only - not sent");
     expect(evaluation).toMatch(/mocked.*separate.*connected production/is);
     expect(evaluation).toMatch(
-      /OpenAI GPT-5\.6 Luna.*Failed closed.*Anthropic Claude Haiku 4\.5.*Pending - not called/is,
+      /OpenAI GPT-5\.6 Luna.*Completed.*Anthropic Claude Haiku 4\.5.*Completed/is,
     );
     expect(evaluation).toMatch(
-      /US\$0\.001723.*US\$0\.0010806.*US\$0\.0028036/is,
+      /US\$0\.006198.*US\$0\.0016606.*US\$0\.004963.*US\$0\.0128216/is,
     );
   });
 
@@ -312,7 +311,7 @@ describe("Operations release documentation", () => {
 
   it("rejects an observed status moved to a different table row", () => {
     const mutatedReadme = `${readme.replace(
-      /\| Built-in sample through OpenAI\s+\| Failed closed\s+\|/,
+      /\| Built-in sample through OpenAI\s+\| Completed\s+\|/,
       "| Built-in sample through OpenAI    | Blocked |",
     )}\n| Unrelated route | Pending |`;
 
