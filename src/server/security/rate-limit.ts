@@ -2,14 +2,18 @@ import type {
   ExecutionMode,
   SourceType,
 } from "@/server/repositories/run-repository";
-import { DEFAULT_LIVE_MODEL_RESERVATION_USD } from "@/domain/pricing";
+import {
+  DEFAULT_LIVE_MODEL_RESERVATION_USD,
+  MAX_SUPPORTED_LIVE_RUN_COST_USD,
+} from "@/domain/pricing";
 import {
   PersistenceConfigurationError,
   type NeonDriver,
 } from "@/server/repositories/run-repository";
 import { randomUUID } from "node:crypto";
 
-export const DEFAULT_DAILY_MODEL_BUDGET_USD = 5;
+export const DEFAULT_DAILY_MODEL_BUDGET_USD =
+  Math.ceil(MAX_SUPPORTED_LIVE_RUN_COST_USD * 100) / 100;
 export const DEFAULT_LIVE_RUN_RESERVATION_USD =
   DEFAULT_LIVE_MODEL_RESERVATION_USD;
 export const DEFAULT_LIVE_RESERVATION_LEASE_MS = 15 * 60 * 1000;

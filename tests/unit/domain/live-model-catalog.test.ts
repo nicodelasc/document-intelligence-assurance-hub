@@ -15,6 +15,10 @@ describe("live model catalogue", () => {
     ]);
     expect(requireEnabledModel("openai", "gpt-5.6-luna").recommended).toBe(true);
     expect(defaultModelForProvider("anthropic")).toBe("claude-haiku-4-5");
+    expect(liveModelCatalog.filter((model) => model.recommended).map((model) => model.id)).toEqual([
+      "gpt-5.6-luna",
+      "claude-haiku-4-5",
+    ]);
   });
 
   it("rejects a model when it is not approved for the selected provider", () => {

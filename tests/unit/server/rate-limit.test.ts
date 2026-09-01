@@ -22,8 +22,17 @@ function quotaRepository() {
 }
 
 describe("InMemoryQuotaRepository", () => {
-  it("calculates every advertised model reservation before quota admission", async () => {
-    expect(DEFAULT_DAILY_MODEL_BUDGET_USD).toBe(5);
+  it("admits every advertised model on an empty default ledger with its exact reservation", async () => {
+    expect(DEFAULT_DAILY_MODEL_BUDGET_USD).toBe(
+      Math.ceil(
+        Math.max(
+          ...liveModelCatalog.map((model) =>
+            estimateMaximumLiveRunCost(model.provider, model.id),
+          ),
+        ) * 100,
+      ) / 100,
+    );
+    expect(DEFAULT_DAILY_MODEL_BUDGET_USD).toBe(8.46);
     const expectedReservations = {
       "gpt-5.6-luna": 0.8456,
       "gpt-5.6-terra": 8.456,
@@ -32,8 +41,11 @@ describe("InMemoryQuotaRepository", () => {
     } as const;
     const decisions = await Promise.all(
       liveModelCatalog.map(async (model) => {
-        const quotas = new InMemoryQuotaRepository(10);
-        const estimatedCostUsd = expectedReservations[model.id];
+        const quotas = new InMemoryQuotaRepository();
+        const estimatedCostUsd = estimateMaximumLiveRunCost(
+          model.provider,
+          model.id,
+        );
         return {
           id: model.id,
           decision: await quotas.reserve({
@@ -65,6 +77,40 @@ describe("InMemoryQuotaRepository", () => {
         estimateMaximumLiveRunCost(model.provider, model.id),
       ).toBeCloseTo(expectedReservations[model.id], 9);
     }
+  });
+
+  it("blocks a second reservation that would exceed the default budget after a worst-case pending reservation", async () => {
+    const quotas = new InMemoryQuotaRepository();
+    const terraCost = estimateMaximumLiveRunCost("openai", "gpt-5.6-terra");
+    const lunaCost = estimateMaximumLiveRunCost("openai", "gpt-5.6-luna");
+
+    await expect(
+      quotas.reserve({
+        bucket: "browser-terra",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: terraCost,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toMatchObject({
+      allowed: true,
+      reservedCostUsd: terraCost,
+    });
+    await expect(
+      quotas.reserve({
+        bucket: "browser-luna",
+        sourceType: "synthetic",
+        executionMode: "live",
+        estimatedCostUsd: lunaCost,
+        liveEnabled: true,
+        now,
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: "daily_budget",
+      replayAvailable: true,
+    });
   });
 
   it("admits a default-model reservation below the daily budget instead of charging the catalogue maximum", async () => {
@@ -743,9 +789,9 @@ describe("InMemoryQuotaRepository", () => {
       Array.from({ length: 12 }, () => quotas.reserve(reservationInput)),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(5);
+    expect(allowed).toHaveLength(10);
     expect(decisions.filter((decision) => !decision.allowed)).toEqual(
-      Array(7).fill({ allowed: false, reason: "daily_budget", replayAvailable: true }),
+      Array(2).fill({ allowed: false, reason: "daily_budget", replayAvailable: true }),
     );
     if (!allowed[0].allowed || !allowed[0].reservationId) {
       throw new Error("expected_neon_reservation");
@@ -755,7 +801,7 @@ describe("InMemoryQuotaRepository", () => {
     ).resolves.toEqual({ status: "settled", actualCostUsd: 0.25 });
     await expect(quotas.snapshot(now)).resolves.toMatchObject({
       globalSpendUsd: 0.25,
-      reservedSpendUsd: 4 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 9 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
   });
 
