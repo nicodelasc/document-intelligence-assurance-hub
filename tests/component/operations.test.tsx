@@ -124,6 +124,21 @@ describe("Run explorer", () => {
     }
   });
 
+  it("keeps the complete business-first queue sequence ahead of source checks", () => {
+    render(<RunExplorer runs={runs} onSelect={() => undefined} />);
+
+    const queue = screen.getByRole("table", { name: "Procurement review queue" });
+    expect(within(queue).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Document reference",
+      "Document type",
+      "Review decision",
+      "Exception",
+      "Prepared next step",
+      "Received time",
+      "Source check",
+    ]);
+  });
+
   it("keeps custom outcomes evidence-only in the review queue", () => {
     const customRuns = [
       { ...runs[1], id: "custom_evidence", filename: "custom-evidence.pdf", sourceType: "custom" as const, outcome: "evidence_consistent" as const },
@@ -257,6 +272,40 @@ describe("Run explorer", () => {
     expect(screen.getByText(/retention metadata only/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /document preview/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /evidence snippets/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps the bounded source check in selected retained records", async () => {
+    const user = userEvent.setup();
+    const retainedRuns = [
+      {
+        ...runs[0],
+        id: "retained-expired",
+        status: "expired" as const,
+        sourceOriginStatus: "recognized_copy" as const,
+      },
+      {
+        ...runs[1],
+        id: "retained-deleted",
+        status: "deleted" as const,
+        sourceOriginStatus: "unverified" as const,
+      },
+    ];
+    render(<RunExplorer runs={retainedRuns} onSelect={() => undefined} />);
+
+    await user.click(screen.getByRole("radio", {
+      name: "Select Expired review record, Evidence expired, received 27 Aug 2026, 08:00 SGT",
+    }));
+    const inspector = document.querySelector(".run-inspector")!;
+    expect(within(inspector).getByText("Source check")).toBeVisible();
+    expect(within(inspector).getByText("Exact copy of a demo document")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Document preview" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", {
+      name: "Select Deleted review record, Record deleted, received 27 Aug 2026, 08:00 SGT",
+    }));
+    expect(within(inspector).getByText("Source check")).toBeVisible();
+    expect(within(inspector).getByText("Source unverified")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Document preview" })).not.toBeInTheDocument();
   });
 
   it("shows an active same-origin preview and honest inspector sections", async () => {

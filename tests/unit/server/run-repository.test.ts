@@ -81,6 +81,48 @@ describe("InMemoryRunRepository", () => {
     expect(stored?.sourceOriginStatus).toBe("unverified");
   });
 
+  it("aggregates source checks across records beyond the bounded Operations window", async () => {
+    const repository = new InMemoryRunRepository();
+    for (let index = 0; index < 100; index += 1) {
+      const record = runRecord(`recent-original-${index}`);
+      record.createdAt = new Date(Date.parse(createdAt) + index * 1000).toISOString();
+      await repository.createRun(record);
+    }
+    await repository.createRun({
+      ...runRecord("expired-copy"),
+      sourceType: "custom",
+      sourceOriginStatus: "recognized_copy",
+      documentFamily: null,
+      fixtureId: null,
+      status: "expired",
+      createdAt: "2026-08-26T00:00:00.000Z",
+    });
+    await repository.createRun({
+      ...runRecord("deleted-unverified"),
+      sourceType: "custom",
+      sourceOriginStatus: "unverified",
+      documentFamily: null,
+      fixtureId: null,
+      status: "deleted",
+      deletedAt: "2026-08-26T00:01:00.000Z",
+      createdAt: "2026-08-26T00:00:01.000Z",
+    });
+
+    const visibleRuns = await repository.listPublicRuns(
+      new Date("2026-08-27T01:00:00.000Z"),
+      { limit: 100, offset: 0, includeDetails: false },
+    );
+
+    expect(visibleRuns).toHaveLength(100);
+    expect(visibleRuns.map((run) => run.id)).not.toContain("expired-copy");
+    expect(visibleRuns.map((run) => run.id)).not.toContain("deleted-unverified");
+    await expect(repository.aggregateSourceOrigins()).resolves.toEqual({
+      serverOriginal: 100,
+      recognizedCopy: 1,
+      unverified: 1,
+    });
+  });
+
   it("creates one event per non-null or null recipient identity and returns clones", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun({ ...runRecord(), status: "completed" });
@@ -1802,6 +1844,41 @@ describe("InMemoryRunRepository", () => {
     expect(aggregateSql).toContain("COUNT(*) FILTER");
     expect(aggregateSql).toContain("provider_dispatched");
     expect(aggregateSql).not.toContain("SELECT provider, outcome");
+  });
+
+  it("uses an unbounded Neon source-check aggregate with stable zero fallbacks", async () => {
+    let sourceOriginSql = "";
+    const rows = [
+      {
+        server_original_runs: 100,
+        recognized_copy_runs: 1,
+        unverified_runs: 1,
+      },
+      {},
+    ];
+    const driver: NeonDriver = {
+      async query(sql) {
+        sourceOriginSql = sql;
+        return [rows.shift() ?? {}];
+      },
+    };
+    const repository = createNeonRunRepository({ databaseUrl: undefined, driver });
+
+    await expect(repository.aggregateSourceOrigins()).resolves.toEqual({
+      serverOriginal: 100,
+      recognizedCopy: 1,
+      unverified: 1,
+    });
+    await expect(repository.aggregateSourceOrigins()).resolves.toEqual({
+      serverOriginal: 0,
+      recognizedCopy: 0,
+      unverified: 0,
+    });
+    expect(sourceOriginSql).toContain("source_origin_status = 'server_original'");
+    expect(sourceOriginSql).toContain("source_origin_status = 'recognized_copy'");
+    expect(sourceOriginSql).toContain("source_origin_status = 'unverified'");
+    expect(sourceOriginSql).toMatch(/FROM runs\s*$/);
+    expect(sourceOriginSql).not.toMatch(/FROM runs\s+WHERE|details_deleted|expires_at|deleted_at/);
   });
 });
 

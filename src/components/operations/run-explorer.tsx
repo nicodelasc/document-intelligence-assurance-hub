@@ -314,7 +314,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
         <div className="table-scroll table-overflow-cue" tabIndex={0} role="region" aria-label="Scrollable procurement review queue">
           <table>
             <caption className="sr-only">Procurement review queue</caption>
-            <thead><tr><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Source check</th><th scope="col">Received time</th></tr></thead>
+            <thead><tr><th scope="col">Document reference</th><th scope="col">Document type</th><th scope="col">Review decision</th><th scope="col">Exception</th><th scope="col">Prepared next step</th><th scope="col">Received time</th><th scope="col">Source check</th></tr></thead>
             <tbody>
               {visible.map((run) => {
                 const identity = fixtureIdentity(run);
@@ -328,8 +328,8 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
                     <td><span className="status-inline"><StatusMark status={decision.status} />{decision.label}</span>{decision.boundary ? <small>{decision.boundary}</small> : null}</td>
                     <td>{identity.exception}</td>
                     <td>{retained ? "No active handoff" : run.latestWorkflowEvent ? workflowActionLabels[run.latestWorkflowEvent.action] : "No action prepared"}</td>
-                    <td>{sourceOriginLabel(run.sourceOriginStatus, "summary")}</td>
                     <td><time dateTime={run.createdAt}>{receivedTime}</time></td>
+                    <td>{sourceOriginLabel(run.sourceOriginStatus, "summary")}</td>
                   </tr>
                 );
               })}
@@ -346,7 +346,7 @@ export function RunExplorer({ runs, onSelect }: { runs: ExplorerRun[]; onSelect:
       </section>
       <aside className="run-inspector">
         {!selectedRun ? <EmptyState title="Select a review record">Extraction, evidence, differences and workflow activity will appear here.</EmptyState> : selectedRun.status === "expired" || selectedRun.status === "deleted" ? (
-          <div><h3>Review record and technical trace</h3><h4>{selectedRun.status === "expired" ? "Expired run" : "Deleted run"}</h4><p>Retention metadata only. Detailed evidence and document preview are no longer available.</p><dl><div><dt>Run ID</dt><dd className="mono">{selectedRun.id}</dd></div><div><dt>Expiry</dt><dd><time dateTime={selectedRun.expiresAt}>{formatSingaporeTime(selectedRun.expiresAt)}</time></dd></div></dl></div>
+          <div><h3>Review record and technical trace</h3><h4>{selectedRun.status === "expired" ? "Expired run" : "Deleted run"}</h4><p>Retention metadata only. Detailed evidence and document preview are no longer available.</p><dl><div><dt>Run ID</dt><dd className="mono">{selectedRun.id}</dd></div><div><dt>Expiry</dt><dd><time dateTime={selectedRun.expiresAt}>{formatSingaporeTime(selectedRun.expiresAt)}</time></dd></div><div><dt>Source check</dt><dd>{sourceOriginLabel(selectedRun.sourceOriginStatus)}</dd></div></dl></div>
         ) : <Inspector run={selectedRun} />}
       </aside>
     </div>
