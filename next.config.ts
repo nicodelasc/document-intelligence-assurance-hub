@@ -29,8 +29,13 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/runs": [
       "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*",
+      "./node_modules/bmp-js/**/*",
+      "./node_modules/is-url/**/*",
+      "./node_modules/node-fetch/**/*",
+      "./node_modules/regenerator-runtime/**/*",
       "./node_modules/tesseract.js/src/**/*",
       "./node_modules/tesseract.js-core/**/*",
+      "./node_modules/wasm-feature-detect/**/*",
     ],
   },
   async rewrites() {

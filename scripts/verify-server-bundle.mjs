@@ -82,6 +82,34 @@ export function verifyServerBundle(
       "The OCR worker image type dependency is missing from the runs function trace.",
     );
   }
+  const normalizedTraceFiles = traceFiles.flatMap((path) =>
+    typeof path === "string" ? [path.replaceAll("\\", "/")] : [],
+  );
+  const requiredOcrRuntimeDependencies = [
+    { label: "bmp-js", pattern: /bmp-js\/index\.js$/ },
+    { label: "is-url", pattern: /is-url\/index\.js$/ },
+    { label: "node-fetch", pattern: /node-fetch\/lib\/index\.js$/ },
+    {
+      label: "regenerator-runtime",
+      pattern: /regenerator-runtime\/runtime\.js$/,
+    },
+    {
+      label: "tesseract.js-core",
+      pattern: /tesseract\.js-core\/tesseract-core\.js$/,
+    },
+    {
+      label: "wasm-feature-detect",
+      pattern: /wasm-feature-detect\/dist\/cjs\/index\.cjs$/,
+    },
+  ];
+  for (const dependency of requiredOcrRuntimeDependencies) {
+    if (normalizedTraceFiles.some((path) => dependency.pattern.test(path))) {
+      continue;
+    }
+    throw new Error(
+      `The OCR worker runtime dependency ${dependency.label} is missing from the runs function trace.`,
+    );
+  }
 
   return { markedFiles: markedFiles.length };
 }

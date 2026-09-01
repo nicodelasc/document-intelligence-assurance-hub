@@ -75,4 +75,40 @@ describe("server bundle verifier", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects a build whose OCR worker omits an external runtime dependency", () => {
+    const root = mkdtempSync(join(tmpdir(), "server-bundle-verifier-"));
+    const server = join(root, "server");
+    const chunks = join(server, "chunks");
+    const route = join(server, "app", "api", "runs");
+    mkdirSync(chunks, { recursive: true });
+    mkdirSync(route, { recursive: true });
+    writeFileSync(
+      join(chunks, "grounding.js"),
+      'let p=t.langPath.replace(/4\\.0\\.0$/,"4.0.0_best_int")',
+    );
+    writeFileSync(
+      join(route, "route.js.nft.json"),
+      JSON.stringify({
+        version: 1,
+        files: [
+          "@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+          "tesseract.js/src/constants/imageType.js",
+          "is-url/index.js",
+          "node-fetch/lib/index.js",
+          "regenerator-runtime/runtime.js",
+          "tesseract.js-core/tesseract-core.js",
+          "wasm-feature-detect/dist/cjs/index.cjs",
+        ],
+      }),
+    );
+
+    try {
+      expect(() => verifyServerBundle(server)).toThrow(
+        /OCR worker runtime dependency bmp-js is missing/i,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
