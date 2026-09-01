@@ -5,6 +5,7 @@ import {
   PROVIDER_ATTEMPT_LIMIT_HEADER,
   createPaidSmokeRequestGuard,
   paidSmokeEnabled,
+  readProviderAttemptLimitHeader,
 } from "../../e2e/support/paid-smoke-guard";
 
 function routeDouble(input: {
@@ -90,5 +91,30 @@ describe("paid smoke safeguards", () => {
 
     expect(read.continueRequest).toHaveBeenCalledWith();
     expect(guard.submittedRuns()).toBe(0);
+  });
+
+  it("keeps unrelated sensitive headers out of a failed marker assertion", async () => {
+    const cookieSentinel = "diah_browser=sentinel-cookie-value";
+    const authorizationSentinel = "Bearer sentinel-authorization-value";
+    const allHeaders = vi.fn(async () => ({
+      cookie: cookieSentinel,
+      authorization: authorizationSentinel,
+      [PROVIDER_ATTEMPT_LIMIT_HEADER]: "2",
+    }));
+    const headerValue = vi.fn(async (name: string) =>
+      name === PROVIDER_ATTEMPT_LIMIT_HEADER ? "2" : null,
+    );
+    const received = await readProviderAttemptLimitHeader({ headerValue });
+    let diagnostic = "";
+    try {
+      expect(received).toBe("1");
+    } catch (error) {
+      diagnostic = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(headerValue).toHaveBeenCalledWith(PROVIDER_ATTEMPT_LIMIT_HEADER);
+    expect(allHeaders).not.toHaveBeenCalled();
+    expect(diagnostic).not.toContain(cookieSentinel);
+    expect(diagnostic).not.toContain(authorizationSentinel);
   });
 });

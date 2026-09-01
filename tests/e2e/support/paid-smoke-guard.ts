@@ -1,4 +1,4 @@
-import type { Route } from "@playwright/test";
+import type { Request, Route } from "@playwright/test";
 
 export const PROVIDER_ATTEMPT_LIMIT_HEADER = "x-provider-attempt-limit";
 
@@ -6,6 +6,12 @@ export const PAID_SMOKE_DESCRIBE_OPTIONS = {
   mode: "serial",
   retries: 0,
 } as const;
+
+export async function readProviderAttemptLimitHeader(
+  request: Pick<Request, "headerValue">,
+): Promise<string | null> {
+  return request.headerValue(PROVIDER_ATTEMPT_LIMIT_HEADER);
+}
 
 export function paidSmokeEnabled(
   environment: Record<string, string | undefined>,

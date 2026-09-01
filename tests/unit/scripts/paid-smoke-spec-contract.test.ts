@@ -37,6 +37,18 @@ describe("paid smoke spec wiring", () => {
     );
 
     expect(source.match(/page\.route\("\*\*\/api\/runs"/g)).toHaveLength(2);
-    expect(source).toContain("PROVIDER_ATTEMPT_LIMIT_HEADER");
+    expect(source).toContain("readProviderAttemptLimitHeader");
+  });
+
+  it("reads only the named attempt header for smoke diagnostics", async () => {
+    const source = await readFile(
+      join(process.cwd(), "tests", "e2e", "live-production-smoke.spec.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "readProviderAttemptLimitHeader(input.response.request())",
+    );
+    expect(source).not.toContain(".allHeaders()");
   });
 });

@@ -72,3 +72,23 @@ Formatting checks passed for all changed files. `npm run lint` completed with no
 Zero paid calls were made. No provider endpoint was called. No secret was inspected. No migration was applied. No deployment was performed. No connected run ID or provider outcome was recorded. No merge, push or tag movement was performed.
 
 Task 8 steps 3 through 10 remain deferred until Task 8 review and final whole-branch review.
+
+## Task 8 review fix round 1
+
+The Important review finding was reproduced and fixed with strict TDD.
+
+RED command:
+
+`npx vitest run tests/unit/scripts/paid-smoke-guard.test.ts tests/unit/scripts/paid-smoke-spec-contract.test.ts`
+
+Observed RED: 2 tests failed. The named-header helper was absent and the paid spec still collected the complete header map through `allHeaders()`.
+
+GREEN command:
+
+`npx vitest run tests/unit/scripts/paid-smoke-guard.test.ts tests/unit/scripts/paid-smoke-spec-contract.test.ts`
+
+Observed GREEN: 2 files and 11 tests passed. The paid spec now reads only `x-provider-attempt-limit` through `headerValue()`. A focused regression plants unrelated cookie and authorization sentinels then proves a failed marker assertion includes neither value and never calls `allHeaders()`.
+
+The opt-in, independent request counters, pre-network second-request abort, server attempt cap, AI SDK retry cap and provider acceptance assertions remain unchanged. Zero paid calls were made. No provider endpoint, migration, deployment, merge, push, credential or tag was touched.
+
+Final bounded verification passed 4 mocked files with 62 of 62 tests. Typecheck completed both TypeScript projects. Lint and changed-file formatting passed. The paid Playwright spec ran without opt-in and reported 2 skipped with zero `POST /api/runs` submissions.

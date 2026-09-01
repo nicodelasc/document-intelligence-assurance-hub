@@ -7,8 +7,8 @@ import {
 } from "@playwright/test";
 import {
   PAID_SMOKE_DESCRIBE_OPTIONS,
-  PROVIDER_ATTEMPT_LIMIT_HEADER,
   createPaidSmokeRequestGuard,
+  readProviderAttemptLimitHeader,
 } from "./support/paid-smoke-guard";
 
 const paidSmokeBaseUrl =
@@ -71,9 +71,9 @@ async function expectGuardedCompletedRun(input: {
   sourceOriginStatus: "server_original" | "unverified";
 }) {
   expect(input.response.status()).toBe(200);
-  expect(await input.response.request().allHeaders()).toMatchObject({
-    [PROVIDER_ATTEMPT_LIMIT_HEADER]: "1",
-  });
+  expect(await readProviderAttemptLimitHeader(input.response.request())).toBe(
+    "1",
+  );
   const terminal = terminalEvent(await input.response.text());
   expect(terminal).toMatchObject({
     type: "completed",
