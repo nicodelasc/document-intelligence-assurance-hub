@@ -19,12 +19,13 @@ const signatures = [
   },
   {
     category: "raw deletion token",
-    pattern: /["']deletionToken["']\s*:\s*["'][^"'\r\n]{8,}["']/g,
+    pattern:
+      /(?:["']deletionToken["']|\bdeletionToken\b)\s*:\s*["'][^"'\r\n]{8,}["']/g,
   },
   {
     category: "document digest",
     pattern:
-      /["'](?:documentDigest|document_digest|sha256|sha_256|digest)["']\s*:\s*["'][a-f0-9]{64}["']/gi,
+      /(?:["'](?:documentDigest|document_digest|sha256|sha_256|digest)["']|\b(?:documentDigest|document_digest|sha256|sha_256|digest)\b)\s*:\s*["'][a-f0-9]{64}["']/gi,
   },
   {
     category: "sample-origin manifest entry",
@@ -38,12 +39,12 @@ const signatures = [
   {
     category: "full prompt text",
     pattern:
-      /["'](?:systemPrompt|system_prompt|promptText|prompt_text)["']\s*:\s*["'][^"'\r\n]+["']/gi,
+      /(?:["'](?:systemPrompt|system_prompt|promptText|prompt_text)["']|\b(?:systemPrompt|system_prompt|promptText|prompt_text)\b)\s*:\s*["'][^"'\r\n]+["']/gi,
   },
   {
     category: "full prompt text",
     pattern:
-      /["']role["']\s*:\s*["']system["']\s*,\s*["']content["']\s*:\s*["'][^"'\r\n]+["']/gi,
+      /\{(?=[^{}]{0,512}\})(?=[^{}]{0,512}(?:["']role["']|\brole\b)\s*:\s*["']system["'])(?=[^{}]{0,512}(?:["']content["']|\bcontent\b)\s*:\s*["'][^"'\r\n]+["'])[^{}]{0,512}\}/gi,
   },
   {
     category: "hidden reasoning property",

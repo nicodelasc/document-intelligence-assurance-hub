@@ -11,17 +11,57 @@ describe("public-surface verifier", () => {
       [],
     );
 
+    const findings = scanText(
+      [
+        "const openaiProject = 'sk-proj-abcdefghijklmnopqrstuvwxyz123456';",
+        "const openaiLegacy = 'sk-abcdefghijklmnopqrstuvwxyz1234567890';",
+        "const anthropic = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456';",
+      ].join("\n"),
+      "bundle.js",
+    );
+
+    expect(findings.map((finding) => finding.category)).toEqual([
+      "credential-shaped value",
+      "credential-shaped value",
+      "credential-shaped value",
+    ]);
+  });
+
+  it("rejects sensitive values in compiled object syntax and reordered system messages", () => {
+    const findings = scanText(
+      [
+        'deletionToken:"private-delete-capability"',
+        `documentDigest:"${"d".repeat(64)}"`,
+        `sha256:"${"e".repeat(64)}"`,
+        'systemPrompt:"Hidden policy"',
+        '{"content":"Hidden policy","role":"system"}',
+        '{"role":"system","name":"policy","content":"Hidden policy"}',
+      ].join("\n"),
+      "compiled-bundle.js",
+    );
+
+    expect(findings.map((finding) => finding.category)).toEqual([
+      "raw deletion token",
+      "document digest",
+      "document digest",
+      "full prompt text",
+      "full prompt text",
+      "full prompt text",
+    ]);
+  });
+
+  it("allows harmless property names without sensitive values and ordinary run IDs", () => {
     expect(
       scanText(
-        "const leaked = 'sk-proj-abcdefghijklmnopqrstuvwxyz123456';",
-        "bundle.js",
+        [
+          "const safe = { deletionToken: undefined, documentDigest: null, sha256: createHash, systemPrompt: false };",
+          'const labels = { deletionTokenLabel: "Delete", documentDigestField: "Digest", sha256Algorithm: "SHA-256", systemPromptEnabled: false };',
+          'const message = { role: "user", content: "Visible note" };',
+          'const id = "run_01JZ7Q9YQ36S6R2N3D4F5G6H7J";',
+        ].join("\n"),
+        "safe-bundle.js",
       ),
-    ).toEqual([
-      expect.objectContaining({
-        category: "credential-shaped value",
-        location: "bundle.js:1",
-      }),
-    ]);
+    ).toEqual([]);
   });
 
   it("rejects source-origin internals and private capabilities without flagging safe run IDs", () => {

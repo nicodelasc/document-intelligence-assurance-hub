@@ -56,6 +56,18 @@ function expectPendingProcessingRoutes(markdown: string) {
   }
 }
 
+function expectCompleteMockedBoundary(markdown: string, path: string) {
+  expect(markdown, `${path} must identify mocked local acceptance`).toMatch(
+    /local acceptance is mocked/i,
+  );
+  expect(markdown, `${path} must report the paid-call count`).toMatch(
+    /zero paid calls have been made/i,
+  );
+  expect(markdown, `${path} must keep both connected observations pending`).toMatch(
+    /both connected production observations are Pending/i,
+  );
+}
+
 describe("Operations release documentation", () => {
   it("documents the live and recorded submission labels plus the source-origin boundary", () => {
     expect(releaseFacingDocumentation).toContain("Run live document review");
@@ -89,6 +101,16 @@ describe("Operations release documentation", () => {
       /OpenAI.*GPT-5\.6 Luna.*Pending.*Anthropic.*Claude Haiku 4\.5.*Pending/is,
     );
     expect(evaluation).toMatch(/two-call acceptance boundary/i);
+  });
+
+  it("states the complete mocked and connected-observation boundary in each release document", () => {
+    for (const [path, markdown] of [
+      ["docs/architecture.md", architecture],
+      ["docs/deployment-checklist.md", deployment],
+      ["docs/privacy-and-retention.md", privacy],
+    ] as const) {
+      expectCompleteMockedBoundary(markdown, path);
+    }
   });
 
   it("records dated model rates and the conservative default budget derivation", () => {

@@ -4,6 +4,8 @@ Use this checklist for each controlled rollout. The 2026-08-28 keyless productio
 
 The completed keyless rollout record is in [evaluation-report.md](evaluation-report.md). Keep the checklist below reusable for later releases.
 
+Local acceptance is mocked. Zero paid calls have been made. Both connected production observations are Pending: a built-in sample through OpenAI GPT-5.6 Luna and a custom upload through Anthropic Claude Haiku 4.5.
+
 The release demonstrates `Review incoming procurement documents`: finance and warehouse teams review supplier invoices and goods receipts before a finance or inventory handoff. All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
 ## Before creating a deployment

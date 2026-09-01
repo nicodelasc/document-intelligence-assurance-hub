@@ -59,3 +59,16 @@ Additional contract gate: `npm run design:lint` completed with zero errors, nine
 - Did not inspect secrets, apply migration 0010, deploy, merge or push.
 - Preserved user-owned output and temporary paths.
 - Kept mocked acceptance separate from connected production observations.
+
+## Round 1 review fixes
+
+- Verified the reported scanner bypasses against the real `scanText` behavior before changing implementation.
+- RED: `npx vitest run tests/unit/scripts/public-surface.test.ts tests/unit/scripts/release-documentation.test.ts` failed two tests. The scanner returned no finding for all six compiled-object bypasses and architecture lacked the first required per-file boundary statement.
+- Added regression fixtures for unquoted `deletionToken`, `documentDigest`, `sha256` and `systemPrompt` values plus system-role messages with reversed properties and a bounded intervening property. Existing quoted-property coverage remains in place.
+- Retained representative `sk-proj-...`, generic `sk-...` and `sk-ant-api03-...` detections. Added safe object-property controls and retained the ordinary `run_01JZ7Q9YQ36S6R2N3D4F5G6H7J` pass.
+- Bounded system-message matching to one brace-delimited object of at most 512 characters. Property names alone and non-sensitive property values do not trigger a finding.
+- Added the complete three-fact boundary to architecture, deployment and privacy documentation: local acceptance is mocked, zero paid calls have been made and both connected production observations are `Pending`.
+- GREEN: the original focused command passed 27 tests. The expanded release gate with `release-artifacts.test.ts` passed 37 tests.
+- `npm run format:check`, `npm run lint` and `npm run typecheck` passed.
+- Local `npm run verify:public -- http://127.0.0.1:3000` passed with `AI_LIVE_ENABLED=false` and `ALLOW_IN_MEMORY_PERSISTENCE=true`. Provider key variables were removed from that process without reading them. The process was stopped and port 3000 was confirmed closed.
+- Made no paid provider call and did not inspect secrets, deploy, apply a migration, merge, push or move the rollback tag.
