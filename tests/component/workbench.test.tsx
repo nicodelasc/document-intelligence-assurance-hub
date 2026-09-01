@@ -60,10 +60,10 @@ function modelCatalogue(
 ) {
   return new Response(JSON.stringify({
     models: [
-      { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
-      { id: "gpt-5.6-terra", provider: "openai", displayName: "GPT-5.6 Terra", recommended: false },
-      { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
-      { id: "claude-sonnet-5", provider: "anthropic", displayName: "Claude Sonnet 5", recommended: false },
+      { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2 },
+      { id: "gpt-5.6-terra", provider: "openai", displayName: "GPT-5.6 Terra", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 12 },
+      { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 1, outputPerMillionUsd: 5 },
+      { id: "claude-sonnet-5", provider: "anthropic", displayName: "Claude Sonnet 5", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 10 },
     ],
     defaults: { openai: openaiDefault, anthropic: "claude-haiku-4-5" },
     providerAvailability,
@@ -105,6 +105,7 @@ function renderWorkflowPanel(
     capabilityToken: string;
     documentFamily: "supplier_invoice" | "warehouse_goods_receipt" | null;
     documentClassification: DocumentClassification | null;
+    sourceOriginStatus: "server_original" | "recognized_copy" | "unverified" | null;
     fields: readonly FieldResult[];
     safeDiagnosticCodes: readonly string[];
     onEvent: (event: WorkflowEvent) => void;
@@ -122,6 +123,7 @@ function renderWorkflowPanel(
       capabilityToken={overrides.capabilityToken ?? "workflow_capability"}
       documentFamily={overrides.documentFamily ?? "supplier_invoice"}
       documentClassification={overrides.documentClassification ?? null}
+      sourceOriginStatus={overrides.sourceOriginStatus ?? null}
       fields={overrides.fields ?? []}
       safeDiagnosticCodes={overrides.safeDiagnosticCodes ?? (status === "failed" ? ["provider_unavailable"] : [])}
       onEvent={overrides.onEvent ?? (() => undefined)}
@@ -220,6 +222,16 @@ describe("Outcome workflow controls", () => {
       screen.getByRole("button", { name: "Prepare posting handoff" }),
     ).toBeEnabled();
   });
+
+  it("marks unverified evidence for human review without offering a posting handoff", () => {
+    renderWorkflowPanel("completed", "evidence_consistent", {
+      sourceOriginStatus: "unverified",
+    });
+
+    expect(screen.getByText("Source unverified")).toBeVisible();
+    expect(screen.getByText("The document was processed but its source was not verified. A person must review it before any posting handoff.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Prepare posting handoff" })).not.toBeInTheDocument();
+  });
 });
 
 describe("Workbench controls", () => {
@@ -251,7 +263,7 @@ describe("Workbench controls", () => {
       }),
     ).toBeVisible();
     expect(
-      await screen.findByRole("button", { name: "Assess for exceptions" }),
+      await screen.findByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }),
     ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "Process document" }),
@@ -285,10 +297,10 @@ describe("Workbench controls", () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     const models = [
-      { id: "gpt-5.6-luna", provider: "openai" as const, displayName: "GPT-5.6 Luna", recommended: true },
-      { id: "gpt-5.6-terra", provider: "openai" as const, displayName: "GPT-5.6 Terra", recommended: false },
-      { id: "claude-haiku-4-5", provider: "anthropic" as const, displayName: "Claude Haiku 4.5", recommended: true },
-      { id: "claude-sonnet-5", provider: "anthropic" as const, displayName: "Claude Sonnet 5", recommended: false },
+      { id: "gpt-5.6-luna", provider: "openai" as const, displayName: "GPT-5.6 Luna", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2 },
+      { id: "gpt-5.6-terra", provider: "openai" as const, displayName: "GPT-5.6 Terra", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 12 },
+      { id: "claude-haiku-4-5", provider: "anthropic" as const, displayName: "Claude Haiku 4.5", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 1, outputPerMillionUsd: 5 },
+      { id: "claude-sonnet-5", provider: "anthropic" as const, displayName: "Claude Sonnet 5", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 10 },
     ];
     function ModelHarness() {
       const [value, setValue] = useState("gpt-5.6-luna");
@@ -339,7 +351,7 @@ describe("Workbench controls", () => {
     expect(within(invoicePanel).getByText("Correct")).toBeVisible();
     expect(within(invoicePanel).getAllByText("Needs attention")).toHaveLength(2);
     expect(within(invoicePanel).getAllByText("Incorrect")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Assess for exceptions" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ })).toBeVisible();
     expect(screen.getByLabelText("Processing model")).toHaveValue("gpt-5.6-luna");
     expect(
       screen.getByRole("option", { name: "GPT-5.6 Luna - Recommended" }),
@@ -906,7 +918,7 @@ describe("Custom document validation", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Vendor");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     await waitFor(() => expect(screen.getByLabelText("Review field 2")).toHaveFocus());
     expect(screen.getByText("Field labels must be unique.")).toBeVisible();
@@ -914,6 +926,38 @@ describe("Custom document validation", () => {
 });
 
 describe("Workbench request lifecycle", () => {
+  it("explains live processing and submits exactly once only after the deliberate live-review click", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/models") return modelCatalogue({ openai: true, anthropic: false });
+      if (url === "/api/runs?limit=12") return emptyHistory();
+      if (url === "/api/runs" && init?.method === "POST") {
+        return ndjson([{
+          type: "failed",
+          code: "test_terminal",
+          message: "The test run stopped after admission.",
+          timestamp: "2026-09-01T00:00:00.000Z",
+        }]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WorkbenchView />);
+
+    await screen.findByText("Live AI processing");
+    expect(screen.getByText(/US\$0\.20 input.*US\$1\.20 output/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Run live document review" })).toBeEnabled();
+    expect(fetchMock.mock.calls.filter((call) => call[0] === "/api/runs" && call[1]?.method === "POST")).toHaveLength(0);
+
+    await user.selectOptions(screen.getByLabelText("Processing model"), "gpt-5.6-terra");
+    await user.click(screen.getByRole("button", { name: /Northstar Office Supply invoice/i }));
+    expect(fetchMock.mock.calls.filter((call) => call[0] === "/api/runs" && call[1]?.method === "POST")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Run live document review" }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter((call) => call[0] === "/api/runs" && call[1]?.method === "POST")).toHaveLength(1));
+  });
+
   it("keeps processing unavailable until model availability resolves", async () => {
     const user = userEvent.setup();
     let resolveModels!: (response: Response) => void;
@@ -938,7 +982,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
+    const processButton = screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ });
     expect(processButton).toBeDisabled();
     await user.click(processButton);
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
@@ -973,7 +1017,7 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     expect(await screen.findByText("Processing availability unavailable")).toBeVisible();
-    const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
+    const processButton = screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ });
     expect(processButton).toBeDisabled();
     await user.click(processButton);
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
@@ -1011,7 +1055,7 @@ describe("Workbench request lifecycle", () => {
         "/api/models",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ));
-      const processButton = screen.getByRole("button", { name: "Assess for exceptions" });
+      const processButton = screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ });
       await waitFor(() => expect(processButton).toBeEnabled());
       await user.click(processButton);
 
@@ -1044,8 +1088,8 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    expect(screen.getByText("Processing unavailable for this model")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Assess for exceptions" })).toBeDisabled();
+    expect(screen.getByRole("note")).toHaveTextContent("Processing unavailable for this model");
+    expect(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ })).toBeDisabled();
     expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(false);
   });
 
@@ -1103,7 +1147,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByRole("heading", { name: readyAction.title })).toBeVisible();
     await user.selectOptions(screen.getByLabelText("Run A"), "existing_recorded");
     await user.selectOptions(screen.getByLabelText("Run B"), "run_durable_attribution");
@@ -1146,7 +1190,7 @@ describe("Workbench request lifecycle", () => {
 
     await screen.findByText("Sample results - no AI processing");
     const selectedFixture = screen.getByRole("button", { name: /Northstar Office Supply invoice/i });
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(selectedFixture).toBeDisabled();
     expect(screen.getByRole("button", { name: "+ Add your document" })).toBeDisabled();
@@ -1195,7 +1239,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
@@ -1260,7 +1304,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     const failedGroup = screen
       .getByText("Triage exception and prepare handoff")
@@ -1310,7 +1354,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
@@ -1375,7 +1419,7 @@ describe("Workbench request lifecycle", () => {
       );
       render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
       expect(await screen.findByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();
       expect(screen.queryByText("Hostile provider proposal")).not.toBeInTheDocument();
@@ -1416,7 +1460,7 @@ describe("Workbench request lifecycle", () => {
     );
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     const failedGroup = screen.getByText("Triage exception and prepare handoff").closest("li");
     expect(failedGroup).not.toBeNull();
@@ -1479,7 +1523,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByRole("button", { name: "Retry processing" })).toBeVisible();
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Processing model" }),
@@ -1569,7 +1613,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
     expect(releaseDetail).toBeTypeOf("function");
@@ -1639,7 +1683,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByText("Loading prepared workflow details…")).toBeVisible();
     expect(within(screen.getByLabelText("Document workflow actions")).queryAllByRole("button")).toHaveLength(0);
 
@@ -1681,8 +1725,8 @@ describe("Workbench request lifecycle", () => {
         return new Response(
           JSON.stringify({
             models: [
-              { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true },
-              { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true },
+              { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2 },
+              { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 1, outputPerMillionUsd: 5 },
             ],
             defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
             providerAvailability: { openai: false, anthropic: false },
@@ -1726,7 +1770,7 @@ describe("Workbench request lifecycle", () => {
 
     await user.click(screen.getByRole("tab", { name: "Warehouse goods receipts" }));
     await user.click(screen.getByRole("button", { name: /Harborline Components goods receipt/i }));
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(await screen.findByRole("heading", { name: "Prepare inventory posting handoff" })).toBeVisible();
     for (const label of [
@@ -1823,10 +1867,10 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByText("Posting handoff prepared")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     await waitFor(() => {
       expect(screen.queryByText("Posting handoff prepared")).not.toBeInTheDocument();
@@ -1888,7 +1932,7 @@ describe("Workbench request lifecycle", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByRole("button", { name: "View review steps" })).toHaveAttribute("aria-expanded", "false");
     inputClick.mockClear();
     order.length = 0;
@@ -1933,7 +1977,7 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(await screen.findByText("failed_delete_once")).toBeVisible();
     expect(localStorage.getItem("assurance-delete:run_failed_receipt")).toContain("failed_delete_once");
@@ -1988,7 +2032,7 @@ describe("Workbench request lifecycle", () => {
     );
     const view = render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(await screen.findByText(hostileLabel)).toBeVisible();
     expect(screen.getByText(hostileEvidence)).toBeVisible();
@@ -2094,7 +2138,7 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 1"), "Vendor");
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     expect(
       await screen.findByRole("heading", {
@@ -2148,9 +2192,9 @@ describe("Workbench request lifecycle", () => {
     await user.type(screen.getByLabelText("Review field 2"), "Total");
     await user.click(screen.getByRole("checkbox", { name: /publicly visible/i }));
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(await screen.findByRole("heading", { name: "Evidence-consistent" })).toHaveFocus();
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     expect(
       await screen.findByRole("heading", {
         name: "Incomplete evidence - one or more requested fields were not found",
@@ -2182,7 +2226,7 @@ describe("Workbench request lifecycle", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const view = render(<WorkbenchView />);
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     await waitFor(() => expect(activeSignal).toBeDefined());
 
     view.unmount();
@@ -2309,7 +2353,7 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -2339,7 +2383,7 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -2375,11 +2419,11 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     const toggle = await screen.findByRole("button", { name: "View review steps" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "View review steps" })).not.toBeInTheDocument());
     expect(screen.getByText("Understand document")).toBeVisible();
     resolveSecondRun(ndjson([{
@@ -2421,7 +2465,7 @@ describe("Workbench decision guidance", () => {
     }));
     render(<WorkbenchView />);
 
-    await user.click(screen.getByRole("button", { name: "Assess for exceptions" }));
+    await user.click(screen.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing|Processing unavailable for this model)$/ }));
 
     const brief = screen.getByRole("heading", { name: "Decision brief" }).closest("section")!;
     expect(within(brief).getByText("This does not appear to be a supported supplier invoice or warehouse goods receipt. No workflow action was prepared.")).toBeVisible();

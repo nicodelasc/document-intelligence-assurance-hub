@@ -1,6 +1,6 @@
 import type { Provider } from "./types";
 
-export const pricingAsOf = "2026-08-28" as const;
+export const pricingAsOf = "2026-09-01" as const;
 
 export type LiveModelId =
   | "gpt-5.6-luna"

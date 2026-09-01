@@ -19,7 +19,7 @@ import {
   allowedWorkflowActionsForRun,
   workflowActionRequiresRecipient,
 } from "@/domain/workflow-actions";
-import { Button, StatusMark } from "@/components/ui/primitives";
+import { Button, SourceOriginStatusNote, StatusMark } from "@/components/ui/primitives";
 import { EmailPreviewDialog } from "./email-preview-dialog";
 
 type ActionControl = {
@@ -387,6 +387,7 @@ export function WorkflowPanel({
 
   return (
     <div className="workflow-panel">
+      <SourceOriginStatusNote status={sourceOriginStatus} />
       {proposal ? (
         <article className="workflow-proposal">
           <header>

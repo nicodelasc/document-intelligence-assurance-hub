@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
+import type { SourceOriginStatus } from "@/domain/types";
 
 export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & {
   busy?: boolean;
@@ -76,7 +77,14 @@ export function ProcessingStatus({
   availabilityStatus: "loading" | "resolved" | "failed";
   source: "synthetic" | "custom";
 }) {
-  if (availabilityStatus === "resolved" && available) return null;
+  if (availabilityStatus === "resolved" && available) {
+    return (
+      <div className="processing-status processing-status--live" role="note">
+        <StatusMark status="pass" />
+        <span>Live AI processing</span>
+      </div>
+    );
+  }
   return (
     <div className="processing-status" role="note">
       <StatusMark status="active" />
@@ -90,6 +98,27 @@ export function ProcessingStatus({
               : "Processing unavailable for this model"}
       </span>
     </div>
+  );
+}
+
+const sourceOriginLabels: Record<SourceOriginStatus, string> = {
+  server_original: "Original demo document",
+  recognized_copy: "Exact copy of a demo document",
+  unverified: "Source unverified",
+};
+
+export function SourceOriginStatusNote({ status }: { status: SourceOriginStatus | null }) {
+  if (!status) return null;
+  return (
+    <aside className={`source-origin-status source-origin-status--${status}`} role="note">
+      <StatusMark status={status === "unverified" ? "warning" : "pass"} />
+      <div>
+        <strong>{sourceOriginLabels[status]}</strong>
+        {status === "unverified" ? (
+          <p>The document was processed but its source was not verified. A person must review it before any posting handoff.</p>
+        ) : null}
+      </div>
+    </aside>
   );
 }
 

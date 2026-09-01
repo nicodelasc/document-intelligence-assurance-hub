@@ -55,7 +55,7 @@ test("browses document families without processing then runs the selected fixtur
 
   const modelSelect = page.getByLabel("Processing model");
   await modelSelect.selectOption("claude-haiku-4-5");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
   await expect(page.getByRole("heading", { name: "Exception review required" })).toBeVisible({
     timeout: connectedRunTimeout,
   });
@@ -218,7 +218,7 @@ test("prepares a role-scoped email without sending and records the workflow acti
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
   await expect(
     page.getByRole("heading", { name: "Exception review required" }),
   ).toBeVisible();
@@ -358,7 +358,7 @@ test("retries a failed run after delayed diagnostics establish safe controls", a
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
   expect(detailReleased).toBe(false);
   releaseDetail();
@@ -386,11 +386,9 @@ test("the upload tile directly opens the picker and explains unavailable custom 
     "accept",
     "application/pdf,image/png,image/jpeg",
   );
+  await expect(page.getByRole("note")).toHaveText("Processing unavailable for this model");
   await expect(
-    page.getByText("Processing unavailable for this model", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Assess for exceptions" }),
+    page.getByRole("button", { name: "Processing unavailable for this model" }),
   ).toBeDisabled();
 
   await page.getByRole("button", { name: /Clean match/i }).click();
@@ -515,7 +513,7 @@ test("a custom partial result uses incomplete evidence wording", async ({ page }
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await expect(page.getByText("Sample results - no AI processing")).toHaveCount(0);
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
 
   await expect(
     page.getByRole("heading", {

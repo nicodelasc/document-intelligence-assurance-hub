@@ -9,8 +9,8 @@ import {
 } from "@/domain/pricing";
 
 describe("estimateRunCost", () => {
-  it("uses the 2026-08-28 OpenAI GPT-5.6 Luna rates", () => {
-    expect(pricingAsOf).toBe("2026-08-28");
+  it("uses the 2026-09-01 OpenAI GPT-5.6 Luna rates", () => {
+    expect(pricingAsOf).toBe("2026-09-01");
     expect(
       estimateRunCost({
         provider: "openai",
@@ -21,7 +21,7 @@ describe("estimateRunCost", () => {
     ).toBe(1.4);
   });
 
-  it("uses the 2026-08-28 Anthropic Claude Haiku 4.5 rates", () => {
+  it("uses the 2026-09-01 Anthropic Claude Haiku 4.5 rates", () => {
     expect(
       estimateRunCost({
         provider: "anthropic",

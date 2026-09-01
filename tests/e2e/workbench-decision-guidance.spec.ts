@@ -244,7 +244,7 @@ test("keeps completed assurance and decision spotlights collision-free at 768 px
   await page.emulateMedia({ reducedMotion: "reduce" });
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
   await expect(
     page.getByRole("heading", { name: "Review result" }),
   ).toBeVisible();
@@ -307,7 +307,7 @@ test("keeps the spotlight and arrow visible in forced colors", async ({ page }) 
 test("collapses a successful trace then exposes all stages and ordered decision content", async ({ page }) => {
   await interceptWorkbenchApi(page, "success");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
 
   await expect(
     page.getByRole("heading", { name: "Review result" }),
@@ -343,7 +343,7 @@ test("collapses a successful trace then exposes all stages and ordered decision 
 test("keeps a failed trace expanded for safe diagnostics", async ({ page }) => {
   await interceptWorkbenchApi(page, "failure");
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
 
   await expect(page.getByText("The document could not be parsed safely.", { exact: true })).toBeVisible();
   const traceToggle = page.getByRole("button", { name: "View review steps" });
@@ -452,7 +452,7 @@ test("keeps the first 390 px viewport usable with reduced motion", async ({ page
     : Number.parseFloat(animationDuration) * 1_000;
   expect(animationMilliseconds).toBeLessThanOrEqual(0.01);
   await page.keyboard.press("Escape");
-  const process = page.getByRole("button", { name: "Assess for exceptions" });
+  const process = page.getByRole("button", { name: "Assess sample without AI processing" });
   await process.scrollIntoViewIfNeeded();
   await expect(process).toBeEnabled();
   await process.click();

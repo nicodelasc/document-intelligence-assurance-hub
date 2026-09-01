@@ -24,12 +24,29 @@ export type ModelOption = {
   provider: Provider;
   displayName: string;
   recommended: boolean;
+  pricingAsOf: string;
+  inputPerMillionUsd: number;
+  outputPerMillionUsd: number;
 };
 
 const modelGroups = [
   { provider: "openai" as const, label: "OpenAI" },
   { provider: "anthropic" as const, label: "Anthropic" },
 ];
+
+function formatUsd(value: number): string {
+  return `US$${value.toFixed(2)}`;
+}
+
+export function runButtonLabel(input: {
+  source: "synthetic" | "custom";
+  providerAvailable: boolean;
+}): string {
+  if (input.providerAvailable) return "Run live document review";
+  return input.source === "synthetic"
+    ? "Assess sample without AI processing"
+    : "Processing unavailable for this model";
+}
 
 const fileValidationMessage: Record<string, string> = {
   empty_file: "Choose a non-empty document.",
@@ -98,6 +115,16 @@ export function ModelSelector({
         ))}
       </select>
       <small>The selected model applies to built-in samples and custom uploads.</small>
+      {models.find((model) => model.id === value) ? (
+        (() => {
+          const selected = models.find((model) => model.id === value)!;
+          return (
+            <p className="model-selector__pricing">
+              Estimated US dollar pricing as of {selected.pricingAsOf}: {formatUsd(selected.inputPerMillionUsd)} input and {formatUsd(selected.outputPerMillionUsd)} output per 1M tokens.
+            </p>
+          );
+        })()
+      ) : null}
     </div>
   );
 }

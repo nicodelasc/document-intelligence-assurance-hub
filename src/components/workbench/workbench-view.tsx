@@ -26,6 +26,7 @@ import {
   ComparisonLedger,
   CustomUploadFields,
   ModelSelector,
+  runButtonLabel,
   type ComparableRun,
   type CustomUploadHandle,
   type CustomUploadState,
@@ -356,16 +357,34 @@ function modelConfigurationFromPayload(payload: unknown): ModelConfiguration | n
     providerAvailability?: Partial<ProviderAvailability>;
   };
   if (!Array.isArray(record.models)) return null;
-  const approvedModels = record.models.filter(
-    (candidate): candidate is ModelOption => {
-      if (!candidate || typeof candidate !== "object") return false;
+  const approvedModels = record.models.flatMap(
+    (candidate): ModelOption[] => {
+      if (!candidate || typeof candidate !== "object") return [];
       const model = candidate as Record<string, unknown>;
-      return (
+      if (!(
         typeof model.id === "string" &&
         (model.provider === "openai" || model.provider === "anthropic") &&
         typeof model.displayName === "string" &&
         typeof model.recommended === "boolean"
-      );
+      )) return [];
+      const canonical = liveModelCatalog.find((entry) => entry.id === model.id);
+      const pricingAsOf = typeof model.pricingAsOf === "string" ? model.pricingAsOf : canonical?.pricingAsOf;
+      const inputPerMillionUsd = typeof model.inputPerMillionUsd === "number" && Number.isFinite(model.inputPerMillionUsd)
+        ? model.inputPerMillionUsd
+        : canonical?.inputPerMillionUsd;
+      const outputPerMillionUsd = typeof model.outputPerMillionUsd === "number" && Number.isFinite(model.outputPerMillionUsd)
+        ? model.outputPerMillionUsd
+        : canonical?.outputPerMillionUsd;
+      if (pricingAsOf === undefined || inputPerMillionUsd === undefined || outputPerMillionUsd === undefined) return [];
+      return [{
+        id: model.id,
+        provider: model.provider,
+        displayName: model.displayName,
+        recommended: model.recommended,
+        pricingAsOf,
+        inputPerMillionUsd,
+        outputPerMillionUsd,
+      }];
     },
   );
   if (!approvedModels.length) return null;
@@ -558,6 +577,7 @@ export function WorkbenchView() {
   const selectedModelDefinition =
     models.find((model) => model.id === selectedModel) ?? models[0];
   const provider: Provider = selectedModelDefinition?.provider ?? "openai";
+  const providerAvailable = providerAvailability[provider];
   const displayTrace = buildDisplayTrace(trace);
   const hasTerminalRun = Boolean(actionRunId) &&
     (activeRunStatus === "completed" || activeRunStatus === "failed");
@@ -1013,12 +1033,9 @@ export function WorkbenchView() {
                   ref={runButtonRef}
                   type="submit"
                   busy={running}
-                  disabled={
-                    modelAvailabilityStatus !== "resolved" ||
-                    (source === "custom" && !providerAvailability[provider])
-                  }
+                  disabled={modelAvailabilityStatus !== "resolved" || (source === "custom" && !providerAvailable)}
                 >
-                  Assess for exceptions
+                  {runButtonLabel({ source, providerAvailable })}
                 </Button>
                 {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
               </div>
