@@ -50,6 +50,10 @@ function renderManifest(entries) {
   ].join("\n");
 }
 
+function normalizeLineEndings(content) {
+  return content.replace(/\r\n/g, "\n");
+}
+
 const fixtures = await loadSyntheticFixtures();
 const entries = await Promise.all(
   fixtures
@@ -68,7 +72,10 @@ if (checkMode) {
   } catch {
     // A missing manifest is drift and the check must not create it.
   }
-  if (existing !== content) {
+  if (
+    existing === null ||
+    normalizeLineEndings(existing) !== normalizeLineEndings(content)
+  ) {
     console.error("sample_origin_manifest_drift");
     process.exitCode = 1;
   }
