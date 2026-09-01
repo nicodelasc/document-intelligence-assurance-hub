@@ -115,7 +115,9 @@ test("accepts one guarded OpenAI built-in clean-fixture run", async ({
     await expect(
       page.getByRole("button", { name: /Clean match/i }),
     ).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByLabel("Processing model")).toBeEnabled();
+    await expect(page.getByLabel("Processing model")).toBeEnabled({
+      timeout: 30_000,
+    });
     await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
     await expect(
       page.getByRole("note").filter({ hasText: "Live AI processing" }),
@@ -177,7 +179,9 @@ test("accepts one guarded Anthropic unverified custom-upload run", async ({
     await page
       .getByLabel(/raw file and result will be publicly visible/i)
       .check();
-    await expect(page.getByLabel("Processing model")).toBeEnabled();
+    await expect(page.getByLabel("Processing model")).toBeEnabled({
+      timeout: 30_000,
+    });
     await page.getByLabel("Processing model").selectOption("claude-haiku-4-5");
     await expect(
       page.getByRole("note").filter({ hasText: "Live AI processing" }),

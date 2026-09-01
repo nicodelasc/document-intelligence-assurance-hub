@@ -44,4 +44,35 @@ describe("server bundle verifier", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects a build whose OCR worker omits its image type dependency", () => {
+    const root = mkdtempSync(join(tmpdir(), "server-bundle-verifier-"));
+    const server = join(root, "server");
+    const chunks = join(server, "chunks");
+    const route = join(server, "app", "api", "runs");
+    mkdirSync(chunks, { recursive: true });
+    mkdirSync(route, { recursive: true });
+    writeFileSync(
+      join(chunks, "grounding.js"),
+      'let p=t.langPath.replace(/4\\.0\\.0$/,"4.0.0_best_int")',
+    );
+    writeFileSync(
+      join(route, "route.js.nft.json"),
+      JSON.stringify({
+        version: 1,
+        files: [
+          "@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+          "tesseract.js/src/worker-script/utils/dump.js",
+        ],
+      }),
+    );
+
+    try {
+      expect(() => verifyServerBundle(server)).toThrow(
+        /OCR worker image type dependency is missing/i,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

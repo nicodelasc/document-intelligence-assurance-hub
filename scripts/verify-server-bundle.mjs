@@ -70,6 +70,18 @@ export function verifyServerBundle(
       "The selected OCR language data is missing from the runs function trace.",
     );
   }
+  const hasOcrImageTypeDependency = traceFiles.some(
+    (path) =>
+      typeof path === "string" &&
+      /tesseract\.js\/src\/constants\/imageType\.js$/.test(
+        path.replaceAll("\\", "/"),
+      ),
+  );
+  if (!hasOcrImageTypeDependency) {
+    throw new Error(
+      "The OCR worker image type dependency is missing from the runs function trace.",
+    );
+  }
 
   return { markedFiles: markedFiles.length };
 }

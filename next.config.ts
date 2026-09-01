@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/runs": [
       "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*",
-      "./node_modules/tesseract.js/src/worker-script/**/*",
+      "./node_modules/tesseract.js/src/**/*",
       "./node_modules/tesseract.js-core/**/*",
     ],
   },

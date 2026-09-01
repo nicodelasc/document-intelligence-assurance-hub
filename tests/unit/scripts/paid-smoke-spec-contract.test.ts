@@ -66,4 +66,15 @@ describe("paid smoke spec wiring", () => {
     expect(source).not.toContain("input.response.text()");
     expect(source).not.toContain("terminalEvent(");
   });
+
+  it("allows the model catalogue to cold start without permitting a paid retry", async () => {
+    const source = await readFile(
+      join(process.cwd(), "tests", "e2e", "live-production-smoke.spec.ts"),
+      "utf8",
+    );
+
+    expect(
+      source.match(/toBeEnabled\(\{\s*timeout: 30_000,?\s*\}\)/g),
+    ).toHaveLength(2);
+  });
 });
