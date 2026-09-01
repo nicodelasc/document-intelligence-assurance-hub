@@ -4,13 +4,23 @@ import { createCanvas } from "@napi-rs/canvas";
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
+  DOCUMENT_GROUNDING_TIMEOUT_MS,
   DocumentGroundingError,
+  OCR_PAGE_TIMEOUT_MS,
+  OCR_WORKER_START_TIMEOUT_MS,
   evidenceMapsToPage,
   groundDocument,
 } from "@/server/workflow/document-grounding";
 import { syntheticFixtures } from "@/domain/fixtures";
 
 describe("document grounding", () => {
+  it("allows a bounded serverless OCR cold start before page recognition", () => {
+    expect(OCR_WORKER_START_TIMEOUT_MS).toBeGreaterThan(8_000);
+    expect(DOCUMENT_GROUNDING_TIMEOUT_MS).toBeGreaterThan(
+      OCR_WORKER_START_TIMEOUT_MS + OCR_PAGE_TIMEOUT_MS,
+    );
+  });
+
   it("extracts page-scoped text from a real text-native PDF", async () => {
     const fixture = syntheticFixtures.find(
       (candidate) => candidate.id === "invoice-clean-match",

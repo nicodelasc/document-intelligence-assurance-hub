@@ -1021,7 +1021,12 @@ export function WorkbenchView() {
           <section className="document-work-area">
             <div className="run-controls">
               <div id={workbenchTourTargetIds.processingModel} className="tour-target">
-                <ModelSelector models={models} value={selectedModel} onChange={setSelectedModel} disabled={running} />
+                <ModelSelector
+                  models={models}
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  disabled={running || modelAvailabilityStatus === "loading"}
+                />
               </div>
               <div id={workbenchTourTargetIds.processDocument} className="run-actions tour-target">
                 <ProcessingStatus

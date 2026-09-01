@@ -989,7 +989,9 @@ describe("Workbench request lifecycle", () => {
     render(<WorkbenchView />);
 
     const processButton = screen.getByRole("button", { name: "Processing availability pending" });
+    const modelSelector = screen.getByRole("combobox", { name: "Processing model" });
     expect(processButton).toBeDisabled();
+    expect(modelSelector).toBeDisabled();
     expect(screen.getByText("Checking processing availability")).toBeVisible();
     expect(screen.queryByText("Live AI processing")).not.toBeInTheDocument();
     expect(screen.queryByText("Sample results - no AI processing")).not.toBeInTheDocument();
@@ -1005,6 +1007,8 @@ describe("Workbench request lifecycle", () => {
     });
     const resolvedProcessButton = await screen.findByRole("button", { name: "Run live document review" });
     expect(resolvedProcessButton).toBeEnabled();
+    expect(modelSelector).toBeEnabled();
+    expect(modelSelector).toHaveValue("gpt-5.6-terra");
     expect(screen.getByRole("combobox", { name: "Processing model" })).toHaveValue("gpt-5.6-terra");
 
     await user.click(resolvedProcessButton);

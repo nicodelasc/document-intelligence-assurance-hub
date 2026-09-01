@@ -53,16 +53,16 @@ Enabled built-in samples use the selected model route. The available route uses 
 
 Only a live submission can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
 
-Mocked acceptance evidence is separate from connected production observations. Zero paid calls have been made. The two-call acceptance boundary remains pending:
+Mocked acceptance evidence is separate from connected production observations. Two controlled production requests were dispatched and both used OpenAI GPT-5.6 Luna with zero retries. Each failed closed during local evidence grounding before a result. Anthropic has not been called. Connected acceptance remains incomplete.
 
-The pre-release harness now enforces one submitted run and one server-owned provider attempt per opted-in test. This is guard coverage only. No migration, deployment or connected-provider observation has been performed.
+The deployed harness enforces one submitted run and one server-owned provider attempt per opted-in test. It now also blocks the request before network continuation when the multipart provider or model does not match the intended paid test.
 
-| Connected production observation  | Status  | Required evidence                                                                                       |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| OpenAI GPT-5.6 Luna built-in      | Pending | One selected built-in sample with confirmed dispatch, grounded evidence, deterministic outcome and cost |
-| Anthropic Claude Haiku 4.5 custom | Pending | One consented upload with `Source unverified`, confirmed dispatch, no fallback and no posting handoff   |
+| Connected production observation  | Status               | Observed evidence                                                                                                                     |
+| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI GPT-5.6 Luna built-in      | Failed closed        | Dispatch was confirmed then the server-original PDF failed safely during evidence grounding. Conservative settlement was US$0.001723. |
+| Anthropic Claude Haiku 4.5 custom | Pending - not called | A pre-fix selection race reset the custom PNG to OpenAI. That OpenAI request failed safely during OCR evidence grounding.             |
 
-Neither observation may retry automatically. A failure requires diagnosis and fresh approval before another paid call. `Prepared only - not sent` remains the workflow truth because real email and external business-system connectors are out of scope.
+The second OpenAI request added a conservative US$0.0010806 settlement for a total of US$0.0028036. The selection race and serverless OCR cold-start limit are patched. No post-fix paid rerun has been made. Another paid call requires fresh approval. `Prepared only - not sent` remains the workflow truth because real email and external business-system connectors are out of scope.
 
 ## Source-origin evidence boundary
 
@@ -105,6 +105,6 @@ The table below is a historical baseline, not the current final suite. It record
 | Production build            | Passed | `npm run build:production` compiled Next.js 16.3.3 and generated all six static pages plus the declared dynamic API routes.                                                                                                                                                                              |
 | Public-surface verification | Passed | `npm run verify:public` scanned local source and built artifacts with zero findings. The verifier rejects the three exact retired phrases, requires the current Processing model and Reference quality suite labels from the aggregated UI source and includes `/api/models` in configured-origin scans. |
 
-No API key was supplied to these historical gates and no provider call was made. The historical baseline is mocked evidence only. Both connected observations remain Pending.
+No API key was supplied to these historical gates and no provider call was made. The historical baseline is mocked evidence only. The later connected observations above remain separate and acceptance is incomplete.
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.

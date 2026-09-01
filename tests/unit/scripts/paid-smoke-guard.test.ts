@@ -12,6 +12,7 @@ function routeDouble(input: {
   method?: string;
   url?: string;
   headers?: Record<string, string>;
+  postData?: string;
 }) {
   const continueRequest = vi.fn(async () => undefined);
   const abort = vi.fn(async () => undefined);
@@ -20,6 +21,8 @@ function routeDouble(input: {
       method: () => input.method ?? "POST",
       url: () => input.url ?? "https://example.test/api/runs",
       headers: () => input.headers ?? { accept: "application/x-ndjson" },
+      postDataBuffer: () =>
+        input.postData === undefined ? null : Buffer.from(input.postData),
     }),
     continue: continueRequest,
     abort,
@@ -70,6 +73,30 @@ describe("paid smoke safeguards", () => {
     expect(second.abort).toHaveBeenCalledWith("blockedbyclient");
     expect(second.continueRequest).not.toHaveBeenCalled();
     expect(guard.submittedRuns()).toBe(2);
+  });
+
+  it("blocks a paid request whose multipart provider does not match the intended test", async () => {
+    const guard = createPaidSmokeRequestGuard({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+    });
+    const request = routeDouble({
+      postData: [
+        'Content-Disposition: form-data; name="provider"',
+        "",
+        "openai",
+        'Content-Disposition: form-data; name="model"',
+        "",
+        "gpt-5.6-luna",
+      ].join("\r\n"),
+    });
+
+    await expect(guard.handle(request.route)).rejects.toThrow(
+      "paid_smoke_configuration_mismatch",
+    );
+
+    expect(request.abort).toHaveBeenCalledWith("blockedbyclient");
+    expect(request.continueRequest).not.toHaveBeenCalled();
   });
 
   it("keeps each test guard counter independent", async () => {

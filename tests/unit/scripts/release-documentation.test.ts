@@ -29,12 +29,12 @@ const releaseFacingDocumentation = [
   privacy,
 ].join("\n");
 
-const pendingRoutes = [
-  "Built-in sample through OpenAI",
-  "Custom upload through Anthropic",
-];
+const routeStatuses = new Map([
+  ["Built-in sample through OpenAI", "Failed closed"],
+  ["Custom upload through Anthropic", "Pending - not called"],
+]);
 
-function expectPendingProcessingRoutes(markdown: string) {
+function expectCurrentProcessingRoutes(markdown: string) {
   const routeRows = markdown
     .split(/\r?\n/)
     .filter((line) => line.trimStart().startsWith("|"))
@@ -44,27 +44,35 @@ function expectPendingProcessingRoutes(markdown: string) {
         .slice(1, -1)
         .map((cell) => cell.trim()),
     )
-    .filter(([route]) => pendingRoutes.includes(route));
+    .filter(([route]) => routeStatuses.has(route));
 
-  for (const route of pendingRoutes) {
+  for (const [route, expectedStatus] of routeStatuses) {
     const statuses = routeRows
       .filter(([rowRoute]) => rowRoute === route)
       .map(([, status]) => status);
-    expect(statuses, `${route} must be Pending in its own row`).toEqual([
-      "Pending",
-    ]);
+    expect(
+      statuses,
+      `${route} must keep its observed status in its own row`,
+    ).toEqual([expectedStatus]);
   }
 }
 
-function expectCompleteMockedBoundary(markdown: string, path: string) {
+function expectCompleteConnectedBoundary(markdown: string, path: string) {
   expect(markdown, `${path} must identify mocked local acceptance`).toMatch(
     /local acceptance is mocked/i,
   );
-  expect(markdown, `${path} must report the paid-call count`).toMatch(
-    /zero paid calls have been made/i,
+  expect(markdown, `${path} must report the connected call count`).toMatch(
+    /two controlled production requests were dispatched.*both used OpenAI GPT-5\.6 Luna/is,
   );
-  expect(markdown, `${path} must keep both connected observations pending`).toMatch(
-    /both connected production observations are Pending/i,
+  expect(markdown, `${path} must report the settled total`).toMatch(
+    /US\$0\.0028036/,
+  );
+  expect(
+    markdown,
+    `${path} must preserve the uncalled provider boundary`,
+  ).toMatch(/Anthropic has not been called/i);
+  expect(markdown, `${path} must keep acceptance incomplete`).toMatch(
+    /connected acceptance remains incomplete/i,
   );
 }
 
@@ -92,15 +100,18 @@ describe("Operations release documentation", () => {
     );
   });
 
-  it("documents the deliberate paid-call boundary and pending connected observations", () => {
-    expect(releaseFacingDocumentation).toMatch(/one deliberate reviewer click/i);
+  it("documents the deliberate paid-call boundary and observed connected failures", () => {
+    expect(releaseFacingDocumentation).toMatch(
+      /one deliberate reviewer click/i,
+    );
     expect(releaseFacingDocumentation).toContain("Prepared only - not sent");
-    expect(evaluation).toMatch(/zero paid calls have been made/i);
     expect(evaluation).toMatch(/mocked.*separate.*connected production/is);
     expect(evaluation).toMatch(
-      /OpenAI.*GPT-5\.6 Luna.*Pending.*Anthropic.*Claude Haiku 4\.5.*Pending/is,
+      /OpenAI GPT-5\.6 Luna.*Failed closed.*Anthropic Claude Haiku 4\.5.*Pending - not called/is,
     );
-    expect(evaluation).toMatch(/two-call acceptance boundary/i);
+    expect(evaluation).toMatch(
+      /US\$0\.001723.*US\$0\.0010806.*US\$0\.0028036/is,
+    );
   });
 
   it("states the complete mocked and connected-observation boundary in each release document", () => {
@@ -109,7 +120,7 @@ describe("Operations release documentation", () => {
       ["docs/deployment-checklist.md", deployment],
       ["docs/privacy-and-retention.md", privacy],
     ] as const) {
-      expectCompleteMockedBoundary(markdown, path);
+      expectCompleteConnectedBoundary(markdown, path);
     }
   });
 
@@ -184,10 +195,10 @@ describe("Operations release documentation", () => {
     expect(deployment).toMatch(
       /Procurement review queue.*Triage status.*Prepared case handoffs/is,
     );
-    expect(deployment).toMatch(/all documents and reference records are synthetic/is);
     expect(deployment).toMatch(
-      /no external business system is changed/is,
+      /all documents and reference records are synthetic/is,
     );
+    expect(deployment).toMatch(/no external business system is changed/is);
     expect(privacy).toMatch(
       /live synthetic.*handwritten.*text-native PDF.*rendered.*local OCR.*native text.*OCR text.*merged/is,
     );
@@ -291,23 +302,23 @@ describe("Operations release documentation", () => {
     );
   });
 
-  it("retains the two pending production observations and no-provider-claim boundaries", () => {
-    expectPendingProcessingRoutes(readme);
+  it("retains the observed production statuses and no-provider-claim boundaries", () => {
+    expectCurrentProcessingRoutes(readme);
 
     expect(readme).toMatch(/prepared only.*not sent/is);
     expect(readme).toMatch(/no external connector/i);
     expect(readme).toMatch(/sample results.*no AI processing/i);
   });
 
-  it("rejects a Pending status moved to a different table row", () => {
+  it("rejects an observed status moved to a different table row", () => {
     const mutatedReadme = `${readme.replace(
-      /\| Built-in sample through OpenAI\s+\| Pending \|/,
+      /\| Built-in sample through OpenAI\s+\| Failed closed\s+\|/,
       "| Built-in sample through OpenAI    | Blocked |",
     )}\n| Unrelated route | Pending |`;
 
     expect(mutatedReadme).not.toBe(readme);
-    expect(() => expectPendingProcessingRoutes(mutatedReadme)).toThrowError(
-      "Built-in sample through OpenAI must be Pending in its own row",
+    expect(() => expectCurrentProcessingRoutes(mutatedReadme)).toThrowError(
+      "Built-in sample through OpenAI must keep its observed status in its own row",
     );
   });
 });

@@ -3,8 +3,9 @@ import { MAX_PDF_PAGES } from "@/domain/file-validation";
 
 export const MAX_GROUNDING_IMAGE_PIXELS = 16_000_000;
 export const MAX_GROUNDING_PAGE_TEXT_CHARS = 250_000;
-export const DOCUMENT_GROUNDING_TIMEOUT_MS = 20_000;
-export const OCR_PAGE_TIMEOUT_MS = 8_000;
+export const DOCUMENT_GROUNDING_TIMEOUT_MS = 60_000;
+export const OCR_WORKER_START_TIMEOUT_MS = 20_000;
+export const OCR_PAGE_TIMEOUT_MS = 12_000;
 
 const MIN_TEXT_NATIVE_PAGE_CHARS = 12;
 const OCR_RENDER_WIDTH = 1_600;
@@ -180,7 +181,7 @@ async function ocrImages(
     worker = await bounded({
       operation: workerPromise,
       signal,
-      timeoutMs: OCR_PAGE_TIMEOUT_MS,
+      timeoutMs: OCR_WORKER_START_TIMEOUT_MS,
       onCancel: () => {
         void workerPromise
           .then((createdWorker) => createdWorker.terminate())

@@ -104,7 +104,10 @@ test("accepts one guarded OpenAI built-in clean-fixture run", async ({
   test.setTimeout(120_000);
   const context = await browser.newContext({ baseURL: paidSmokeBaseUrl });
   const page = await context.newPage();
-  const guard = createPaidSmokeRequestGuard();
+  const guard = createPaidSmokeRequestGuard({
+    provider: "openai",
+    model: "gpt-5.6-luna",
+  });
   await page.route("**/api/runs", (route) => guard.handle(route));
 
   try {
@@ -112,6 +115,7 @@ test("accepts one guarded OpenAI built-in clean-fixture run", async ({
     await expect(
       page.getByRole("button", { name: /Clean match/i }),
     ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Processing model")).toBeEnabled();
     await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
     await expect(
       page.getByRole("note").filter({ hasText: "Live AI processing" }),
@@ -152,7 +156,10 @@ test("accepts one guarded Anthropic unverified custom-upload run", async ({
   test.setTimeout(120_000);
   const context = await browser.newContext({ baseURL: paidSmokeBaseUrl });
   const page = await context.newPage();
-  const guard = createPaidSmokeRequestGuard();
+  const guard = createPaidSmokeRequestGuard({
+    provider: "anthropic",
+    model: "claude-haiku-4-5",
+  });
   await page.route("**/api/runs", (route) => guard.handle(route));
 
   try {
@@ -170,6 +177,7 @@ test("accepts one guarded Anthropic unverified custom-upload run", async ({
     await page
       .getByLabel(/raw file and result will be publicly visible/i)
       .check();
+    await expect(page.getByLabel("Processing model")).toBeEnabled();
     await page.getByLabel("Processing model").selectOption("claude-haiku-4-5");
     await expect(
       page.getByRole("note").filter({ hasText: "Live AI processing" }),

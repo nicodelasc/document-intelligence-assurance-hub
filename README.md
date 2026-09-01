@@ -5,7 +5,7 @@ Finance and warehouse teams manually review supplier invoices and goods receipts
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
 
-The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Mocked release evidence is separate from connected production observation. Zero paid calls have been made for this release checkpoint. The two connected observations remain pending: one built-in sample through OpenAI GPT-5.6 Luna and one unverified custom upload through Anthropic Claude Haiku 4.5.
+The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Mocked release evidence is separate from connected production observation. Two controlled production requests were dispatched and both used OpenAI GPT-5.6 Luna with zero retries. Each failed closed during local evidence grounding before a result. Conservative settled spend is US$0.0028036 in total. Anthropic has not been called. The model-selection race and serverless OCR cold-start limit found by these observations are patched but no post-fix paid rerun has been made. Connected acceptance remains incomplete.
 
 This is a public-safe portfolio application. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
@@ -210,13 +210,13 @@ This application lacks authentication, private tenant boundaries, malware scanni
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
-The two-call acceptance boundary remains pending:
+Connected acceptance remains incomplete:
 
-| Route                           | Status  | Production evidence required                                                                                   |
-| ------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
-| Built-in sample through OpenAI  | Pending | One connected GPT-5.6 Luna run with confirmed dispatch, grounded evidence and settled cost                     |
-| Custom upload through Anthropic | Pending | One connected Claude Haiku 4.5 run with `Source unverified`, confirmed dispatch and no posting-handoff control |
+| Route                           | Status               | Connected evidence                                                                                                        |
+| ------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Built-in sample through OpenAI  | Failed closed        | OpenAI dispatch was confirmed then PDF evidence grounding failed safely. Conservative settlement was US$0.001723.         |
+| Custom upload through Anthropic | Pending - not called | A pre-fix selection race sent the custom PNG to OpenAI instead. That request failed safely during OCR evidence grounding. |
 
-These are connected production observations rather than mocked evidence. There is no automatic retry. A failed observation requires diagnosis and fresh approval before another paid call. Prepared workflow events remain simulated and `Prepared only - not sent` remains true after connected model processing.
+These are connected production observations rather than mocked evidence. The second OpenAI request added a conservative US$0.0010806 settlement. There is no automatic retry. Another paid call requires fresh approval. Prepared workflow events remain simulated and `Prepared only - not sent` remains true after connected model processing.
 
 The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.

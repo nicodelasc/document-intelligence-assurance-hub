@@ -19,7 +19,20 @@ export function paidSmokeEnabled(
   return environment.RUN_PAID_SMOKE === "1";
 }
 
-export function createPaidSmokeRequestGuard() {
+function escapePattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasMultipartField(body: string, name: string, value: string): boolean {
+  return new RegExp(
+    `name="${escapePattern(name)}"\\r?\\n\\r?\\n${escapePattern(value)}(?:\\r?\\n|$)`,
+  ).test(body);
+}
+
+export function createPaidSmokeRequestGuard(expected?: {
+  provider: "openai" | "anthropic";
+  model: string;
+}) {
   let submittedRuns = 0;
 
   return {
@@ -37,6 +50,17 @@ export function createPaidSmokeRequestGuard() {
       if (submittedRuns > 1) {
         await route.abort("blockedbyclient");
         throw new Error("paid_smoke_request_limit");
+      }
+
+      if (expected) {
+        const body = request.postDataBuffer()?.toString("utf8") ?? "";
+        const configurationMatches =
+          hasMultipartField(body, "provider", expected.provider) &&
+          hasMultipartField(body, "model", expected.model);
+        if (!configurationMatches) {
+          await route.abort("blockedbyclient");
+          throw new Error("paid_smoke_configuration_mismatch");
+        }
       }
 
       await route.continue({

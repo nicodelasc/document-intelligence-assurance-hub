@@ -24,7 +24,9 @@ describe("paid smoke spec wiring", () => {
     );
 
     expect(source.match(/await browser\.newContext\(/g)).toHaveLength(2);
-    expect(source.match(/createPaidSmokeRequestGuard\(\)/g)).toHaveLength(2);
+    expect(
+      source.match(/createPaidSmokeRequestGuard\(\{[\s\S]*?\}\)/g),
+    ).toHaveLength(2);
     expect(
       source.match(/expect\(guard\.submittedRuns\(\)\)\.toBe\(1\)/g),
     ).toHaveLength(2);
