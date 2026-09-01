@@ -288,7 +288,7 @@ describe("recorded benchmark metrics", () => {
     expect(body.costs).toEqual({
       estimated: true,
       currency: "USD",
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
       settledSpend: {
         todayUsd: 0.4,
         monthToDateUsd: 0.9,

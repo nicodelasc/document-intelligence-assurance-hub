@@ -9,16 +9,27 @@ import {
 } from "@/domain/pricing";
 
 describe("estimateRunCost", () => {
-  it("uses the 2026-09-01 OpenAI GPT-5.6 Luna rates", () => {
+  it("uses the base OpenAI GPT-5.6 Luna rates through the long-context threshold", () => {
     expect(pricingAsOf).toBe("2026-09-01");
     expect(
       estimateRunCost({
         provider: "openai",
         model: "gpt-5.6-luna",
-        inputTokens: 1_000_000,
-        outputTokens: 1_000_000,
+        inputTokens: 271_999,
+        outputTokens: 2_000,
       }),
-    ).toBe(1.4);
+    ).toBeCloseTo(0.0567998, 9);
+  });
+
+  it("applies the OpenAI GPT-5.6 long-context rates to the full request above the threshold", () => {
+    expect(
+      estimateRunCost({
+        provider: "openai",
+        model: "gpt-5.6-luna",
+        inputTokens: 272_001,
+        outputTokens: 2_000,
+      }),
+    ).toBeCloseTo(0.1124004, 9);
   });
 
   it("uses the 2026-09-01 Anthropic Claude Haiku 4.5 rates", () => {
@@ -58,14 +69,14 @@ describe("estimateRunCost", () => {
     expect(MAX_LIVE_PROVIDER_ATTEMPTS).toBe(2);
     expect(MAX_PROVIDER_OUTPUT_TOKENS).toBe(2_000);
     expect(estimateMaximumLiveRunCost("openai", "gpt-5.6-luna")).toBeCloseTo(
-      0.424,
+      0.8456,
       9,
     );
     expect(
       estimateMaximumLiveRunCost("anthropic", "claude-sonnet-5"),
     ).toBeCloseTo(4.032, 9);
     expect(estimateMaximumLiveRunCost("openai", "gpt-5.6-terra")).toBeCloseTo(
-      4.24,
+      8.456,
       9,
     );
     expect(
@@ -80,6 +91,6 @@ describe("estimateRunCost", () => {
   });
 
   it("uses the recommended provider defaults for the fallback live reservation", () => {
-    expect(DEFAULT_LIVE_MODEL_RESERVATION_USD).toBeCloseTo(0.424, 9);
+    expect(DEFAULT_LIVE_MODEL_RESERVATION_USD).toBeCloseTo(0.8456, 9);
   });
 });

@@ -426,7 +426,7 @@ describe("Operations metric claims", () => {
     costs: {
       estimated: true,
       currency: "USD",
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
       settledSpend: { todayUsd: 0.4, monthToDateUsd: 0.9, mayIncludeConservativeSettlements: true },
       completedRunEstimates: {
         todayUsd: 0.08,
@@ -462,7 +462,7 @@ describe("Operations metric claims", () => {
     },
     summary: { totalRuns: 9, completionRate: 8 / 9, reviewRate: 0.75, failureRate: 1 / 9 },
     performance: { sampleCount: 9, p50LatencyMs: 1240, p95LatencyMs: 2810, retryCount: 3, averageStepDurationsMs: { verifying: 420, extracting: 185 } },
-    usage: { inputTokens: 300, outputTokens: 60, providerSplit: { openai: 1, anthropic: 1 }, recordedRuns: 7, liveRuns: 2, estimatedApiCostUsd: 0.2, estimatedCost: true, pricingAsOf: "2026-08-28" },
+    usage: { inputTokens: 300, outputTokens: 60, providerSplit: { openai: 1, anthropic: 1 }, recordedRuns: 7, liveRuns: 2, estimatedApiCostUsd: 0.2, estimatedCost: true, pricingAsOf: "2026-09-01" },
     benchmark: { source: "deterministic_synthetic_observations", observationCount: 10, exactMatchRate: 1, missingFieldRecall: 1, evaluatorAgreement: 1, falseClearCount: 0 },
     retention: { activeDocuments: 8, activePublicUploads: 2, expiryBuckets: { lessThanOneHour: 1, oneToSixHours: 3, sixToTwentyFourHours: 4 }, cleanupBacklog: 1, upcomingExpirations: 1, sampleCount: 9 },
     actions: { ready: 2, needsReview: 4, blocked: 2, stagedDryRuns: 1, population: { activeRuns: 9, actionProposals: 8, maximumRuns: 100, detailExpiryHours: 24 } },
@@ -638,7 +638,7 @@ describe("Operations metric claims", () => {
       liveRuns: 0,
       estimatedApiCostUsd: 0,
       estimatedCost: true,
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
     };
     recordedOnly.resourceScenario.modelCostAssumption.averageModelCostPerRunUsd = 0;
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(recordedOnly), { status: 200 })));

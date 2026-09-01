@@ -40,7 +40,7 @@ function operationsMetrics() {
     costs: {
       estimated: true,
       currency: "USD",
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
       settledSpend: { todayUsd: 0, monthToDateUsd: 0, mayIncludeConservativeSettlements: true },
       completedRunEstimates: {
         todayUsd: 0,
@@ -70,7 +70,7 @@ function operationsMetrics() {
       liveRuns: 0,
       estimatedApiCostUsd: 0,
       estimatedCost: true,
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
     },
     benchmark: referenceQuality,
     retention: { ...lifecycle, upcomingExpirations: 1, sampleCount: 1 },
@@ -86,7 +86,7 @@ function operationsMetrics() {
       modelCostAssumption: {
         averageModelCostPerRunUsd: 0,
         usdToSgd: 1.35,
-        assumptionDate: "2026-08-28",
+        assumptionDate: "2026-09-01",
         illustrative: true,
       },
     },

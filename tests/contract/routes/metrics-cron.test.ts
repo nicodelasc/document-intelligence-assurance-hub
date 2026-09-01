@@ -334,7 +334,7 @@ describe("GET /api/metrics", () => {
           sourceCurrency: "USD",
           targetCurrency: "SGD",
           usdToSgd: 1.35,
-          assumptionDate: "2026-08-28",
+          assumptionDate: "2026-09-01",
           illustrative: true,
         },
       },

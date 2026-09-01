@@ -40,8 +40,11 @@ function formatUsd(value: number): string {
 
 export function runButtonLabel(input: {
   source: "synthetic" | "custom";
+  availabilityStatus: "loading" | "resolved" | "failed";
   providerAvailable: boolean;
 }): string {
+  if (input.availabilityStatus === "loading") return "Processing availability pending";
+  if (input.availabilityStatus === "failed") return "Processing availability unavailable";
   if (input.providerAvailable) return "Run live document review";
   return input.source === "synthetic"
     ? "Assess sample without AI processing"

@@ -41,7 +41,7 @@ describe("GET /api/models", () => {
       displayName: "GPT-5.6 Luna",
       recommended: true,
       contextWindowTokens: 1_050_000,
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
       inputPerMillionUsd: 0.2,
       outputPerMillionUsd: 1.2,
     });

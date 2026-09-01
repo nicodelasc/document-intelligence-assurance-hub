@@ -153,7 +153,8 @@ h4 { font-size: 0.78rem; }
 .model-selector select { width: 100%; min-height: 40px; padding: 0.5rem 0.6rem; border: 1px solid #B8C1CC; border-radius: var(--radius-md); background: var(--surface); }
 .model-selector small { color: var(--muted); font-size: 0.68rem; }
 .model-selector__pricing { min-height: 2.2em; margin: 0; color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
-.run-actions { display: grid; gap: 0.25rem; min-width: 165px; }
+.run-actions { display: grid; gap: 0.25rem; min-width: 18rem; }
+.run-actions .button { min-width: 100%; }
 .processing-status { min-height: 22px; display: flex; align-items: center; justify-content: center; gap: 0.4rem; color: #24436F; font-size: 0.68rem; font-weight: 650; text-align: center; }
 .processing-status--live { color: var(--success); }
 .recovery-error { display: grid; grid-template-columns: auto 1fr auto; gap: 0.65rem; align-items: center; }

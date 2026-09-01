@@ -8,6 +8,14 @@ export type LiveModelId =
   | "claude-haiku-4-5"
   | "claude-sonnet-5";
 
+export const gpt56LongContextPricing = Object.freeze({
+  inputTokenThreshold: 272_000,
+  inputMultiplier: 2,
+  outputMultiplier: 1.5,
+});
+
+export type LongContextPricing = typeof gpt56LongContextPricing;
+
 export interface LiveModelDefinition {
   id: LiveModelId;
   provider: Provider;
@@ -17,6 +25,7 @@ export interface LiveModelDefinition {
   pricingAsOf: typeof pricingAsOf;
   inputPerMillionUsd: number;
   outputPerMillionUsd: number;
+  longContextPricing: LongContextPricing | null;
 }
 
 export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
@@ -29,6 +38,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     pricingAsOf,
     inputPerMillionUsd: 0.2,
     outputPerMillionUsd: 1.2,
+    longContextPricing: gpt56LongContextPricing,
   }),
   Object.freeze({
     id: "gpt-5.6-terra",
@@ -39,6 +49,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     pricingAsOf,
     inputPerMillionUsd: 2,
     outputPerMillionUsd: 12,
+    longContextPricing: gpt56LongContextPricing,
   }),
   Object.freeze({
     id: "claude-haiku-4-5",
@@ -49,6 +60,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     pricingAsOf,
     inputPerMillionUsd: 1,
     outputPerMillionUsd: 5,
+    longContextPricing: null,
   }),
   Object.freeze({
     id: "claude-sonnet-5",
@@ -59,6 +71,7 @@ export const liveModelCatalog: readonly LiveModelDefinition[] = Object.freeze([
     pricingAsOf,
     inputPerMillionUsd: 2,
     outputPerMillionUsd: 10,
+    longContextPricing: null,
   }),
 ]);
 

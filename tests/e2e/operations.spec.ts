@@ -59,7 +59,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
     costs: {
       estimated: true,
       currency: "USD",
-      pricingAsOf: "2026-08-28",
+      pricingAsOf: "2026-09-01",
       settledSpend: { todayUsd: 0, monthToDateUsd: 0, mayIncludeConservativeSettlements: true },
       completedRunEstimates: { todayUsd: 0, monthToDateUsd: 0, completedModelRuns: 0, totalUsd: 0, averageUsd: 0 },
       byModel: [],
@@ -69,7 +69,7 @@ test("splits Operations and Costs then opens a complete workflow detail", async 
     referenceQuality,
     summary: { totalRuns: 1, completionRate: 1, reviewRate: 1, failureRate: 0 },
     performance,
-    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, estimatedCost: true, pricingAsOf: "2026-08-28" },
+    usage: { inputTokens: 0, outputTokens: 0, providerSplit: { openai: 0, anthropic: 0 }, recordedRuns: 1, liveRuns: 0, estimatedApiCostUsd: 0, estimatedCost: true, pricingAsOf: "2026-09-01" },
     benchmark: referenceQuality,
     retention: { ...lifecycle, upcomingExpirations: 1, sampleCount: 1 },
     actions: { ready: 0, needsReview: 1, blocked: 0, stagedDryRuns: 0, population: { activeRuns: 1, actionProposals: 1, maximumRuns: 100, detailExpiryHours: 24 } },

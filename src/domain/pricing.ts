@@ -21,6 +21,29 @@ export function requireSupportedLiveModel(
   return requireEnabledModel(provider, model);
 }
 
+function estimateSingleLiveRunCost(
+  policy: LiveModelDefinition,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const longContextPricing = policy.longContextPricing;
+  const useLongContextPricing =
+    longContextPricing !== null &&
+    inputTokens > longContextPricing.inputTokenThreshold;
+  const inputMultiplier = useLongContextPricing
+    ? longContextPricing.inputMultiplier
+    : 1;
+  const outputMultiplier = useLongContextPricing
+    ? longContextPricing.outputMultiplier
+    : 1;
+
+  return (
+    (inputTokens * policy.inputPerMillionUsd * inputMultiplier +
+      outputTokens * policy.outputPerMillionUsd * outputMultiplier) /
+    1_000_000
+  );
+}
+
 export function estimateMaximumLiveRunCost(
   provider: Provider,
   model: string,
@@ -28,12 +51,11 @@ export function estimateMaximumLiveRunCost(
   const policy = requireSupportedLiveModel(provider, model);
   const maximumInputTokens =
     policy.contextWindowTokens - MAX_PROVIDER_OUTPUT_TOKENS;
-  return (
-    ((maximumInputTokens * policy.inputPerMillionUsd +
-      MAX_PROVIDER_OUTPUT_TOKENS * policy.outputPerMillionUsd) /
-      1_000_000) *
-    MAX_LIVE_PROVIDER_ATTEMPTS
-  );
+  return estimateSingleLiveRunCost(
+    policy,
+    maximumInputTokens,
+    MAX_PROVIDER_OUTPUT_TOKENS,
+  ) * MAX_LIVE_PROVIDER_ATTEMPTS;
 }
 
 export const MAX_SUPPORTED_LIVE_RUN_COST_USD = Math.max(
@@ -60,9 +82,9 @@ export function estimateRunCost(input: {
   outputTokens: number;
 }): number {
   const policy = requireSupportedLiveModel(input.provider, input.model);
-  return (
-    (input.inputTokens * policy.inputPerMillionUsd +
-      input.outputTokens * policy.outputPerMillionUsd) /
-    1_000_000
+  return estimateSingleLiveRunCost(
+    policy,
+    input.inputTokens,
+    input.outputTokens,
   );
 }

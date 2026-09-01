@@ -6,6 +6,21 @@ test("browses document families without processing then runs the selected fixtur
   page,
 }) => {
   const runPosts: string[] = [];
+  await page.route("**/api/models", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [
+          { id: "gpt-5.6-luna", provider: "openai", displayName: "GPT-5.6 Luna", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 0.2, outputPerMillionUsd: 1.2 },
+          { id: "gpt-5.6-terra", provider: "openai", displayName: "GPT-5.6 Terra", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 12 },
+          { id: "claude-haiku-4-5", provider: "anthropic", displayName: "Claude Haiku 4.5", recommended: true, pricingAsOf: "2026-09-01", inputPerMillionUsd: 1, outputPerMillionUsd: 5 },
+          { id: "claude-sonnet-5", provider: "anthropic", displayName: "Claude Sonnet 5", recommended: false, pricingAsOf: "2026-09-01", inputPerMillionUsd: 2, outputPerMillionUsd: 10 },
+        ],
+        defaults: { openai: "gpt-5.6-luna", anthropic: "claude-haiku-4-5" },
+        providerAvailability: { openai: false, anthropic: false },
+      }),
+    });
+  });
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/runs")) {
       runPosts.push(request.url());
@@ -55,7 +70,7 @@ test("browses document families without processing then runs the selected fixtur
 
   const modelSelect = page.getByLabel("Processing model");
   await modelSelect.selectOption("claude-haiku-4-5");
-  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
   await expect(page.getByRole("heading", { name: "Exception review required" })).toBeVisible({
     timeout: connectedRunTimeout,
   });
@@ -218,7 +233,7 @@ test("prepares a role-scoped email without sending and records the workflow acti
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
   await expect(
     page.getByRole("heading", { name: "Exception review required" }),
   ).toBeVisible();
@@ -358,7 +373,7 @@ test("retries a failed run after delayed diagnostics establish safe controls", a
   });
 
   await page.goto("/workbench");
-  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
+  await page.getByRole("button", { name: "Assess sample without AI processing" }).click();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
   expect(detailReleased).toBe(false);
   releaseDetail();
@@ -513,7 +528,7 @@ test("a custom partial result uses incomplete evidence wording", async ({ page }
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await expect(page.getByText("Sample results - no AI processing")).toHaveCount(0);
-  await page.getByRole("button", { name: /^(Run live document review|Assess sample without AI processing)$/ }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
 
   await expect(
     page.getByRole("heading", {

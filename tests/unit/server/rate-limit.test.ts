@@ -22,17 +22,17 @@ function quotaRepository() {
 }
 
 describe("InMemoryQuotaRepository", () => {
-  it("admits every advertised model on an empty default ledger with its selected-model reservation", async () => {
+  it("calculates every advertised model reservation before quota admission", async () => {
     expect(DEFAULT_DAILY_MODEL_BUDGET_USD).toBe(5);
     const expectedReservations = {
-      "gpt-5.6-luna": 0.424,
-      "gpt-5.6-terra": 4.24,
+      "gpt-5.6-luna": 0.8456,
+      "gpt-5.6-terra": 8.456,
       "claude-haiku-4-5": 0.416,
       "claude-sonnet-5": 4.032,
     } as const;
     const decisions = await Promise.all(
       liveModelCatalog.map(async (model) => {
-        const quotas = new InMemoryQuotaRepository();
+        const quotas = new InMemoryQuotaRepository(10);
         const estimatedCostUsd = expectedReservations[model.id];
         return {
           id: model.id,
@@ -75,13 +75,13 @@ describe("InMemoryQuotaRepository", () => {
         bucket: "browser-default-model",
         sourceType: "synthetic",
         executionMode: "live",
-        estimatedCostUsd: 0.424,
+        estimatedCostUsd: 0.8456,
         liveEnabled: true,
         now,
       }),
     ).resolves.toMatchObject({
       allowed: true,
-      reservedCostUsd: 0.424,
+      reservedCostUsd: 0.8456,
     });
   });
 
@@ -238,7 +238,7 @@ describe("InMemoryQuotaRepository", () => {
       ),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(7);
+    expect(allowed).toHaveLength(3);
     expect(
       allowed.every(
         (decision) =>
@@ -246,12 +246,12 @@ describe("InMemoryQuotaRepository", () => {
           decision.reservedCostUsd === MAX_SUPPORTED_LIVE_RUN_COST_USD,
       ),
     ).toBe(true);
-    expect(decisions.filter((decision) => !decision.allowed)).toEqual([
-      { allowed: false, reason: "daily_budget", replayAvailable: true },
-    ]);
+    expect(decisions.filter((decision) => !decision.allowed)).toEqual(
+      Array(5).fill({ allowed: false, reason: "daily_budget", replayAvailable: true }),
+    );
     expect(await quotas.snapshot(now)).toMatchObject({
       globalSpendUsd: 0,
-      reservedSpendUsd: 7 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 3 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
   });
 
@@ -743,10 +743,10 @@ describe("InMemoryQuotaRepository", () => {
       Array.from({ length: 12 }, () => quotas.reserve(reservationInput)),
     );
     const allowed = decisions.filter((decision) => decision.allowed);
-    expect(allowed).toHaveLength(11);
-    expect(decisions.filter((decision) => !decision.allowed)).toEqual([
-      { allowed: false, reason: "daily_budget", replayAvailable: true },
-    ]);
+    expect(allowed).toHaveLength(5);
+    expect(decisions.filter((decision) => !decision.allowed)).toEqual(
+      Array(7).fill({ allowed: false, reason: "daily_budget", replayAvailable: true }),
+    );
     if (!allowed[0].allowed || !allowed[0].reservationId) {
       throw new Error("expected_neon_reservation");
     }
@@ -755,7 +755,7 @@ describe("InMemoryQuotaRepository", () => {
     ).resolves.toEqual({ status: "settled", actualCostUsd: 0.25 });
     await expect(quotas.snapshot(now)).resolves.toMatchObject({
       globalSpendUsd: 0.25,
-      reservedSpendUsd: 10 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
+      reservedSpendUsd: 4 * MAX_SUPPORTED_LIVE_RUN_COST_USD,
     });
   });
 

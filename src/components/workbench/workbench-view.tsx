@@ -1035,7 +1035,11 @@ export function WorkbenchView() {
                   busy={running}
                   disabled={modelAvailabilityStatus !== "resolved" || (source === "custom" && !providerAvailable)}
                 >
-                  {runButtonLabel({ source, providerAvailable })}
+                  {runButtonLabel({
+                    source,
+                    availabilityStatus: modelAvailabilityStatus,
+                    providerAvailable,
+                  })}
                 </Button>
                 {running ? <Button type="button" intent="ghost" onClick={cancelRun}>Cancel run</Button> : null}
               </div>

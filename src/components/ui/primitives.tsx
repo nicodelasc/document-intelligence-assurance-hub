@@ -87,7 +87,7 @@ export function ProcessingStatus({
   }
   return (
     <div className="processing-status" role="note">
-      <StatusMark status="active" />
+      <StatusMark status={availabilityStatus === "loading" ? "idle" : "active"} />
       <span>
         {availabilityStatus === "loading"
           ? "Checking processing availability"
