@@ -20,6 +20,10 @@ import { createHash } from "node:crypto";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
+function providerAttemptLimit(request: Request): 1 | 2 {
+  return request.headers.get("x-provider-attempt-limit") === "1" ? 1 : 2;
+}
+
 async function* invalidateMetricsAfterRun<T>(
   events: AsyncIterable<T>,
   repository: object,
@@ -247,6 +251,7 @@ export async function handleRunsPost(
           provider,
           idSource: () => claimedRunId!,
           abortSignal: abortController.signal,
+          providerAttemptLimit: providerAttemptLimit(request),
           clock: container.clock,
           replayStageDelayMs: container.replayStageDelayMs,
         },

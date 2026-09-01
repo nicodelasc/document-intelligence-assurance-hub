@@ -1042,6 +1042,141 @@ describe("POST /api/runs", () => {
     });
   });
 
+  it.each([429, 503])(
+    "limits a smoke-marked transient HTTP %s failure to one provider adapter attempt",
+    async (status) => {
+      let providerAttempts = 0;
+      const container = createTestContainer({
+        liveModeEnabled: true,
+        providerAvailability: { openai: true, anthropic: false },
+        async createProvider(input) {
+          return {
+            provider: "openai",
+            model: input.model,
+            promptVersion: "paid-smoke-attempt-guard.v1",
+            executionMode: "live",
+            async extract(providerInput) {
+              providerAttempts += 1;
+              await providerInput.onDispatch?.();
+              throw new ProviderRequestError("provider_unavailable", status);
+            },
+          };
+        },
+      });
+      const baseRequest = formRequest([
+        ["sourceType", "synthetic"],
+        ["provider", "openai"],
+        ["sampleId", "invoice-clean-match"],
+        ["executionMode", "live"],
+      ]);
+      const request = new Request(baseRequest, {
+        headers: {
+          ...Object.fromEntries(baseRequest.headers),
+          "x-provider-attempt-limit": "1",
+        },
+      });
+
+      const response = await handleRunsPost(request, container);
+      const events = await readLines(response);
+      const failed = events.at(-1) as { runId: string };
+
+      expect(providerAttempts).toBe(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "failed",
+        code: "provider_unavailable",
+      });
+      expect(
+        await container.repository.readPublicRun(
+          failed.runId,
+          container.clock(),
+        ),
+      ).toMatchObject({ retryCount: 0 });
+    },
+  );
+
+  it("retains one workflow retry for an ordinary transient provider failure", async () => {
+    let providerAttempts = 0;
+    const container = createTestContainer({
+      liveModeEnabled: true,
+      providerAvailability: { openai: true, anthropic: false },
+      async createProvider(input) {
+        return {
+          provider: "openai",
+          model: input.model,
+          promptVersion: "ordinary-attempt-policy.v1",
+          executionMode: "live",
+          async extract(providerInput) {
+            providerAttempts += 1;
+            await providerInput.onDispatch?.();
+            throw new ProviderRequestError("provider_rate_limited", 429);
+          },
+        };
+      },
+    });
+
+    const response = await handleRunsPost(
+      formRequest([
+        ["sourceType", "synthetic"],
+        ["provider", "openai"],
+        ["sampleId", "invoice-clean-match"],
+        ["executionMode", "live"],
+      ]),
+      container,
+    );
+    const events = await readLines(response);
+    const failed = events.at(-1) as { runId: string };
+
+    expect(providerAttempts).toBe(2);
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      code: "provider_rate_limited",
+    });
+    expect(
+      await container.repository.readPublicRun(failed.runId, container.clock()),
+    ).toMatchObject({ retryCount: 1 });
+  });
+
+  it.each(["0", "2", "99", "invalid"])(
+    "does not widen or otherwise alter the ordinary attempt limit for header %s",
+    async (headerValue) => {
+      let providerAttempts = 0;
+      const container = createTestContainer({
+        liveModeEnabled: true,
+        providerAvailability: { openai: true, anthropic: false },
+        async createProvider(input) {
+          return {
+            provider: "openai",
+            model: input.model,
+            promptVersion: "bounded-attempt-policy.v1",
+            executionMode: "live",
+            async extract(providerInput) {
+              providerAttempts += 1;
+              await providerInput.onDispatch?.();
+              throw new ProviderRequestError("provider_unavailable", 503);
+            },
+          };
+        },
+      });
+      const baseRequest = formRequest([
+        ["sourceType", "synthetic"],
+        ["provider", "openai"],
+        ["sampleId", "invoice-clean-match"],
+        ["executionMode", "live"],
+      ]);
+      const request = new Request(baseRequest, {
+        headers: {
+          ...Object.fromEntries(baseRequest.headers),
+          "x-provider-attempt-limit": headerValue,
+        },
+      });
+
+      const response = await handleRunsPost(request, container);
+      await response.text();
+
+      expect(providerAttempts).toBe(2);
+    },
+  );
+
   it("streams strict events in workflow order with one deletion receipt", async () => {
     const container = createTestContainer();
     const response = await handleRunsPost(syntheticRequest(), container);

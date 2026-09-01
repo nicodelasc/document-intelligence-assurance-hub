@@ -55,6 +55,8 @@ Only a live submission can reserve model budget. Persisted `providerDispatched=t
 
 Mocked acceptance evidence is separate from connected production observations. Zero paid calls have been made. The two-call acceptance boundary remains pending:
 
+The pre-release harness now enforces one submitted run and one server-owned provider attempt per opted-in test. This is guard coverage only. No migration, deployment or connected-provider observation has been performed.
+
 | Connected production observation  | Status  | Required evidence                                                                                       |
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
 | OpenAI GPT-5.6 Luna built-in      | Pending | One selected built-in sample with confirmed dispatch, grounded evidence, deterministic outcome and cost |

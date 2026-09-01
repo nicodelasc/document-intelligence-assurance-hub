@@ -81,6 +81,7 @@ export type ExecuteRunDependencies = {
   sleep?: (delayMs: number) => Promise<void>;
   replayStageDelayMs?: number;
   abortSignal?: AbortSignal;
+  providerAttemptLimit?: 1 | 2;
   documentGrounder?: DocumentGrounder;
   quotaReservation?: {
     repository: QuotaRepository;
@@ -375,6 +376,7 @@ async function extractWithOneRetry(
   input: ExecuteRunInput,
   onDispatch: () => Promise<void>,
   onRetry: (error: ProviderRequestError) => Promise<void>,
+  providerAttemptLimit: 1 | 2,
   signal?: AbortSignal,
 ): Promise<{ response: ProviderExtractionResponse; retryCount: number }> {
   let retryCount = 0;
@@ -395,7 +397,11 @@ async function extractWithOneRetry(
         retryCount,
       };
     } catch (error) {
-      if (retryCount === 0 && isRetryableProviderError(error)) {
+      if (
+        providerAttemptLimit === 2 &&
+        retryCount === 0 &&
+        isRetryableProviderError(error)
+      ) {
         retryCount = 1;
         await onRetry(error as ProviderRequestError);
         signal?.throwIfAborted();
@@ -686,6 +692,7 @@ export async function* executeRun(
           };
           await dependencies.repository.appendStep(runId, step);
         },
+        dependencies.providerAttemptLimit ?? 2,
         signal,
       );
     if (

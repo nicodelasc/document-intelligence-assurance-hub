@@ -144,6 +144,8 @@ Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_M
 
 ## Provider acceptance gate
 
+Pre-release harness status on 2026-09-01: Pending. The guarded acceptance harness and one-attempt server cap are present. Zero paid calls have been made. No migration, deployment or connected-provider observation has been performed for this gate.
+
 - [ ] Nicholas explicitly authorizes a controlled provider-key session.
 - [ ] Confirm zero paid calls were made during the mocked release matrix.
 - [ ] Make one built-in OpenAI GPT-5.6 Luna observation through one deliberate reviewer click with no automatic retry.
