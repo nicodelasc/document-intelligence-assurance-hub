@@ -1,0 +1,93 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const languagePathMarker = "4.0.0_best_int";
+const numericDirnamePattern =
+  /(?:\(\s*0\s*,\s*[\w$]+\.dirname\s*\)|[\w$]+\.dirname)\(\s*\d+\s*\)/g;
+
+export function findInvalidOcrBundlePatterns(source) {
+  if (!source.includes(languagePathMarker)) return [];
+  return [...source.matchAll(numericDirnamePattern)].map((match) => match[0]);
+}
+
+function javascriptFiles(directory) {
+  return readdirSync(directory).flatMap((entry) => {
+    const path = resolve(directory, entry);
+    if (statSync(path).isDirectory()) return javascriptFiles(path);
+    return path.endsWith(".js") ? [path] : [];
+  });
+}
+
+export function verifyServerBundle(
+  serverDirectory = resolve(process.cwd(), ".next", "server"),
+) {
+  if (!existsSync(serverDirectory)) {
+    throw new Error("The Next.js server bundle is missing.");
+  }
+
+  const markedFiles = [];
+  const invalidFiles = [];
+  for (const path of javascriptFiles(serverDirectory)) {
+    const source = readFileSync(path, "utf8");
+    if (!source.includes(languagePathMarker)) continue;
+    markedFiles.push(path);
+    if (findInvalidOcrBundlePatterns(source).length > 0) {
+      invalidFiles.push(path);
+    }
+  }
+
+  if (markedFiles.length === 0) {
+    throw new Error("The OCR language path is missing from the server bundle.");
+  }
+  if (invalidFiles.length > 0) {
+    throw new Error(
+      `The OCR language path uses an invalid bundled module ID in ${invalidFiles.length} server file(s).`,
+    );
+  }
+
+  const runsTracePath = resolve(
+    serverDirectory,
+    "app",
+    "api",
+    "runs",
+    "route.js.nft.json",
+  );
+  if (!existsSync(runsTracePath)) {
+    throw new Error("The runs function trace manifest is missing.");
+  }
+  const trace = JSON.parse(readFileSync(runsTracePath, "utf8"));
+  const traceFiles = Array.isArray(trace.files) ? trace.files : [];
+  const hasSelectedLanguageData = traceFiles.some(
+    (path) =>
+      typeof path === "string" &&
+      /@tesseract\.js-data\/eng\/4\.0\.0_best_int\/eng\.traineddata\.gz$/.test(
+        path.replaceAll("\\", "/"),
+      ),
+  );
+  if (!hasSelectedLanguageData) {
+    throw new Error(
+      "The selected OCR language data is missing from the runs function trace.",
+    );
+  }
+
+  return { markedFiles: markedFiles.length };
+}
+
+const isDirectRun =
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  try {
+    const result = verifyServerBundle();
+    process.stdout.write(
+      `Server bundle verification passed across ${result.markedFiles} OCR bundle file(s).\n`,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : "Server bundle verification failed."}\n`,
+    );
+    process.exitCode = 1;
+  }
+}

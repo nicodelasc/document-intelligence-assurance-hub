@@ -3,8 +3,10 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Request as PlaywrightRequest,
   type Response,
 } from "@playwright/test";
+import { idempotentRunId } from "../../src/server/http/run-id";
 import {
   PAID_SMOKE_DESCRIBE_OPTIONS,
   createPaidSmokeRequestGuard,
@@ -33,6 +35,7 @@ type PublicRun = {
   id: string;
   status: string;
   outcome: string | null;
+  executionMode: string;
   providerCalled: boolean;
   provider: string | null;
   model: string | null;
@@ -44,14 +47,6 @@ type PublicRun = {
   requestedFields: Array<{ key: string; label: string }>;
 };
 
-function terminalEvent(responseBody: string) {
-  const events = responseBody
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-  return events.at(-1);
-}
-
 async function readPublicRun(
   request: APIRequestContext,
   runId: string,
@@ -61,6 +56,14 @@ async function readPublicRun(
   const payload = (await response.json()) as { run?: PublicRun };
   expect(payload.run).toBeDefined();
   return payload.run!;
+}
+
+async function submittedRunId(
+  request: Pick<PlaywrightRequest, "headerValue">,
+): Promise<string> {
+  const idempotencyKey = (await request.headerValue("idempotency-key"))?.trim();
+  expect(idempotencyKey).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+  return idempotentRunId(idempotencyKey!);
 }
 
 async function expectGuardedCompletedRun(input: {
@@ -74,25 +77,21 @@ async function expectGuardedCompletedRun(input: {
   expect(await readProviderAttemptLimitHeader(input.response.request())).toBe(
     "1",
   );
-  const terminal = terminalEvent(await input.response.text());
-  expect(terminal).toMatchObject({
-    type: "completed",
-    executionMode: "live",
-  });
-  expect(terminalOutcomes).toContain(terminal?.outcome);
-  expect(terminal?.runId).toMatch(/^run_[a-f0-9]{48}$/);
+  expect(await input.response.finished()).toBeNull();
+  const runId = await submittedRunId(input.response.request());
 
-  const run = await readPublicRun(input.request, String(terminal?.runId));
+  const run = await readPublicRun(input.request, runId);
   expect(run).toMatchObject({
-    id: terminal?.runId,
+    id: runId,
     status: "completed",
-    outcome: terminal?.outcome,
+    executionMode: "live",
     providerCalled: true,
     provider: input.provider,
     model: input.model,
     sourceOriginStatus: input.sourceOriginStatus,
     retryCount: 0,
   });
+  expect(terminalOutcomes).toContain(run.outcome);
   expect(run.usage.inputTokens).toBeGreaterThanOrEqual(0);
   expect(run.usage.outputTokens).toBeGreaterThanOrEqual(0);
   expect(run.estimatedCostUsd).toBeGreaterThanOrEqual(0);
@@ -133,6 +132,9 @@ test("accepts one guarded OpenAI built-in clean-fixture run", async ({
       model: "gpt-5.6-luna",
       sourceOriginStatus: "server_original",
     });
+    await expect(
+      page.getByText("Review complete", { exact: true }),
+    ).toBeVisible();
 
     expect(run.consent).toBe(false);
     await expect(
@@ -188,6 +190,9 @@ test("accepts one guarded Anthropic unverified custom-upload run", async ({
       model: "claude-haiku-4-5",
       sourceOriginStatus: "unverified",
     });
+    await expect(
+      page.getByText("Review complete", { exact: true }),
+    ).toBeVisible();
 
     expect(run.consent).toBe(true);
     expect(run.requestedFields.map((field) => field.label)).toEqual([

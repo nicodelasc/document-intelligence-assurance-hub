@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import { MAX_PDF_PAGES } from "@/domain/file-validation";
 
 export const MAX_GROUNDING_IMAGE_PIXELS = 16_000_000;
@@ -150,8 +149,19 @@ function assertImageAllocation(bytes: Uint8Array, mediaType: string): void {
 
 async function createLocalOcrWorker() {
   const require = createRequire(import.meta.url);
-  const languagePackage = require.resolve("@tesseract.js-data/eng");
-  const languagePath = join(dirname(languagePackage), "4.0.0_best_int");
+  const languagePackage = require("@tesseract.js-data/eng") as {
+    langPath?: unknown;
+  };
+  if (typeof languagePackage.langPath !== "string") {
+    throw groundingError("document_grounding_ocr_failed");
+  }
+  const languagePath = languagePackage.langPath.replace(
+    /4\.0\.0$/,
+    "4.0.0_best_int",
+  );
+  if (languagePath === languagePackage.langPath) {
+    throw groundingError("document_grounding_ocr_failed");
+  }
   const { createWorker, OEM } = await import("tesseract.js");
   return createWorker("eng", OEM.LSTM_ONLY, {
     cacheMethod: "none",

@@ -14,9 +14,9 @@ import {
   safeJsonResponse,
 } from "@/server/http/responses";
 import { serializePublicRunListRow } from "@/server/http/public-serialization";
+import { idempotentRunId } from "@/server/http/run-id";
 import { invalidateMetricsCache } from "@/server/http/metrics-handler";
 import { estimateMaximumLiveRunCost } from "@/domain/pricing";
-import { createHash } from "node:crypto";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -58,10 +58,6 @@ function runPreflight(request: Request): RunPreflight | null | "invalid" {
     return "invalid";
   }
   return { sourceType, executionMode };
-}
-
-function idempotentRunId(idempotencyKey: string): string {
-  return `run_${createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 48)}`;
 }
 
 function quotaError(reason: string, requestId: string): Response {

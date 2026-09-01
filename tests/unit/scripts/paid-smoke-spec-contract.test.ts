@@ -51,4 +51,17 @@ describe("paid smoke spec wiring", () => {
     );
     expect(source).not.toContain(".allHeaders()");
   });
+
+  it("observes the consumed stream without reading its response body twice", async () => {
+    const source = await readFile(
+      join(process.cwd(), "tests", "e2e", "live-production-smoke.spec.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("idempotentRunId");
+    expect(source).toContain("input.response.finished()");
+    expect(source).toContain('getByText("Review complete", { exact: true })');
+    expect(source).not.toContain("input.response.text()");
+    expect(source).not.toContain("terminalEvent(");
+  });
 });
