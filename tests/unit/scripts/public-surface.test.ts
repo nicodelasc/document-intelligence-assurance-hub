@@ -24,6 +24,39 @@ describe("public-surface verifier", () => {
     ]);
   });
 
+  it("rejects source-origin internals and private capabilities without flagging safe run IDs", () => {
+    expect(
+      scanText(
+        JSON.stringify({
+          id: "run_01JZ7Q9YQ36S6R2N3D4F5G6H7J",
+          sourceOriginStatus: "unverified",
+        }),
+        "safe-run.json",
+      ),
+    ).toEqual([]);
+
+    const findings = scanText(
+      [
+        `"documentDigest":"${"a".repeat(64)}"`,
+        `"sha256":"${"b".repeat(64)}"`,
+        `"invoice-clean-match.pdf":"${"c".repeat(64)}"`,
+        '"deletionToken":"private-delete-capability"',
+        '"systemPrompt":"Do not reveal this instruction"',
+        '"messages":[{"role":"system","content":"Hidden policy"}]',
+      ].join("\n"),
+      "public-output.json",
+    );
+
+    expect(findings.map((finding) => finding.category)).toEqual(
+      expect.arrayContaining([
+        "document digest",
+        "sample-origin manifest entry",
+        "raw deletion token",
+        "full prompt text",
+      ]),
+    );
+  });
+
   it("reports private fields, prompt text, deletion hashes and unsupported impact claims", () => {
     const findings = scanText(
       [
@@ -83,6 +116,11 @@ describe("public-surface verifier", () => {
           "Procurement review queue",
           "Reference quality suite",
           "Prepared only - not sent",
+          "Run live document review",
+          "Assess sample without AI processing",
+          "Original demo document",
+          "Exact copy of a demo document",
+          "Source unverified",
         ].join("\n"),
         "aggregated UI source",
       ),
@@ -98,6 +136,11 @@ describe("public-surface verifier", () => {
           "Procurement review operations",
           "Procurement review queue",
           "Reference quality suite",
+          "Run live document review",
+          "Assess sample without AI processing",
+          "Original demo document",
+          "Exact copy of a demo document",
+          "Source unverified",
         ].join("\n"),
         "aggregated UI source",
       ),

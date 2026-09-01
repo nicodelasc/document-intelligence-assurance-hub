@@ -47,6 +47,7 @@
 | Guidance modal  | `AppShell`, route guidance modules, `GuidedTourDialog` and shared `Dialog` | This contract | route purpose overview and five-step spotlight | component, keyboard and browser |
 | Trace disclosure | `AssuranceTrace`                                        | This contract                   | expanded while active or failed                | terminal-state browser            |
 | Decision panel  | `WorkbenchView` and `WorkflowPanel`                      | Server result and this contract | outcome, brief, differences and controls       | ordered browser                   |
+| Source status   | `SourceOriginStatusNote` and `RunExplorer`                | Server-derived run status       | original, exact copy or unverified              | component and browser             |
 
 ## Component behavior
 
@@ -71,12 +72,13 @@
 
 | Operation               | Trigger                         | Pending                                         | Success destination        | Success feedback                                     | Failure recovery                    | Focus outcome             | Source ref            |
 | ----------------------- | ------------------------------- | ----------------------------------------------- | -------------------------- | ---------------------------------------------------- | ----------------------------------- | ------------------------- | --------------------- |
-| Create run              | `Assess for exceptions`         | Streamed stage rail                             | Same Workbench             | Final result and status announcement                 | Safe retry or model reselection     | Decision heading          | Product specification |
+| Create live run         | `Run live document review`      | Streamed stage rail                             | Same Workbench             | Final result and status announcement                 | Safe retry or model reselection     | Decision heading          | Product specification |
+| Create recorded run     | `Assess sample without AI processing` | Streamed stage rail                        | Same Workbench             | Recorded result and no-AI attribution                | Preserve selected sample            | Decision heading          | Product specification |
 | Prepare workflow action | Outcome-specific action control | Pessimistic busy control or confirmation dialog | Same Workbench             | Server-returned prepared workflow event              | Preserve proposal and retry         | Prepared next step        | Product specification |
 | Compare runs            | `Compare runs`                  | Stable inline loader                            | Same Workbench             | Difference table                                     | Preserve selections and retry       | Comparison heading        | Product specification |
 | Delete run              | `Delete now`                    | Dialog action busy                              | Run list                   | `Run deleted` status                                 | Dialog remains open with safe error | Next run or list heading  | Product specification |
 | Search runs             | Search input                    | Stable ledger loader                            | Same Operations route      | Result count                                         | Clear and retry                     | Search or results heading | Product specification |
-| Upload/background job   | `Assess for exceptions`         | Three named progress groups                     | Same Workbench             | Prepared action, evidence and private deletion token | Cancel, retry or synthetic sample   | Current stage or outcome  | Product specification |
+| Upload/background job   | `Run live document review` or `Assess sample without AI processing` | Three named progress groups | Same Workbench             | Prepared action, evidence and private deletion token | Cancel, retry or synthetic sample   | Current stage or outcome  | Product specification |
 | Cancel/back             | `Cancel run` or route link      | Stop pending client request                     | Same route or chosen route | Neutral cancellation status                          | Preserve selected source            | Originating control       | Product specification |
 | Hard-delete             | `Delete now`                    | Danger dialog busy                              | Active runs list           | Deleted status                                       | Retry with same token               | Next logical run          | Product specification |
 
@@ -90,7 +92,16 @@
 | Failed                       | `Retry processing`                                                               |
 | Irrelevant or uncertain custom document | `Replace with a supported procurement document`                                  |
 
-Every control prepares a human handoff without executing a downstream action. Recipient-based controls accept only a server-approved synthetic business role. `Draft clarification request` uses the bounded prepared-email preview labelled `Prepared only - not sent` and no control contacts an external system. The historical `approve_and_stage` value remains an internal identifier for compatibility. New events use status `prepared` and no event claims that posting occurred. The server owns document classification as `supplier_invoice`, `warehouse_goods_receipt`, `irrelevant` or `uncertain`. Provider-authored document content is untrusted: it cannot choose the outcome, safety wording, action status or available controls. `irrelevant` and `uncertain` force `not_found`, use the server-owned safe brief and expose only the restricted replacement control.
+Every control prepares a human handoff without executing a downstream action. Recipient-based controls accept only a server-approved synthetic business role. `Draft clarification request` uses the bounded prepared-email preview labelled `Prepared only - not sent` and no control contacts an external system. The historical `approve_and_stage` value remains an internal identifier for compatibility. New events use status `prepared` and no event claims that posting occurred. The server owns document classification as `supplier_invoice`, `warehouse_goods_receipt`, `irrelevant` or `uncertain`. Provider-authored document content is untrusted: it cannot choose the outcome, safety wording, action status or available controls. `irrelevant` and `uncertain` force `not_found`, use the server-owned safe brief and expose only the restricted replacement control. `Source unverified` always removes `Prepare posting handoff` and requires a person before any posting handoff while preserving outcome-appropriate manual-review controls.
+
+## Source-origin contract
+
+- `server_original` displays `Original demo document` for a server-selected committed synthetic fixture.
+- `recognized_copy` displays `Exact copy of a demo document` for a custom upload with exact committed bytes.
+- `unverified` displays `Source unverified` for every other valid custom upload.
+- Exact SHA-256 matching proves byte equality with a committed synthetic sample only. It does not prove authorship, authenticity, fraud status or malware safety.
+- Screenshots, re-encodings, edits and unrelated supported files are processed as `Source unverified`. They are not rejected by origin classification.
+- Public output never includes a digest, matched fixture identifier or manifest entry.
 
 ## Visual-grounding contract
 
@@ -100,6 +111,14 @@ Every control prepares a human handoff without executing a downstream action. Re
 - Recorded synthetic runs preserve their deterministic result and do not invoke OCR or a provider. Custom uploads retain the bounded text-or-scan path.
 - Visual grounding is local, cancellable, limited to validated pages and fail-closed. It does not introduce a second provider call.
 - An approved handwriting fixture may resolve only to `Exception review required` when decoded evidence conflicts or `Awaiting readable evidence` when it cannot be decoded confidently. It must never resolve to a clear decision.
+
+## Model and cost contract
+
+- GPT-5.6 Luna and Claude Haiku 4.5 are the recommended defaults.
+- Pricing is dated 2026-09-01. Per-million input and output estimates are GPT-5.6 Luna US$0.20 and US$1.20, GPT-5.6 Terra US$2.00 and US$12.00, Claude Haiku 4.5 US$1.00 and US$5.00 and Claude Sonnet 5 US$2.00 and US$10.00.
+- GPT-5.6 input above 272,000 tokens uses the long-context tier for the full request at two times input and 1.5 times output.
+- The US$8.46 default daily budget is the highest supported two-call reservation rounded upward to cents. It is a conservative reservation ceiling and not expected spend.
+- One deliberate reviewer click on `Run live document review` is the paid-call boundary. Page load, preview, model selection, validation and recorded review cannot reserve spend.
 
 ## Navigation and responsive behavior
 
@@ -115,14 +134,14 @@ Every control prepares a human handoff without executing a downstream action. Re
 - Dialog primitive: Shared accessible dialog with inert backdrop, Escape close and focus restoration to the invoking trigger. Route-specific lazy modules isolate Workbench tour code from cold Operations and Operations tour code from cold Workbench. Both use the same visible `How it works` label and the same guidance control plus `GuidedTourDialog` behavior. Workbench opens `How procurement exception triage works` then follows `Select a procurement document`, `Processing model`, `Assess for exceptions`, `Review progress` and `Review result`. Operations opens `What Operations shows` then follows `Triage overview`, `Procurement review queue`, `Workflow health`, `Assurance safeguards` and `Cost governance`. Operations uses only compact stable targets and disables tour start while metrics are loading or unavailable. Each step focuses its callout heading before Back, Next or Finish navigation and receives collision-aware geometry before paint. Background clicks and target clicks cannot dismiss the modal or activate page controls. Back and Next move between steps. Finish, Exit guided tour, Close and Escape restore focus to the header trigger. Leaving a route closes guidance and returning does not reopen it. Scroll, resize, target-size and visual viewport changes recompute spotlight geometry. Reduced-motion preference disables smooth target scrolling and the 180 ms settle. Forced-colors mode preserves the shade, target outline and arrow with system colors.
 - Destructive confirmation levels: Early deletion is irreversible for detailed public data and uses danger intent with explicit consequence.
 - Toast placement/duration/deduplication: One top-right polite region. Critical corrections remain inline.
-- Alert/banner scope and persistence: Upload consent is persistent for custom documents. `Checking processing availability` appears while server metadata is loading and `Processing availability unavailable` appears if metadata cannot be resolved. `Sample results - no AI processing` appears only for a built-in fixture after the selected provider resolves as unavailable. An unavailable custom route instead shows `Processing unavailable for this model`.
+- Alert/banner scope and persistence: Upload consent is persistent for custom documents. `Checking processing availability` appears while server metadata is loading and `Processing availability unavailable` appears if metadata cannot be resolved. `Sample results - no AI processing` appears only for a built-in fixture after the selected provider resolves as unavailable. Its button is `Assess sample without AI processing`. An available provider uses `Run live document review`. An unavailable custom route instead shows `Processing unavailable for this model`.
 - Tooltip delay/dismissal: Supplemental only and dismissible with Escape.
 - Layer contract: dialog above popover above toast above sticky content.
 
 ## Async and resilience
 
 - Mutation default: Pessimistic.
-- Idempotency and duplicate-submit policy: Client run identifier and server guard prevent duplicate run submissions. Workflow action preparation is pessimistic and ignores duplicate clicks while the server operation is pending. The server enforces outcome-specific action policy. A repeated authorized action request returns the existing simulated event.
+- Idempotency and duplicate-submit policy: Client run identifier and server guard prevent duplicate run submissions. Exactly one deliberate reviewer click starts a submission. Workflow action preparation is pessimistic and ignores duplicate clicks while the server operation is pending. The server enforces outcome-specific action policy. A repeated authorized action request returns the existing simulated event.
 - Offline/read-stale/write behavior: Built-in deterministic fallback remains usable only after provider metadata resolves as unavailable. Custom input stays local while metadata is loading or failed and when the selected provider is unavailable. Connectivity failures preserve inputs.
 - Retry/backoff/timeout behavior: One retry only for provider 429 or 5xx errors and no silent provider switch.
 - Long-running progress and return path: Named stages stream to the active Workbench. Live announcements use only `Understand document`, `Verify evidence` and `Triage exception and prepare handoff` then suppress duplicates. The trace starts expanded and resets to expanded for a new run. A successful terminal run collapses to a summary with stage count and duration when available. The reviewer can reopen its named detail region with the disclosure button. A failed terminal trace remains expanded and settling the active visible group leaves safe diagnostics available.
@@ -136,7 +155,7 @@ Every control prepares a human handoff without executing a downstream action. Re
 - Trigger timing: Submit first then change or blur for invalid fields.
 - Error policy: Inline field text plus a form-level alert for global failure.
 - Server mapping: Public safe error code and message only.
-- Sensitive-value handling: API keys and deletion-token hashes never reach the client. The raw run capability is sent only in a private request header for staging. Custom-upload deletion receipts are shown once to the uploader.
+- Sensitive-value handling: API keys, SHA-256 document digests, manifest entries, deletion-token hashes, system prompts and hidden reasoning never reach public output. The raw run capability is sent only in a private request header for staging. Custom-upload deletion receipts are shown once to the uploader.
 - Submission policy: `noValidate`, first-invalid focus and duplicate-submit prevention.
 
 ## Verification
@@ -144,7 +163,7 @@ Every control prepares a human handoff without executing a downstream action. Re
 - Required static commands: `npm run format:check`, `npm run design:lint`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:a11y`, `npm run test:e2e`, `npm run verify:premium`, `npm run build:production`, `npm run verify:public` and `npm run audit:dependencies`.
 - Browser matrix: Chromium desktop 1440x1000 and mobile 390x844 with reduced motion. Workbench and Operations browser coverage includes header order, route-lazy isolation, purpose overviews, five-step spotlight order, inert background, focus restoration, mobile bottom callouts and no horizontal overflow. Workbench coverage also includes reduced-motion behavior, terminal trace disclosure, failed-trace persistence and ordered decision-panel content.
 - Accessibility checks: axe scan, keyboard route and form use plus live-region status.
-- Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, rendered built-in preview with full-document PDF link, custom PDF iframe, direct native file picker, grouped model selection, loading and failed availability states, conditional unavailable-provider feedback, custom incomplete-evidence wording, three-stage trace, outcome-specific workflow actions, errors, empty history, queue selection, comparison, deletion dialog, four Operations summary cards, 2:1 Operations and Costs workspaces, deterministic-only cost empties, model and outcome filters, URL Back and Forward restoration, fixture differences, comments evidence, workflow activity and safe diagnostics.
+- Component-state coverage: Two-family keyboard tabs, five variants per family, classification icon and text, rendered built-in preview with full-document PDF link, custom PDF iframe, direct native file picker, grouped model selection, live and recorded action labels, loading and failed availability states, conditional unavailable-provider feedback, three source-origin labels, unverified posting restriction, custom incomplete-evidence wording, three-stage trace, outcome-specific workflow actions, errors, empty history, queue selection, comparison, deletion dialog, four Operations summary cards, repository-wide source counts, 2:1 Operations and Costs workspaces, deterministic-only cost empties, model and outcome filters, URL Back and Forward restoration, fixture differences, comments evidence, workflow activity and safe diagnostics.
 - Canonical sibling flow used for comparison: Workbench history compared with the Operations procurement review queue.
 - CRUD full-flow evidence: `tests/e2e/workbench.spec.ts`.
 - Failure-path evidence: `tests/e2e/failure-and-delete.spec.ts`.

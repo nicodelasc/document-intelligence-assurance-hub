@@ -31,8 +31,6 @@ const releaseFacingDocumentation = [
 
 const pendingRoutes = [
   "Built-in sample through OpenAI",
-  "Built-in sample through Anthropic",
-  "Custom upload through OpenAI",
   "Custom upload through Anthropic",
 ];
 
@@ -59,6 +57,59 @@ function expectPendingProcessingRoutes(markdown: string) {
 }
 
 describe("Operations release documentation", () => {
+  it("documents the live and recorded submission labels plus the source-origin boundary", () => {
+    expect(releaseFacingDocumentation).toContain("Run live document review");
+    expect(releaseFacingDocumentation).toContain(
+      "Assess sample without AI processing",
+    );
+    for (const label of [
+      "Original demo document",
+      "Exact copy of a demo document",
+      "Source unverified",
+    ]) {
+      expect(releaseFacingDocumentation).toContain(label);
+    }
+    expect(releaseFacingDocumentation).toMatch(
+      /exact SHA-256 matching.*byte equality.*committed synthetic sample/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /does not prove authorship, authenticity, fraud status or malware safety/i,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /screenshots, re-encodings, edits and unrelated supported files.*Source unverified.*not rejected.*person.*before.*posting handoff/is,
+    );
+  });
+
+  it("documents the deliberate paid-call boundary and pending connected observations", () => {
+    expect(releaseFacingDocumentation).toMatch(/one deliberate reviewer click/i);
+    expect(releaseFacingDocumentation).toContain("Prepared only - not sent");
+    expect(evaluation).toMatch(/zero paid calls have been made/i);
+    expect(evaluation).toMatch(/mocked.*separate.*connected production/is);
+    expect(evaluation).toMatch(
+      /OpenAI.*GPT-5\.6 Luna.*Pending.*Anthropic.*Claude Haiku 4\.5.*Pending/is,
+    );
+    expect(evaluation).toMatch(/two-call acceptance boundary/i);
+  });
+
+  it("records dated model rates and the conservative default budget derivation", () => {
+    expect(releaseFacingDocumentation).toMatch(
+      /GPT-5\.6 Luna.*US\$0\.20.*US\$1\.20/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /Claude Haiku 4\.5.*US\$1\.00.*US\$5\.00/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(/pricing.*2026-09-01/is);
+    expect(releaseFacingDocumentation).toMatch(
+      /GPT-5\.6.*272,000.*two times.*input.*1\.5 times.*output/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /US\$8\.46.*conservative reservation ceiling.*not expected spend/is,
+    );
+    expect(releaseFacingDocumentation).toMatch(
+      /repository-wide.*original demo runs.*exact-copy uploads.*unverified uploads/is,
+    );
+  });
+
   it("states the procurement exception-triage problem and controlled handoff boundary", () => {
     expect(readme).toMatch(
       /finance and warehouse teams.*supplier invoices.*goods receipts.*before payment or inventory posting/is,
@@ -218,7 +269,7 @@ describe("Operations release documentation", () => {
     );
   });
 
-  it("retains the pending production route and no-provider-claim boundaries", () => {
+  it("retains the two pending production observations and no-provider-claim boundaries", () => {
     expectPendingProcessingRoutes(readme);
 
     expect(readme).toMatch(/prepared only.*not sent/is);

@@ -5,7 +5,7 @@ Finance and warehouse teams manually review supplier invoices and goods receipts
 - [Open the Workbench](https://document-intelligence-assurance-hub.vercel.app/workbench)
 - [Open the Operations Console](https://document-intelligence-assurance-hub.vercel.app/operations)
 
-The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. All four visible live model routes remain a post-key rollout gate. Built-in OpenAI processing, built-in Anthropic processing, custom OpenAI processing and custom Anthropic processing each remain pending until that exact path passes its own connected production smoke test. No API key was used and no provider call was made for this documentation update.
+The public routes are portfolio review surfaces. Configuration alone is not acceptance evidence. Mocked release evidence is separate from connected production observation. Zero paid calls have been made for this release checkpoint. The two connected observations remain pending: one built-in sample through OpenAI GPT-5.6 Luna and one unverified custom upload through Anthropic Claude Haiku 4.5.
 
 This is a public-safe portfolio application. Use synthetic fixtures unless you choose the custom-upload path and understand that the run is voluntarily public until expiry or deletion. Never upload personal data, confidential business data, credentials or regulated records.
 
@@ -15,22 +15,30 @@ This is a public-safe portfolio application. Use synthetic fixtures unless you c
 
 `POST /api/runs` derives execution mode from the validated model provider and current server-owned provider availability. The multipart execution mode and matching preflight header are request-consistency metadata only. They cannot force fallback, force live processing or switch providers.
 
-For a built-in sample the selected model controls the route. When its provider is available `Assess for exceptions` sends the sample through that selected model adapter. When the provider is unavailable the same button uses the checked-in deterministic result and the interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
+For a built-in sample the selected model controls the route. When its provider is available the button says `Run live document review`. One deliberate reviewer click sends the sample through that selected model adapter. When the provider is unavailable the button says `Assess sample without AI processing` and uses the checked-in deterministic result. The completed interface states `Sample results - no AI processing`. A selected or enabled model is not proof that a provider request occurred.
 
-Custom uploads have no recorded fallback. An unavailable selected provider disables `Assess for exceptions` and shows `Processing unavailable for this model`. The file, requested fields and consent remain local to the form until the reviewer can choose an available route.
+Custom uploads have no recorded fallback. An unavailable selected provider disables the action and shows `Processing unavailable for this model`. The file, requested fields and consent remain local to the form until the reviewer can choose an available route.
 
-Only `Assess for exceptions` can create a model-budget reservation. Browsing samples, opening previews, comparing runs and preparing simulated workflow actions cannot reserve model spend. Persisted `providerDispatched=true` is the only execution fact used to report a provider call. Configured provider and model values remain separate from actual attribution.
+Only a submission through `Run live document review` can create a model-budget reservation. Browsing samples, opening previews, comparing runs and preparing simulated workflow actions cannot reserve model spend. Persisted `providerDispatched=true` is the only execution fact used to report a provider call. Configured provider and model values remain separate from actual attribution.
+
+## Source-origin boundary
+
+The result shows one bounded server-owned label: `Original demo document`, `Exact copy of a demo document` or `Source unverified`. Exact SHA-256 matching proves byte equality with a committed synthetic sample only. It does not prove authorship, authenticity, fraud status or malware safety. Digests and the committed manifest stay server-side.
+
+Screenshots, re-encodings, edits and unrelated supported files are processed as `Source unverified`. They are not rejected by origin classification. They require a person before any posting handoff and an unverified run can never expose `Prepare posting handoff`.
 
 ## Model catalogue
 
 The server owns the four-model catalogue and dated pricing metadata. Requests fail closed when the chosen model does not belong to the selected provider.
 
-| Provider  | Model ID           | Display name     | Catalogue role       |
-| --------- | ------------------ | ---------------- | -------------------- |
-| OpenAI    | `gpt-5.6-luna`     | GPT-5.6 Luna     | Recommended for cost |
-| OpenAI    | `gpt-5.6-terra`    | GPT-5.6 Terra    | Higher accuracy      |
-| Anthropic | `claude-haiku-4-5` | Claude Haiku 4.5 | Recommended for cost |
-| Anthropic | `claude-sonnet-5`  | Claude Sonnet 5  | Higher accuracy      |
+| Provider  | Model ID           | Display name     | Catalogue role       | Input / 1M tokens | Output / 1M tokens |
+| --------- | ------------------ | ---------------- | -------------------- | ----------------- | ------------------ |
+| OpenAI    | `gpt-5.6-luna`     | GPT-5.6 Luna     | Recommended for cost | US$0.20           | US$1.20            |
+| OpenAI    | `gpt-5.6-terra`    | GPT-5.6 Terra    | Higher accuracy      | US$2.00           | US$12.00           |
+| Anthropic | `claude-haiku-4-5` | Claude Haiku 4.5 | Recommended for cost | US$1.00           | US$5.00            |
+| Anthropic | `claude-sonnet-5`  | Claude Sonnet 5  | Higher accuracy      | US$2.00           | US$10.00           |
+
+Pricing is dated 2026-09-01. GPT-5.6 requests above 272,000 input tokens apply the long-context tier to the full request at two times the listed input rate and 1.5 times the listed output rate. The default daily model budget is US$8.46. It is derived by rounding the highest supported two-call reservation of US$8.456 upward to cents. This is a conservative reservation ceiling and not expected spend.
 
 ## Architecture
 
@@ -93,7 +101,7 @@ A separate 10 by 2 recorded-adapter matrix contains 20 schema and configuration 
 
 ## Operations and Costs metric populations
 
-Operations combines six server-side data sources behind a 15-second cache. The summary cards use a repository-wide anonymous run aggregate. Lifecycle uses a repository-wide active-detail aggregate plus the repository-wide cleanup backlog. `Procurement review queue` appears before `Triage status`, processing performance and the `Reference quality suite`. The queue leads with document reference, document type, review decision, exception, prepared next step and received time. Run ID, model, token, latency, expiry and safe diagnostics remain in `Review record and technical trace`. The queue plus workflow and performance panels use the newest 100 public run summaries with active detail where available.
+Operations combines seven server-side data sources behind a 15-second cache. The summary cards use a repository-wide anonymous run aggregate. Source-origin counts are repository-wide original demo runs, exact-copy uploads and unverified uploads. Lifecycle uses a repository-wide active-detail aggregate plus the repository-wide cleanup backlog. `Procurement review queue` appears before `Triage status`, processing performance and the `Reference quality suite`. The queue leads with document reference, document type, review decision, exception, prepared next step and received time. Run ID, model, token, latency, expiry and safe diagnostics remain in `Review record and technical trace`. The queue plus workflow and performance panels use the newest 100 public run summaries with active detail where available.
 
 Costs keeps provider execution evidence separate from budget accounting. Confirmed provider usage, model and document-family breakdowns plus completed-run cost estimates use only confirmed dispatched completed runs with trustworthy nonzero token usage. When that population is empty the dashboard shows `No confirmed model runs` and US$0.00. A failed dispatched request can contribute conservative settled spend but it is excluded from completed-run estimates and their average.
 
@@ -131,7 +139,7 @@ npm run verify:public
 npm run audit:dependencies
 ```
 
-The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows `Review incoming procurement documents`, `Assess for exceptions`, `Review result`, `Prepared next step`, `Procurement review operations` and the queue-first Operations story plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
+The earlier three-fixture walkthrough and its video link are retired because they do not represent the current ten-reference library. Do not submit or cite that recording. The [current keyless walkthrough](artifacts/walkthrough.webm) shows `Review incoming procurement documents`, `Assess sample without AI processing`, `Review result`, `Prepared next step`, `Procurement review operations` and the queue-first Operations story plus explicit `No AI processing` attribution. It made no provider call. Rerun the dependency audit for every rollout.
 
 ## Connected persistence
 
@@ -147,6 +155,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0006_bounded_provider_sett
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0007_provider_dispatch_attribution.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0008_document_workflow.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0009_completed_run_aggregates.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0010_source_origin_status.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -159,7 +168,7 @@ PowerShell users can replace `$DATABASE_URL` with `$env:DATABASE_URL`. The migra
 | `AI_LIVE_ENABLED`               | Yes                  | Global model kill switch. Keep `false` until live acceptance passes.                                                        |
 | `OPENAI_API_KEY`                | Live OpenAI only     | Server-side provider credential.                                                                                            |
 | `ANTHROPIC_API_KEY`             | Live Anthropic only  | Server-side provider credential.                                                                                            |
-| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget with a US$5 default. Invalid values stop startup.                                              |
+| `GLOBAL_DAILY_MODEL_BUDGET_USD` | Yes                  | Positive finite daily budget with a derived US$8.46 default. Invalid values stop startup.                                   |
 | `DATABASE_URL`                  | Production           | Server-side Neon connection string.                                                                                         |
 | `BLOB_READ_WRITE_TOKEN`         | Production           | Server-side private Blob credential.                                                                                        |
 | `CRON_SECRET`                   | Connected production | Random bearer secret of at least 32 characters with no whitespace. Weak or missing values stop request-serving startup.     |
@@ -201,24 +210,13 @@ This application lacks authentication, private tenant boundaries, malware scanni
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.
 
-All four visible live model routes remain a post-key rollout gate:
+The two-call acceptance boundary remains pending:
 
-| Model            | Status  | Production evidence required                                                  |
-| ---------------- | ------- | ----------------------------------------------------------------------------- |
-| GPT-5.6 Luna     | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
-| GPT-5.6 Terra    | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
-| Claude Haiku 4.5 | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
-| Claude Sonnet 5  | Pending | One connected run with confirmed dispatch, grounded evidence and settled cost |
+| Route                           | Status  | Production evidence required                                                                                   |
+| ------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| Built-in sample through OpenAI  | Pending | One connected GPT-5.6 Luna run with confirmed dispatch, grounded evidence and settled cost                     |
+| Custom upload through Anthropic | Pending | One connected Claude Haiku 4.5 run with `Source unverified`, confirmed dispatch and no posting-handoff control |
 
-Source-path acceptance also remains pending:
-
-| Route                             | Status  | Production evidence required                                                                                              |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Built-in sample through OpenAI    | Pending | One connected run using the selected OpenAI model with confirmed dispatch, grounded evidence and deterministic outcome    |
-| Built-in sample through Anthropic | Pending | One connected run using the selected Anthropic model with confirmed dispatch, grounded evidence and deterministic outcome |
-| Custom upload through OpenAI      | Pending | One consented public upload using the selected OpenAI model with confirmed dispatch and no fallback                       |
-| Custom upload through Anthropic   | Pending | One consented public upload using the selected Anthropic model with confirmed dispatch and no fallback                    |
-
-After keys are introduced the rollout gate must exercise built-in and custom source paths for both providers. Acceptance requires one deliberate provider failure and one production retention simulation. Each check must preserve safe errors, durable quotas and logical denial before cleanup. Passing one model or source path does not accept any other model or path.
+These are connected production observations rather than mocked evidence. There is no automatic retry. A failed observation requires diagnosis and fresh approval before another paid call. Prepared workflow events remain simulated and `Prepared only - not sent` remains true after connected model processing.
 
 The production acceptance must also exercise one text-native PDF and one PNG or scanned PDF on the target Linux runtime. A local Windows build proves the code path and bundled manifests but it does not prove the target native canvas binary until Vercel builds the deployment.

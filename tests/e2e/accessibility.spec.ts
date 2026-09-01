@@ -42,7 +42,9 @@ test("Workbench workflow role dialog has no serious or critical axe violations",
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/workbench");
   await page.getByRole("button", { name: /Total mismatch/i }).click();
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page
+    .getByRole("button", { name: "Assess sample without AI processing" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Exception review required" }),
   ).toBeVisible();

@@ -54,7 +54,7 @@ async function previewLuminanceVariance(path: string) {
 }
 
 describe("Release artifact hardening", () => {
-  it("documents exact-once idempotent application and schema checks for migrations 0008 and 0009", () => {
+  it("documents exact-once idempotent application and schema checks through migration 0010", () => {
     expect(deployment).toMatch(
       /psql .*migrations\/0008_document_workflow\.sql/i,
     );
@@ -63,7 +63,8 @@ describe("Release artifact hardening", () => {
     );
     expect(deployment).toMatch(/0008_document_workflow.*exactly once/is);
     expect(deployment).toMatch(/0009_completed_run_aggregates.*exactly once/is);
-    expect(deployment).toMatch(/reapply.*migrations 0001 through 0009/is);
+    expect(deployment).toMatch(/0010_source_origin_status.*exactly once/is);
+    expect(deployment).toMatch(/reapply.*migrations 0001 through 0010/is);
     expect(deployment).toMatch(/idempotenc/i);
 
     for (const schemaMarker of [
@@ -115,7 +116,7 @@ describe("Release artifact hardening", () => {
       "Warehouse goods receipts",
       "10 provider-neutral observations",
       "Review incoming procurement documents",
-      "Assess for exceptions",
+      "Assess sample without AI processing",
       "Processing model",
       "Understand document",
       "Verify evidence",
@@ -184,9 +185,10 @@ describe("Release artifact hardening", () => {
       mismatchSelection,
     );
     const mismatchFlow = recorder.slice(mismatchSelection, nextWorkflowAction);
-    const processClick = mismatchFlow.indexOf(
-      'await page.getByRole("button", { name: "Assess for exceptions"',
+    const processLabel = mismatchFlow.indexOf(
+      'name: "Assess sample without AI processing"',
     );
+    const processClick = mismatchFlow.lastIndexOf("await page", processLabel);
     const needsReviewWait = mismatchFlow.indexOf(
       'name: "Exception review required"',
       processClick,
@@ -195,7 +197,7 @@ describe("Release artifact hardening", () => {
 
     expect(mismatchSelection).toBeGreaterThanOrEqual(0);
     expect(nextWorkflowAction).toBeGreaterThan(mismatchSelection);
-    expect(processClick).toBeGreaterThanOrEqual(0);
+    expect(processLabel).toBeGreaterThan(processClick);
     expect(needsReviewWait).toBeGreaterThan(processClick);
     expect(mismatchChapter).toBeGreaterThan(needsReviewWait);
     expect(mismatchFlow.slice(processClick, needsReviewWait)).toMatch(

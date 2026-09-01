@@ -36,6 +36,7 @@ function operationsMetrics() {
       workflowActivity: { prepared: 1, staged: 0, simulated: 0 },
       performance,
       lifecycle,
+      origin: { serverOriginal: 1, recognizedCopy: 0, unverified: 0 },
     },
     costs: {
       estimated: true,

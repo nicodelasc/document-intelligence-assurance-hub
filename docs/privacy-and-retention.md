@@ -6,6 +6,12 @@ A custom upload is voluntary and its public-safe run metadata and extracted evid
 
 Synthetic fixtures are the recommended review path.
 
+## Source-origin privacy boundary
+
+The server labels results `Original demo document`, `Exact copy of a demo document` or `Source unverified`. Exact SHA-256 matching proves byte equality with a committed synthetic sample only. It does not prove authorship, authenticity, fraud status or malware safety. Digests, matched fixture identifiers and manifest entries stay server-side and are never public run fields.
+
+Screenshots, re-encodings, edits and unrelated supported files are processed as `Source unverified`. They are not rejected by origin classification. Their extracted evidence may remain visible until expiry or deletion but a person must review the result before any posting handoff. Server-owned action policy prevents an unverified run from preparing a posting handoff.
+
 ## Retention behavior
 
 Runs expire 23 hours and 55 minutes after creation. An expired document read is denied even if the scheduled purge has not run yet.
@@ -24,7 +30,7 @@ Logical access denial is immediate. Physical cleanup can lag when Blob is unavai
 
 ## Aggregate retention boundary
 
-Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply the Procurement review queue, Triage status, Prepared case handoffs, processing performance and review-record rows while those details remain active.
+Repository-wide anonymous aggregates survive detailed-data tombstoning so Operations can retain total, completion, review and failure counts without restoring document access. The repository-wide source-origin aggregate retains counts for original demo runs, exact-copy uploads and unverified uploads without exposing any digest or manifest entry. Repository-wide lifecycle metrics inspect only currently active detail and the cleanup backlog. The newest 100 public run summaries supply the Procurement review queue, Triage status, Prepared case handoffs, processing performance and review-record rows while those details remain active.
 
 At expiry or Delete now traces, results, document locators and workflow events are removed from active access. Repository-wide aggregate projections do not expose filenames, evidence, field values, event IDs, run IDs, recipient roles, deletion capabilities, anonymous bucket values or reservation identifiers.
 
@@ -42,7 +48,7 @@ Workflow actions require the browser-held run capability and server-owned status
 
 Workflow events record simulated user intent and preparation only. Neon retains the event and run identifiers, action type, optional synthetic role, status and timestamp. Prepared email subject and body are generated on demand, returned only in the no-store response and never persisted. The preview is `Prepared only - not sent`. The browser may copy the prepared text but the application cannot send it.
 
-The server-owned four-model catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5. Demo results are deterministic fixture data. Catalogue selection does not call a provider. Operations labels non-dispatched rows `No AI processing`. Provider acceptance has not been completed or claimed.
+The server-owned four-model catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5. GPT-5.6 Luna and Claude Haiku 4.5 are the recommended defaults. Demo results are deterministic fixture data. Catalogue selection does not call a provider. One deliberate reviewer click on `Run live document review` is the paid-call boundary. The recorded button is `Assess sample without AI processing`. Operations labels non-dispatched rows `No AI processing`. Zero paid calls have been made at this checkpoint and both connected observations are pending.
 
 No external connector exists in this application. A simulated workflow event or prepared email copy is not evidence that an email, ERP, ticketing, payment, inventory or access-control action occurred.
 

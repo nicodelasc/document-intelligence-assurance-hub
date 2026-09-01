@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
 test("quota failure offers a demo fallback", async ({ page }) => {
   await page.route("**/api/runs", async (route) => route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: { code: "recorded_run_limit", message: "The demo run limit is active.", requestId: "safe" } }) }));
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await expect(page.getByText("The demo run limit is active.", { exact: true })).toBeVisible();
 });
 
@@ -82,7 +82,7 @@ test("mocked custom completion keeps raw token in uploader context and deletes p
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Validate custom upload" }).click();
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await expect(page.getByText(token)).toBeVisible();
   await expect(page.getByRole("heading", {
     name: "Incomplete evidence - one or more requested fields were not found",

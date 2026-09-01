@@ -17,7 +17,11 @@ The release demonstrates `Review incoming procurement documents`: finance and wa
 - [ ] Set `GLOBAL_DAILY_MODEL_BUDGET_USD` to a positive finite value.
 - [ ] Leave provider keys absent until explicit live-test authorization.
 - [ ] Confirm the server-owned catalogue contains GPT-5.6 Luna, GPT-5.6 Terra, Claude Haiku 4.5 and Claude Sonnet 5 with the expected provider mapping.
+- [ ] Confirm GPT-5.6 Luna and Claude Haiku 4.5 are the recommended defaults. Confirm pricing is dated 2026-09-01.
+- [ ] Confirm GPT-5.6 long-context pricing begins above 272,000 input tokens at two times input and 1.5 times output.
+- [ ] Confirm the derived US$8.46 default budget is a conservative reservation ceiling and not expected spend.
 - [ ] Confirm unknown models and provider-model mismatches fail closed.
+- [ ] Run `node scripts/generate-sample-origin-manifest.mjs --check` without printing digest values.
 
 ## Apply and verify migrations
 
@@ -33,6 +37,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0006_bounded_provider_sett
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0007_provider_dispatch_attribution.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0008_document_workflow.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0009_completed_run_aggregates.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0010_source_origin_status.sql
 psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"
 ```
 
@@ -45,7 +50,8 @@ psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER
 - [ ] `0007_provider_dispatch_attribution` appears exactly once.
 - [ ] `0008_document_workflow` appears exactly once.
 - [ ] `0009_completed_run_aggregates` appears exactly once.
-- [ ] Reapply all migrations 0001 through 0009 with the same commands. Every command succeeds and every `schema_migrations` version still appears exactly once to prove idempotence.
+- [ ] `0010_source_origin_status` appears exactly once.
+- [ ] Reapply all migrations 0001 through 0010 with the same commands. Every command succeeds and every `schema_migrations` version still appears exactly once to prove idempotence.
 - [ ] `document_cleanup_jobs` and `run_submission_claims` exist.
 - [ ] `reserve_daily_quota`, `settle_daily_quota`, `settle_reserved_daily_quota` and `reconcile_stale_daily_quota` exist.
 - [ ] `model_budget_reservations.expires_at` exists and expired pending leases move their stored reservation into daily spend after 15 minutes.
@@ -56,6 +62,7 @@ psql "$DATABASE_URL" -c "SELECT version, applied_at FROM schema_migrations ORDER
 - [ ] `workflow_events_idempotency_idx` exists as the unique idempotency index.
 - [ ] `workflow_events_run_created_idx` exists as the chronological run index.
 - [ ] `runs.completed_at` exists.
+- [ ] `runs.source_origin_status` exists with the three server-owned values and the historical conservative backfill.
 - [ ] The safe completed-row backfill leaves zero rows where `was_completed = true` and `runs.completed_at IS NULL`.
 - [ ] `runs_confirmed_model_cost_idx` exists with the confirmed-dispatch completed-row predicate.
 - [ ] Parallel requests from rotated test cookies stop at the configured global minute ceiling.
@@ -66,7 +73,7 @@ Use these read-only checks after both applications:
 ```sql
 SELECT version, COUNT(*) AS applied_count
 FROM schema_migrations
-WHERE version BETWEEN '0001_assurance_hub' AND '0009_completed_run_aggregates'
+WHERE version BETWEEN '0001_assurance_hub' AND '0010_source_origin_status'
 GROUP BY version
 ORDER BY version;
 
@@ -74,7 +81,7 @@ SELECT column_name
 FROM information_schema.columns
 WHERE table_schema = 'public'
   AND table_name = 'runs'
-  AND column_name IN ('document_family', 'fixture_id', 'completed_at')
+  AND column_name IN ('document_family', 'fixture_id', 'completed_at', 'source_origin_status')
 ORDER BY column_name;
 
 SELECT to_regclass('public.workflow_events') AS workflow_events,
@@ -106,14 +113,19 @@ WHERE was_completed = true
 - [ ] Under Supplier invoices process `Clean match` as Correct, `Buyer hold` as Needs attention and `Total mismatch` as Incorrect.
 - [ ] Under Warehouse goods receipts process `Clean receipt` as Correct, `Quantity correction` as Needs attention and `Quantity mismatch` as Incorrect.
 - [ ] Confirm the native `Processing model` selector lists all four catalogue models and browsing or changing the selection creates no run.
-- [ ] Press `Assess for exceptions` for each selected fixture. Confirm fallback runs say `Sample results - no AI processing` and run attribution says `No AI processing`.
+- [ ] Confirm the guided review step remains `Assess for exceptions` while the actual recorded button says `Assess sample without AI processing`.
+- [ ] Press `Assess sample without AI processing` for each selected fixture. Confirm fallback runs say `Sample results - no AI processing` and run attribution says `No AI processing`.
 - [ ] Confirm the visible trace contains `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`.
 - [ ] Confirm clear evidence exposes `Prepare posting handoff`. Confirm review outcomes expose `Assign exception review` and `Draft clarification request`.
 - [ ] Confirm incomplete evidence exposes `Request clearer evidence`, `Assign manual review` and `Replace document`. Confirm failed processing exposes `Retry processing`.
 - [ ] Confirm irrelevant or uncertain custom documents expose only `Replace with a supported procurement document`.
+- [ ] Confirm completed built-in results say `Original demo document`.
+- [ ] Upload exact committed bytes in a controlled local test and confirm `Exact copy of a demo document` without exposing the SHA-256 digest or manifest entry.
+- [ ] Confirm screenshots, re-encodings, edits and unrelated supported files are processed as `Source unverified`. Confirm they are not rejected by origin classification and require a person before any posting handoff.
+- [ ] Confirm exact SHA-256 matching proves byte equality with a committed synthetic sample only. It does not prove authorship, authenticity, fraud status or malware safety.
 - [ ] Prepare one simulated clarification request. Confirm the blank Recipient role keeps `Prepare request` disabled then select an allowed synthetic role.
 - [ ] Confirm the preview says `Prepared only - not sent`, exposes no delivery control and adds one prepared event to `Prepared case handoffs`.
-- [ ] Exercise retry and confirm a single replacement-file selection does not auto-run. Processing starts only after consent and a later `Assess for exceptions` action.
+- [ ] Exercise retry and confirm a single replacement-file selection does not auto-run. Processing starts only after consent and a later `Run live document review` action.
 - [ ] Compare two distinct runs with Run A and Run B.
 - [ ] Confirm no external connector exists for email, ERP, ticketing, payment, inventory or access control. Every workflow event is simulated preparation only.
 - [ ] Open `Procurement review operations` and confirm the `Procurement review queue` appears before `Triage status`, `Prepared case handoffs`, processing performance and the newest-100 review-record scope.
@@ -131,8 +143,10 @@ Do not treat an in-memory production exception as a durable rollout. `ALLOW_IN_M
 ## Provider acceptance gate
 
 - [ ] Nicholas explicitly authorizes a controlled provider-key session.
-- [ ] One authorized OpenAI catalogue run passes.
-- [ ] One authorized Anthropic catalogue run passes.
+- [ ] Confirm zero paid calls were made during the mocked release matrix.
+- [ ] Make one built-in OpenAI GPT-5.6 Luna observation through one deliberate reviewer click with no automatic retry.
+- [ ] Make one custom Anthropic Claude Haiku 4.5 observation through one deliberate reviewer click with no automatic retry.
+- [ ] Confirm the Anthropic result says `Source unverified`, exposes no posting handoff and keeps `Prepared only - not sent` for any clarification copy.
 - [ ] One deliberate provider failure returns only the safe mapped error.
 - [ ] One production retention simulation proves logical denial before physical cleanup.
 - [ ] Daily budget reservation and settlement are visible in durable state.

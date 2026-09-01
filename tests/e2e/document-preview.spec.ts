@@ -135,7 +135,9 @@ test("the mobile PDF preview and differences panel stack without page overflow",
     ),
   ).toBe(true);
 
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page
+    .getByRole("button", { name: "Assess sample without AI processing" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Ready for posting review" }),
   ).toBeVisible();

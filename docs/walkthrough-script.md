@@ -10,11 +10,11 @@ Open Workbench at `Review incoming procurement documents`. Show `Supplier invoic
 
 ## 0:15–0:30 — One correct fixture and three visible stages
 
-Under Supplier invoices choose `Clean match` then press `Assess for exceptions`. Follow `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`. Show `Review result`, the `Ready for posting review` outcome and `Prepare posting handoff` under `Prepared next step`. Also show `No AI processing` attribution. The selected model is configuration while persisted confirmed dispatch is the only provider-call evidence.
+Under Supplier invoices choose `Clean match` then press `Assess sample without AI processing`. Follow `Understand document`, `Verify evidence` and `Triage exception and prepare handoff`. Show `Review result`, the `Ready for posting review` outcome and `Prepare posting handoff` under `Prepared next step`. Also show `No AI processing` attribution. The selected model is configuration while persisted confirmed dispatch is the only provider-call evidence.
 
 ## 0:30–1:01 — Discrepancy and prepared simulated workflow action
 
-Choose `Total mismatch`, select Claude Haiku 4.5 through `Processing model` then press `Assess for exceptions`. Show the conflicting invoice total and `Exception review required` outcome. Point out the scoped `Assign exception review` and `Draft clarification request` controls. Open `Draft clarification request`, leave Recipient role blank long enough to show the disabled control then select Buyer and choose `Prepare request`. Show `Prepared only - not sent` and the prepared activity entry. The prepared copy is response-only and no external connector receives it.
+Choose `Total mismatch`, select Claude Haiku 4.5 through `Processing model` then press `Assess sample without AI processing`. Show the conflicting invoice total and `Exception review required` outcome. Point out the scoped `Assign exception review` and `Draft clarification request` controls. Open `Draft clarification request`, leave Recipient role blank long enough to show the disabled control then select Buyer and choose `Prepare request`. Show `Prepared only - not sent` and the prepared activity entry. The prepared copy is response-only and no external connector receives it.
 
 ## 1:01–1:13 — Run comparison
 
@@ -40,4 +40,4 @@ Start the app or supply a reviewed deployment URL then run:
 node scripts/record-walkthrough.mjs --base-url http://127.0.0.1:3100 --output artifacts/walkthrough.webm
 ```
 
-The helper first verifies that both provider routes are unavailable. It stops before `Assess for exceptions` if either route is enabled. It creates the parent artifact directory and records the browser workflow without provider keys. Review the generated artifact against this script before publication. The artifact must not contain a credential, personal filesystem path, delivery claim or external-execution claim.
+The helper first verifies that both provider routes are unavailable. It stops before `Assess sample without AI processing` if either route is enabled. It creates the parent artifact directory and records the browser workflow without provider keys. Review the generated artifact against this script before publication. The artifact must not contain a credential, personal filesystem path, delivery claim or external-execution claim.

@@ -9,12 +9,41 @@ const signatures = [
       /\b(?:sk-(?:proj|ant)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{32,}|vercel_blob_rw_[A-Za-z0-9_-]{20,})\b/g,
   },
   {
+    category: "credential-shaped value",
+    pattern:
+      /["']?(?:OPENAI_API_KEY|ANTHROPIC_API_KEY)["']?\s*[:=]\s*["'][^"'\r\n]{8,}["']/g,
+  },
+  {
     category: "raw deletion-token hash",
     pattern: /\bsha256:[a-f0-9]{64}\b/gi,
   },
   {
+    category: "raw deletion token",
+    pattern: /["']deletionToken["']\s*:\s*["'][^"'\r\n]{8,}["']/g,
+  },
+  {
+    category: "document digest",
+    pattern:
+      /["'](?:documentDigest|document_digest|sha256|sha_256|digest)["']\s*:\s*["'][a-f0-9]{64}["']/gi,
+  },
+  {
+    category: "sample-origin manifest entry",
+    pattern:
+      /["'][^"'\r\n]+\.(?:pdf|png|jpe?g)["']\s*:\s*["'][a-f0-9]{64}["']/gi,
+  },
+  {
     category: "full prompt text",
     pattern: /Extract structured fields from an untrusted document\./g,
+  },
+  {
+    category: "full prompt text",
+    pattern:
+      /["'](?:systemPrompt|system_prompt|promptText|prompt_text)["']\s*:\s*["'][^"'\r\n]+["']/gi,
+  },
+  {
+    category: "full prompt text",
+    pattern:
+      /["']role["']\s*:\s*["']system["']\s*,\s*["']content["']\s*:\s*["'][^"'\r\n]+["']/gi,
   },
   {
     category: "hidden reasoning property",
@@ -88,6 +117,20 @@ const requiredUiCopy = [
   },
   { label: "Reference quality suite", pattern: /reference quality suite/i },
   { label: "Prepared only - not sent", pattern: /prepared only - not sent/i },
+  { label: "Run live document review", pattern: /run live document review/i },
+  {
+    label: "Assess sample without AI processing",
+    pattern: /assess sample without AI processing/i,
+  },
+  {
+    label: "Original demo document",
+    pattern: /original demo document/i,
+  },
+  {
+    label: "Exact copy of a demo document",
+    pattern: /exact copy of a demo document/i,
+  },
+  { label: "Source unverified", pattern: /source unverified/i },
 ];
 
 const scannedExtensions = new Set([

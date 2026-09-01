@@ -167,7 +167,7 @@ try {
       page,
       "Document Intelligence Assurance Hub",
       "Review incoming procurement documents",
-      "Finance and warehouse teams verify synthetic supplier invoices and goods receipts before a controlled downstream handoff. The Processing model selector changes configuration only until Assess for exceptions is pressed.",
+      "Finance and warehouse teams verify synthetic supplier invoices and goods receipts before a controlled downstream handoff. The Processing model selector changes configuration only until Assess sample without AI processing is pressed.",
       7_000,
     );
 
@@ -189,7 +189,9 @@ try {
     await page.getByRole("button", { name: /Clean match/i }).click();
     await waitForRenderedImage(page, ".document-preview__image");
     await page.getByLabel("Processing model").selectOption("gpt-5.6-luna");
-    await page.getByRole("button", { name: "Assess for exceptions" }).click();
+    await page
+      .getByRole("button", { name: "Assess sample without AI processing" })
+      .click();
     await page
       .getByRole("heading", { name: "Ready for posting review" })
       .waitFor();
@@ -218,7 +220,9 @@ try {
     await page.getByRole("button", { name: /Total mismatch/i }).click();
     await waitForRenderedImage(page, ".document-preview__image");
     await page.getByLabel("Processing model").selectOption("claude-haiku-4-5");
-    await page.getByRole("button", { name: "Assess for exceptions" }).click();
+    await page
+      .getByRole("button", { name: "Assess sample without AI processing" })
+      .click();
     await page
       .getByRole("heading", { name: "Exception review required" })
       .waitFor();

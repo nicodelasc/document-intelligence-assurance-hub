@@ -127,7 +127,9 @@ describe("Workbench guided tour", () => {
     installMatchMedia();
     const user = userEvent.setup();
     const fetchMock = renderWorkbench();
-    const processButton = await screen.findByRole("button", { name: "Assess for exceptions" });
+    const processButton = await screen.findByRole("button", {
+      name: "Assess sample without AI processing",
+    });
     await waitFor(() => expect(processButton).toBeEnabled());
 
     await user.click(await findGuidanceTrigger());

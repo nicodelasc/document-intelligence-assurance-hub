@@ -13,7 +13,7 @@ describe("Walkthrough recorder release vocabulary", () => {
   it("records the procurement problem, scoped actions and queue-first Operations story", () => {
     for (const marker of [
       "Review incoming procurement documents",
-      "Assess for exceptions",
+      "Assess sample without AI processing",
       "Review result",
       "Prepare posting handoff",
       "Draft clarification request",

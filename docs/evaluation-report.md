@@ -49,20 +49,42 @@ Operations displays exactly 10 provider-neutral observations as one Reference qu
 
 ## Processing-route behavior and acceptance
 
-Enabled built-in samples use the selected model route. If the selected provider is unavailable a built-in sample uses the deterministic result and states `Sample results - no AI processing`. Custom uploads have no fallback. The unavailable selected model is disabled for custom processing and the interface states `Processing unavailable for this model`.
+Enabled built-in samples use the selected model route. The available route uses `Run live document review` and one deliberate reviewer click is the paid-call boundary. If the selected provider is unavailable a built-in sample uses `Assess sample without AI processing` then states `Sample results - no AI processing`. Custom uploads have no fallback. The unavailable selected model is disabled for custom processing and the interface states `Processing unavailable for this model`.
 
-Only `Assess for exceptions` can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
+Only a live submission can reserve model budget. Persisted `providerDispatched=true` is the only proof used to report that a provider request was dispatched. `/api/models` exposes catalogue data, defaults and provider-availability booleans while provider keys remain server-side.
 
-Configuration is not acceptance. All four processing routes remain pending until their own connected production smoke tests pass:
+Mocked acceptance evidence is separate from connected production observations. Zero paid calls have been made. The two-call acceptance boundary remains pending:
 
-| Processing route                  | Status  | Required evidence                                                               |
-| --------------------------------- | ------- | ------------------------------------------------------------------------------- |
-| Built-in sample through OpenAI    | Pending | Selected model, confirmed dispatch, grounded evidence and deterministic outcome |
-| Built-in sample through Anthropic | Pending | Selected model, confirmed dispatch, grounded evidence and deterministic outcome |
-| Custom upload through OpenAI      | Pending | Consented upload, confirmed dispatch, grounded evidence and no fallback         |
-| Custom upload through Anthropic   | Pending | Consented upload, confirmed dispatch, grounded evidence and no fallback         |
+| Connected production observation  | Status  | Required evidence                                                                                       |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| OpenAI GPT-5.6 Luna built-in      | Pending | One selected built-in sample with confirmed dispatch, grounded evidence, deterministic outcome and cost |
+| Anthropic Claude Haiku 4.5 custom | Pending | One consented upload with `Source unverified`, confirmed dispatch, no fallback and no posting handoff   |
 
-A deliberate provider failure and a connected retention simulation also remain pending. Real email and external business-system connectors are out of scope.
+Neither observation may retry automatically. A failure requires diagnosis and fresh approval before another paid call. `Prepared only - not sent` remains the workflow truth because real email and external business-system connectors are out of scope.
+
+## Source-origin evidence boundary
+
+The public labels are `Original demo document`, `Exact copy of a demo document` and `Source unverified`. Exact SHA-256 matching proves byte equality with a committed synthetic sample only. It does not prove authorship, authenticity, fraud status or malware safety. Screenshots, re-encodings, edits and unrelated supported files are processed as `Source unverified`. They are not rejected by origin classification and require a person before any posting handoff. Mocked component, contract and browser coverage establishes that unverified evidence cannot expose posting preparation. It does not establish connected provider acceptance.
+
+## Task 7 mocked release checkpoint — 2026-09-01
+
+This checkpoint used mocked providers and keyless local execution. Zero paid calls have been made. It remains separate from the two connected production observations above.
+
+| Gate                 | Result               | Fresh evidence                                                                                                                                                                                                                                                |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format               | Passed               | `npm run format:check` passed after the canonical formatter aligned tracked files.                                                                                                                                                                            |
+| Lint                 | Passed               | `npm run lint` completed with no findings.                                                                                                                                                                                                                    |
+| Typecheck            | Passed               | `npm run typecheck` completed both TypeScript projects.                                                                                                                                                                                                       |
+| Vitest               | Passed               | `npm test` completed 51 files with 620 of 620 tests passing. One earlier full-suite run hit a five-second timing limit. The isolated test passed in 1.63 seconds and the unchanged suite passed on restart.                                                   |
+| Browser matrix       | Passed               | `npm run test:e2e -- --workers=1` completed 37 of 37 Chromium checks with one worker.                                                                                                                                                                         |
+| Production build     | Passed               | `npm run build` compiled Next.js 16.3.3 and produced all declared routes.                                                                                                                                                                                     |
+| Premium strict audit | Passed               | `npm run verify:premium` reported zero errors, warnings, violations or unresolved findings.                                                                                                                                                                   |
+| Dependency audit     | Passed               | `npm run audit:dependencies` reported zero vulnerabilities.                                                                                                                                                                                                   |
+| Patch whitespace     | Passed               | `git diff --check` reported no whitespace errors.                                                                                                                                                                                                             |
+| DESIGN lint          | Passed with warnings | `npm run design:lint` reported zero errors, nine orphaned-token warnings and one token summary. Visual tokens were unchanged.                                                                                                                                 |
+| Local public surface | Passed               | The built app ran with provider credentials removed, `AI_LIVE_ENABLED=false` and `ALLOW_IN_MEMORY_PERSISTENCE=true`. `npm run verify:public -- http://127.0.0.1:3000` scanned local artifacts and the local origin successfully then the process was stopped. |
+
+The public-surface verifier rejects API-key patterns, SHA-256 or document-digest exposure, manifest entries, deletion tokens and system prompt leakage. Its regression case permits ordinary safe run IDs.
 
 ## Dated Task 6 verification baseline — 2026-08-29
 
@@ -81,6 +103,6 @@ The table below is a historical baseline, not the current final suite. It record
 | Production build            | Passed | `npm run build:production` compiled Next.js 16.3.3 and generated all six static pages plus the declared dynamic API routes.                                                                                                                                                                              |
 | Public-surface verification | Passed | `npm run verify:public` scanned local source and built artifacts with zero findings. The verifier rejects the three exact retired phrases, requires the current Processing model and Reference quality suite labels from the aggregated UI source and includes `/api/models` in configured-origin scans. |
 
-No API key was supplied to these gates and no provider call was made. The four production processing routes remain Pending.
+No API key was supplied to these historical gates and no provider call was made. The historical baseline is mocked evidence only. Both connected observations remain Pending.
 
 All documents and reference records are synthetic. The extraction, comparison, evaluator safeguards and workflow preparation are functional. ERP posting, payment, inventory, email and archive integrations are simulated and no external business system is changed.

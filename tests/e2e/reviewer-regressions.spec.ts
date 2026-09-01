@@ -73,7 +73,7 @@ test("failed custom receipts survive refresh then delete independently", async (
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Validate custom upload" }).click();
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await expect(page.getByText(failedToken)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Processing failed" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Retry processing" })).toBeVisible();
@@ -227,9 +227,9 @@ test("custom streams stay isolated then public history restores after refresh", 
   await page.getByLabel("Review field 2").fill("Total");
   await page.getByRole("checkbox", { name: /publicly visible/i }).check();
   await page.getByRole("button", { name: "Validate custom upload" }).click();
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await expect(page.getByRole("heading", { name: "Evidence-consistent" })).toBeFocused();
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await expect(page.getByRole("heading", {
     name: "Incomplete evidence - one or more requested fields were not found",
   })).toBeFocused();
@@ -253,6 +253,8 @@ test("Operations restores URL state and exposes the complete active inspector", 
     configuredModel: index % 2 === 0 ? "gpt-5.6-luna" : "claude-haiku-4-5",
     executionMode: "recorded",
     sourceType: index >= 1 && index <= 3 ? "custom" : "synthetic",
+    sourceOriginStatus:
+      index >= 1 && index <= 3 ? "unverified" : "server_original",
     documentFamily: "supplier_invoice",
     fixtureId: index === 0 ? "invoice-total-mismatch" : index >= 1 && index <= 3 ? null : "invoice-clean-match",
     status: "completed",
@@ -292,6 +294,7 @@ test("Operations restores URL state and exposes the complete active inspector", 
       workflowActivity: { prepared: 1, staged: 0, simulated: 0 },
       performance,
       lifecycle,
+      origin: { serverOriginal: 9, recognizedCopy: 0, unverified: 3 },
     },
     costs: {
       estimated: true,
@@ -375,7 +378,7 @@ test("navigating away aborts an active Workbench stream", async ({ page }) => {
   });
   await page.route("**/api/metrics", async (route) => route.fulfill({ status: 503, contentType: "application/json", body: "{}" }));
   await page.goto("/workbench");
-  await page.getByRole("button", { name: "Assess for exceptions" }).click();
+  await page.getByRole("button", { name: "Run live document review" }).click();
   await page.getByRole("link", { name: "Operations" }).click();
   await expect(page).toHaveURL(/\/operations/);
   await expect.poll(() => requestFailed).toBe(true);
