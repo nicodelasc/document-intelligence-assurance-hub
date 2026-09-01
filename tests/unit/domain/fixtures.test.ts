@@ -6,6 +6,7 @@ import {
   recordedDocumentRunResults,
   syntheticFixtures,
 } from "@/domain/fixtures";
+import { sampleOriginManifest } from "@/server/security/sample-origin-manifest";
 
 describe("synthetic document fixtures", () => {
   it.each([
@@ -114,6 +115,14 @@ describe("synthetic document fixtures", () => {
       "needs_review",
     ]);
     expect(recordedDocumentRunResults).toHaveLength(10);
+  });
+
+  it("binds every canonical fixture filename to a source-origin digest", () => {
+    expect(Object.keys(sampleOriginManifest)).toEqual(
+      syntheticFixtures
+        .toSorted((left, right) => left.id.localeCompare(right.id))
+        .map((fixture) => fixture.filename),
+    );
   });
 
   it("keeps the complete business classification contract bound to each fixture ID", () => {

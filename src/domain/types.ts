@@ -38,6 +38,11 @@ export type DocumentClassification =
 
 export type VariantClassification = "correct" | "attention" | "incorrect";
 
+export type SourceOriginStatus =
+  | "server_original"
+  | "recognized_copy"
+  | "unverified";
+
 export type AttentionReason =
   | "manual_instruction"
   | "manual_correction"
