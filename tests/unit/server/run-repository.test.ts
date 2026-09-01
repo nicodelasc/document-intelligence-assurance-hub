@@ -18,6 +18,7 @@ function runRecord(id = "run-1") {
     executionMode: "recorded" as const,
     providerDispatched: false,
     sourceType: "synthetic" as const,
+    sourceOriginStatus: "server_original" as const,
     documentFamily: "supplier_invoice" as const,
     fixtureId: "invoice-clean-match",
     file: {
@@ -62,6 +63,24 @@ const fields = [
 ];
 
 describe("InMemoryRunRepository", () => {
+  it("preserves the server-owned source origin status", async () => {
+    const repository = new InMemoryRunRepository();
+    await repository.createRun({
+      ...runRecord("custom-origin"),
+      sourceType: "custom",
+      sourceOriginStatus: "unverified",
+      documentFamily: null,
+      fixtureId: null,
+    });
+
+    const stored = await repository.readPublicRun(
+      "custom-origin",
+      new Date("2026-08-27T01:00:00.000Z"),
+    );
+
+    expect(stored?.sourceOriginStatus).toBe("unverified");
+  });
+
   it("creates one event per non-null or null recipient identity and returns clones", async () => {
     const repository = new InMemoryRunRepository();
     await repository.createRun({ ...runRecord(), status: "completed" });
@@ -435,7 +454,7 @@ describe("InMemoryRunRepository", () => {
 
     const legacyDriver: NeonDriver = {
       async query(sql) {
-        if (sql.includes("SELECT * FROM runs WHERE id")) {
+        if (sql.includes("FROM runs WHERE id")) {
           return [{
             id: "legacy-run",
             provider: "openai",
@@ -482,11 +501,13 @@ describe("InMemoryRunRepository", () => {
 
     await repository.createRun(runRecord("neon-fixture-run"));
 
+    expect(statements[0]?.sql).toContain("source_origin_status");
     expect(statements[0]?.sql).toContain("document_family, fixture_id");
     expect(statements[0]?.parameters).toContain("supplier_invoice");
     expect(statements[0]?.parameters).toContain("invoice-clean-match");
+    expect(statements[0]?.parameters).toContain("server_original");
     expect(statements[0]?.sql).toMatch(/fixture_id, completed_at/);
-    expect(statements[0]?.sql).toMatch(/\$23, NULL\s+\)/);
+    expect(statements[0]?.sql).toMatch(/\$24, NULL\s+\)/);
   });
 
   it("forces an initial null completion time until results are durably saved", async () => {
@@ -540,7 +561,7 @@ describe("InMemoryRunRepository", () => {
         if (sql.includes("UPDATE runs SET provider_dispatched = true")) {
           return [{ id: "run-neon" }];
         }
-        if (sql.includes("SELECT * FROM runs WHERE id")) {
+        if (sql.includes("FROM runs WHERE id")) {
           return [{
             id: "run-neon",
             provider: "openai",
@@ -775,7 +796,7 @@ describe("InMemoryRunRepository", () => {
           status = "failed";
           return [];
         }
-        if (sql.includes("SELECT * FROM runs WHERE id")) return [row()];
+        if (sql.includes("FROM runs WHERE id")) return [row()];
         if (sql.includes("FROM runs ORDER BY")) return [row()];
         if (sql.includes("SELECT step_json FROM run_steps")) {
           return [{ step_json: { kind: "stage", stage: status, timestamp: createdAt, durationMs: 25 } }];
@@ -980,7 +1001,7 @@ describe("InMemoryRunRepository", () => {
     const driver: NeonDriver = {
       async query(sql) {
         queryLog.push(sql);
-        if (sql.includes("SELECT * FROM runs WHERE id")) return [row];
+        if (sql.includes("FROM runs WHERE id")) return [row];
         if (sql.includes("FROM runs ORDER BY")) return [row];
         if (sql.includes("SELECT step_json")) return [];
         if (sql.includes("SELECT result_json")) return [];

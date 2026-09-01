@@ -238,7 +238,11 @@ describe("executeRun", () => {
         "Evidence is consistent. The action is ready for posting handoff preparation.",
       stagedAt: null,
     });
-    expect(run).toMatchObject({ documentFamily: null, fixtureId: null });
+    expect(run).toMatchObject({
+      documentFamily: null,
+      fixtureId: null,
+      sourceOriginStatus: "unverified",
+    });
   });
 
   it.each(["irrelevant", "uncertain"] as const)(
@@ -295,6 +299,7 @@ describe("executeRun", () => {
     expect(run).toMatchObject({
       documentFamily: fixture.family,
       fixtureId: fixture.id,
+      sourceOriginStatus: "server_original",
     });
   });
 

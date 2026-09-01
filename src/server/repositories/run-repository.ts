@@ -6,6 +6,7 @@ import type {
   Outcome,
   Provider,
   RunStatus,
+  SourceOriginStatus,
   WorkflowActionType,
   WorkflowEvent,
   WorkflowEventStatus,
@@ -48,6 +49,7 @@ export type StoredRunRecord = {
   executionMode: ExecutionMode;
   providerDispatched: boolean;
   sourceType: SourceType;
+  sourceOriginStatus: SourceOriginStatus;
   documentFamily: DocumentFamily | null;
   fixtureId: string | null;
   file: SafeFileMetadata;
@@ -903,6 +905,12 @@ const confirmedRunEligibilityCte = `WITH eligible_confirmed_runs AS MATERIALIZED
     AND input_tokens + output_tokens > 0
 )`;
 
+const publicRunColumns = `id, provider, model, prompt_version, execution_mode,
+  provider_dispatched, source_type, source_origin_status, document_family, fixture_id,
+  file_metadata, requested_fields, status, outcome, usage, estimated_cost_usd, consent,
+  created_at, expires_at, deleted_at, completed_at, retry_count, latency_ms,
+  step_durations, details_deleted`;
+
 class NeonRunRepository implements RunRepository {
   private driverPromise: Promise<NeonDriver> | null = null;
 
@@ -932,13 +940,13 @@ class NeonRunRepository implements RunRepository {
     const driver = await this.readyDriver();
     await driver.query(
       `INSERT INTO runs (
-        id, provider, model, execution_mode, source_type, file_metadata, document_key,
+        id, provider, model, execution_mode, source_type, source_origin_status, file_metadata, document_key,
         requested_fields, status, outcome, usage, estimated_cost_usd, consent, created_at,
         expires_at, deleted_at, deletion_token_hash, retry_count, latency_ms, step_durations,
         prompt_version, provider_dispatched, document_family, fixture_id, completed_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12,
-        $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, false, $22, $23, NULL
+        $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10, $11, $12::jsonb, $13,
+        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, false, $23, $24, NULL
       )`,
       [
         record.id,
@@ -946,6 +954,7 @@ class NeonRunRepository implements RunRepository {
         record.model,
         record.executionMode,
         record.sourceType,
+        record.sourceOriginStatus,
         JSON.stringify(record.file),
         record.documentKey,
         JSON.stringify(record.requestedFields),
@@ -1228,7 +1237,10 @@ class NeonRunRepository implements RunRepository {
 
   async readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null> {
     const driver = await this.readyDriver();
-    const rows = await driver.query("SELECT * FROM runs WHERE id = $1", [runId]);
+    const rows = await driver.query(
+      `SELECT ${publicRunColumns} FROM runs WHERE id = $1`,
+      [runId],
+    );
     if (!rows[0]) return null;
     return this.publicFromRow(driver, rows[0], now);
   }
@@ -1238,17 +1250,12 @@ class NeonRunRepository implements RunRepository {
     options?: PublicRunListOptions,
   ): Promise<PublicRunRecord[]> {
     const driver = await this.readyDriver();
-    const publicColumns = `id, provider, model, prompt_version, execution_mode,
-      provider_dispatched,
-      source_type, document_family, fixture_id, file_metadata, requested_fields, status, outcome, usage,
-      estimated_cost_usd, consent, created_at, expires_at, deleted_at,
-      completed_at, retry_count, latency_ms, step_durations, details_deleted`;
     const rows = options
       ? await driver.query(
-          `SELECT ${publicColumns} FROM runs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          `SELECT ${publicRunColumns} FROM runs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
           [options.limit, options.offset],
         )
-      : await driver.query(`SELECT ${publicColumns} FROM runs ORDER BY created_at DESC`);
+      : await driver.query(`SELECT ${publicRunColumns} FROM runs ORDER BY created_at DESC`);
     return Promise.all(
       rows.map((row) =>
         this.publicFromRow(driver, row, now, options?.includeDetails ?? true),
@@ -1636,6 +1643,7 @@ class NeonRunRepository implements RunRepository {
       executionMode: row.execution_mode as ExecutionMode,
       providerDispatched: Boolean(row.provider_dispatched),
       sourceType: row.source_type as SourceType,
+      sourceOriginStatus: row.source_origin_status as SourceOriginStatus,
       documentFamily: (row.document_family as DocumentFamily | null | undefined) ?? null,
       fixtureId: (row.fixture_id as string | null | undefined) ?? null,
       file: asJson<SafeFileMetadata>(row.file_metadata),

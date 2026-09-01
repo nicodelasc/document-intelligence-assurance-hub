@@ -62,6 +62,7 @@ async function seedRun(input: {
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
+    sourceOriginStatus: "server_original",
     documentFamily: input.family ?? "supplier_invoice",
     fixtureId: "invoice-clean-match",
     file: {

@@ -2,6 +2,7 @@ import type {
   ActionProposal,
   FieldResult,
   Provider,
+  SourceOriginStatus,
   WorkflowEvent,
 } from "@/domain/types";
 import type {
@@ -142,12 +143,17 @@ function serializeFixtureIdentity(run: PublicRunRecord) {
   };
 }
 
+function serializeSourceOrigin(run: PublicRunRecord): SourceOriginStatus {
+  return run.sourceOriginStatus;
+}
+
 export function serializePublicRunListRow(run: PublicRunRecord) {
   return {
     id: run.id,
     ...serializeAttribution(run),
     executionMode: run.executionMode,
     sourceType: run.sourceType,
+    sourceOriginStatus: serializeSourceOrigin(run),
     status: run.status,
     outcome: run.outcome,
     createdAt: run.createdAt,
@@ -171,6 +177,7 @@ export function serializePublicRunDetail(run: PublicRunRecord) {
     return {
       id: run.id,
       status: run.status,
+      sourceOriginStatus: serializeSourceOrigin(run),
       expiresAt: run.expiresAt,
       deletedAt: run.deletedAt,
     };
@@ -183,6 +190,7 @@ export function serializePublicRunDetail(run: PublicRunRecord) {
     promptVersion: cleanText(run.promptVersion, 120),
     executionMode: run.executionMode,
     sourceType: run.sourceType,
+    sourceOriginStatus: serializeSourceOrigin(run),
     file: {
       filename: cleanText(run.file.filename, 120),
       mediaType: run.file.mediaType,

@@ -27,6 +27,7 @@ async function seedRun(input: {
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
+    sourceOriginStatus: "server_original",
     documentFamily: null,
     fixtureId: null,
     file: {

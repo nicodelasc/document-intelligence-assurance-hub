@@ -17,6 +17,7 @@ function poisonedRun(): PublicRunRecord {
     executionMode: "recorded",
     providerDispatched: false,
     sourceType: "synthetic",
+    sourceOriginStatus: "server_original",
     documentFamily: "supplier_invoice",
     fixtureId: "invoice-clean-match",
     file: {
@@ -81,6 +82,18 @@ function poisonedRun(): PublicRunRecord {
 }
 
 describe("public serializers", () => {
+  it("exposes the bounded source origin status without origin matching data", () => {
+    const run = poisonedRun();
+    run.sourceOriginStatus = "unverified";
+    const list = serializePublicRunListRow(run);
+    const detail = serializePublicRunDetail(run);
+
+    expect(list).toMatchObject({ sourceOriginStatus: "unverified" });
+    expect(detail).toMatchObject({ sourceOriginStatus: "unverified" });
+    expect(JSON.stringify(detail)).not.toContain("sha256");
+    expect(JSON.stringify(detail)).not.toContain("matchedFixture");
+  });
+
   it("returns not-called actual attribution plus explicit recorded configuration", () => {
     const listRow = serializePublicRunListRow(poisonedRun());
     const detail = serializePublicRunDetail(poisonedRun());
@@ -181,6 +194,7 @@ describe("public serializers", () => {
       expect(serializePublicRunDetail(run)).toEqual({
         id: "run-safe-1",
         status,
+        sourceOriginStatus: "server_original",
         expiresAt: "2026-08-27T23:55:00.000Z",
         deletedAt: null,
       });

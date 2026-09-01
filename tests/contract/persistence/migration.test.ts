@@ -7,6 +7,10 @@ describe("versioned production migration", () => {
   const lifecycleMigration = existsSync(lifecycleMigrationPath)
     ? readFileSync(lifecycleMigrationPath, "utf8")
     : "";
+  const sourceOriginMigrationPath = "migrations/0010_source_origin_status.sql";
+  const sourceOriginMigration = existsSync(sourceOriginMigrationPath)
+    ? readFileSync(sourceOriginMigrationPath, "utf8")
+    : "";
 
   it("is idempotent and records its version", () => {
     expect(migration).toMatch(/BEGIN;/);
@@ -59,5 +63,12 @@ describe("versioned production migration", () => {
     expect(runtime).not.toMatch(
       /CREATE TABLE|ALTER TABLE|CREATE OR REPLACE FUNCTION/i,
     );
+  });
+
+  it("adds an idempotent bounded source origin status migration", () => {
+    expect(existsSync(sourceOriginMigrationPath)).toBe(true);
+    expect(sourceOriginMigration).toMatch(/ADD COLUMN IF NOT EXISTS source_origin_status TEXT/);
+    expect(sourceOriginMigration).toMatch(/runs_source_origin_status_check/);
+    expect(sourceOriginMigration).toMatch(/VALUES \('0010_source_origin_status'\)/);
   });
 });

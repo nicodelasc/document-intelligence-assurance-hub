@@ -580,6 +580,8 @@ export async function* executeRun(
       executionMode: dependencies.provider.executionMode,
       providerDispatched: false,
       sourceType: input.sourceType,
+      sourceOriginStatus:
+        input.sourceType === "synthetic" ? "server_original" : "unverified",
       documentFamily: input.fixture?.family ?? null,
       fixtureId: input.fixture?.id ?? null,
       file: {

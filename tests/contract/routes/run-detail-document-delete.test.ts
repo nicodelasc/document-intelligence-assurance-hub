@@ -101,6 +101,7 @@ describe("run detail retention", () => {
       run: {
         id: completed.runId,
         status: "expired",
+        sourceOriginStatus: "server_original",
         expiresAt: "2026-08-27T23:55:00.000Z",
         deletedAt: null,
       },
@@ -130,6 +131,7 @@ describe("document streaming", () => {
       executionMode: "recorded",
       providerDispatched: false,
       sourceType: "custom",
+      sourceOriginStatus: "unverified",
       documentFamily: null,
       fixtureId: null,
       file: {
