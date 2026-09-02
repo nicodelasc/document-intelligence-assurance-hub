@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "@/components/app-shell";
@@ -694,6 +694,52 @@ describe("Operations metric claims", () => {
       expect(progress).toHaveAccessibleName(/.+/);
     }
     expect(document.body).not.toHaveTextContent(/live-call|live provider|public prototype|recorded replay/i);
+  });
+
+  it("quietly refreshes dashboard data without reloading the page", async () => {
+    const refreshedMetrics = structuredClone(populatedMetrics);
+    refreshedMetrics.generatedAt = "2026-08-29T12:00:15.000Z";
+    refreshedMetrics.summary.totalRuns = 10;
+    const fetchMetrics = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(populatedMetrics), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(refreshedMetrics), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMetrics);
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    let poll: (() => void) | undefined;
+    const intervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation((handler) => {
+        if (typeof handler === "function") poll = handler;
+        return 1;
+      });
+
+    render(<OperationsDashboard />);
+    const refreshPoll = poll;
+
+    const summary = await screen.findByLabelText(
+      "Procurement triage summary metrics",
+    );
+    await waitFor(() => expect(within(summary).getByText("9")).toBeVisible());
+    expect(screen.getByText(/Auto-refresh on/i)).toBeVisible();
+    expect(refreshPoll).toBeTypeOf("function");
+
+    await act(async () => {
+      refreshPoll?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(fetchMetrics).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(summary).getByText("10")).toBeVisible());
+    expect(screen.queryByText(/Loading operational ledger/i)).not.toBeInTheDocument();
+    visibilitySpy.mockRestore();
+    intervalSpy.mockRestore();
   });
 
   it("shows an explicit empty confirmed-run state for recorded-only traffic", async () => {
