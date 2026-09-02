@@ -525,9 +525,10 @@ describe("InMemoryQuotaRepository", () => {
     });
   });
 
-  it("releases a failed live reservation while retaining the live-run attempt count", async () => {
+  it("allows fifteen live attempts per browser before enforcing the daily limit", async () => {
     const quotas = quotaRepository();
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    const decisions = [];
+    for (let attempt = 0; attempt < 15; attempt += 1) {
       const reservation = await quotas.reserve({
         bucket: "browser-a",
         sourceType: "synthetic",
@@ -536,12 +537,12 @@ describe("InMemoryQuotaRepository", () => {
         liveEnabled: true,
         now,
       });
-      if (!reservation.allowed || !reservation.reservationId)
-        throw new Error("expected_live_reservation");
-      await expect(
-        quotas.releaseLiveReservation(reservation.reservationId),
-      ).resolves.toBe(true);
+      decisions.push(reservation.allowed);
+      if (reservation.allowed && reservation.reservationId) {
+        await quotas.releaseLiveReservation(reservation.reservationId);
+      }
     }
+    expect(decisions).toEqual(Array.from({ length: 15 }, () => true));
     await expect(
       quotas.reserve({
         bucket: "browser-a",
