@@ -19,16 +19,27 @@ async function seedOutcome(
   id: string,
   outcome: Outcome,
   estimatedCostUsd = 0,
+  options: {
+    createdAt?: string;
+    completedAt?: string;
+    expiresAt?: string;
+    provider?: "openai" | "anthropic";
+    executionMode?: "recorded" | "live";
+    sourceType?: "synthetic" | "custom";
+    sourceOriginStatus?: "server_original" | "recognized_copy" | "unverified";
+  } = {},
 ): Promise<void> {
+  const provider = options.provider ?? "openai";
+  const executionMode = options.executionMode ?? "recorded";
   await container.repository.createRun({
     id,
-    provider: "openai",
+    provider,
     model: "gpt-5-mini",
     promptVersion: "recorded-fixture-2026-08-27.v1",
-    executionMode: "recorded",
+    executionMode,
     providerDispatched: false,
-    sourceType: "synthetic",
-    sourceOriginStatus: "server_original",
+    sourceType: options.sourceType ?? "synthetic",
+    sourceOriginStatus: options.sourceOriginStatus ?? "server_original",
     documentFamily: null,
     fixtureId: null,
     file: {
@@ -44,15 +55,18 @@ async function seedOutcome(
     usage: { inputTokens: 0, outputTokens: 0 },
     estimatedCostUsd: 0,
     consent: false,
-    createdAt: "2026-08-27T00:00:00.000Z",
+    createdAt: options.createdAt ?? "2026-08-27T00:00:00.000Z",
     completedAt: null,
-    expiresAt: "2026-08-27T23:55:00.000Z",
+    expiresAt: options.expiresAt ?? "2026-08-27T23:55:00.000Z",
     deletedAt: null,
     deletionTokenHash: `sha256:${"a".repeat(64)}`,
     retryCount: 0,
     latencyMs: null,
     stepDurations: {},
   });
+  if (executionMode === "live") {
+    await container.repository.markProviderDispatched(id);
+  }
   await container.repository.saveResults(id, {
     fields: [],
     outcome,
@@ -63,7 +77,7 @@ async function seedOutcome(
     retryCount: 0,
     latencyMs: 10,
     stepDurations: { extracting: 5 },
-    completedAt: "2026-08-27T00:00:01.000Z",
+    completedAt: options.completedAt ?? "2026-08-27T00:00:01.000Z",
   });
 }
 
@@ -367,6 +381,137 @@ describe("GET /api/metrics", () => {
     expect(body.performance.sampleCount).toBe(5);
     expect(body.resourceScenario.modelCostAssumption.usdToSgd).toBe(1.35);
     expect(body.resourceScenario.inputs.averageModelCostPerRun).toBe(0);
+  });
+
+  it("shows only runs inside the configured public Operations window", async () => {
+    const cutoff = "2026-09-02T00:00:00.000Z";
+    const now = new Date("2026-09-02T00:30:00.000Z");
+    const container = createTestContainer({
+      clock: () => now,
+      publicOperationsCutoffAt: cutoff,
+    });
+
+    await container.repository.createRun({
+      id: "old-failed",
+      provider: "openai",
+      model: "gpt-5-mini",
+      promptVersion: "test.v1",
+      executionMode: "live",
+      providerDispatched: false,
+      sourceType: "custom",
+      sourceOriginStatus: "unverified",
+      documentFamily: "supplier_invoice",
+      fixtureId: null,
+      file: {
+        filename: "old.pdf",
+        mediaType: "application/pdf",
+        sizeBytes: 100,
+        pageCount: 1,
+      },
+      documentKey: "runs/old-failed/document",
+      requestedFields: [{ key: "invoice_total", label: "Invoice total" }],
+      status: "validating",
+      outcome: null,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      estimatedCostUsd: 0,
+      consent: true,
+      createdAt: "2026-09-01T23:59:59.999Z",
+      completedAt: null,
+      expiresAt: "2026-09-02T22:00:00.000Z",
+      deletedAt: null,
+      deletionTokenHash: `sha256:${"b".repeat(64)}`,
+      retryCount: 0,
+      latencyMs: null,
+      stepDurations: {},
+    });
+    await container.repository.markProviderDispatched("old-failed");
+    await container.repository.markFailed("old-failed", {
+      timestamp: "2026-09-01T23:59:59.999Z",
+      safeCode: "provider_unavailable",
+      failedStage: "extracting",
+      retryCount: 1,
+      latencyMs: 900,
+      stepDurations: { extracting: 900 },
+    });
+    await seedOutcome(container, "boundary-clear", "clear", 0.02, {
+      createdAt: cutoff,
+      completedAt: "2026-09-02T00:00:01.000Z",
+      expiresAt: "2026-09-02T22:00:00.000Z",
+      executionMode: "live",
+    });
+    await seedOutcome(container, "new-conflict", "conflict", 0.03, {
+      createdAt: "2026-09-02T00:00:01.000Z",
+      completedAt: "2026-09-02T00:00:02.000Z",
+      expiresAt: "2026-09-02T23:00:00.000Z",
+      provider: "anthropic",
+      executionMode: "live",
+      sourceType: "custom",
+      sourceOriginStatus: "unverified",
+    });
+
+    const response = await handleMetricsGet(
+      new Request("http://local.test/api/metrics"),
+      container,
+    );
+    const body = (await response.json()) as {
+      summary: {
+        totalRuns: number;
+        completionRate: number;
+        reviewRate: number;
+        failureRate: number;
+      };
+      operations: {
+        workflowStatus: {
+          ready: number;
+          needsAttention: number;
+          processingErrors: number;
+        };
+        lifecycle: { activeDocuments: number; activePublicUploads: number };
+        origin: {
+          serverOriginal: number;
+          recognizedCopy: number;
+          unverified: number;
+        };
+      };
+      performance: { sampleCount: number };
+      usage: {
+        liveRuns: number;
+        providerSplit: { openai: number; anthropic: number };
+        estimatedApiCostUsd: number;
+      };
+      runExplorer: Array<{ id: string }>;
+    };
+
+    expect(body.summary).toEqual({
+      totalRuns: 2,
+      completionRate: 1,
+      reviewRate: 0.5,
+      failureRate: 0,
+    });
+    expect(body.operations.workflowStatus).toMatchObject({
+      ready: 1,
+      needsAttention: 1,
+      processingErrors: 0,
+    });
+    expect(body.operations.lifecycle).toMatchObject({
+      activeDocuments: 2,
+      activePublicUploads: 1,
+    });
+    expect(body.operations.origin).toEqual({
+      serverOriginal: 1,
+      recognizedCopy: 0,
+      unverified: 1,
+    });
+    expect(body.performance.sampleCount).toBe(2);
+    expect(body.usage).toMatchObject({
+      liveRuns: 2,
+      providerSplit: { openai: 1, anthropic: 1 },
+      estimatedApiCostUsd: 0.05,
+    });
+    expect(body.runExplorer.map((run) => run.id)).toEqual([
+      "new-conflict",
+      "boundary-clear",
+    ]);
   });
 
   it("never includes uploader tokens or secret-bearing persistence fields", async () => {

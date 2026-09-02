@@ -32,6 +32,7 @@ export function createTestContainer(
       "test-browser-bucket-token-with-enough-entropy-1234567890",
     replayStageDelayMs: 0,
     liveModeEnabled,
+    publicOperationsCutoffAt: null,
     providerAvailability,
     cronSecret: "test-cron-secret",
     execute: executeRun,

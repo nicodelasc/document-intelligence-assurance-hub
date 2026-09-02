@@ -38,6 +38,7 @@ const metricsCache = new WeakMap<
   object,
   {
     expiresAt: number;
+    cutoffAt: string | null;
     payload?: MetricsPayload;
     pending?: Promise<MetricsPayload>;
   }
@@ -412,6 +413,7 @@ export async function handleMetricsGet(
     const cached = metricsCache.get(container.repository);
     if (
       cached &&
+      cached.cutoffAt === container.publicOperationsCutoffAt &&
       cached.payload !== undefined &&
       cached.expiresAt > now.getTime()
     ) {
@@ -422,7 +424,10 @@ export async function handleMetricsGet(
         }),
       );
     }
-    if (cached?.pending) {
+    if (
+      cached?.cutoffAt === container.publicOperationsCutoffAt &&
+      cached.pending
+    ) {
       return respond(
         safeJsonResponse(await cached.pending, {
           status: 200,
@@ -431,6 +436,9 @@ export async function handleMetricsGet(
       );
     }
     const pending = (async (): Promise<MetricsPayload> => {
+      const population = container.publicOperationsCutoffAt
+        ? { createdAtOrAfter: container.publicOperationsCutoffAt }
+        : undefined;
       const [
         aggregate,
         sourceOrigin,
@@ -440,16 +448,17 @@ export async function handleMetricsGet(
         lifecycle,
         cleanupBacklog,
       ] = await Promise.all([
-        container.repository.aggregateAnonymousUsage(),
-        container.repository.aggregateSourceOrigins(),
-        container.repository.aggregateConfirmedModelCosts(now),
+        container.repository.aggregateAnonymousUsage(population),
+        container.repository.aggregateSourceOrigins(population),
+        container.repository.aggregateConfirmedModelCosts(now, population),
         container.quotaRepository.snapshot(now),
         container.repository.listPublicRuns(now, {
           limit: METRICS_RUN_LIMIT,
           offset: 0,
           includeDetails: true,
+          createdAtOrAfter: container.publicOperationsCutoffAt ?? undefined,
         }),
-        container.repository.aggregateActiveDetailLifecycle(now),
+        container.repository.aggregateActiveDetailLifecycle(now, population),
         container.repository.countCleanupBacklog(now),
       ]);
       const latencies = runs.flatMap((run) =>
@@ -680,13 +689,18 @@ export async function handleMetricsGet(
       };
       return payload;
     })();
-    metricsCache.set(container.repository, { expiresAt: 0, pending });
+    metricsCache.set(container.repository, {
+      expiresAt: 0,
+      cutoffAt: container.publicOperationsCutoffAt,
+      pending,
+    });
     let payload: MetricsPayload;
     try {
       payload = await pending;
       if (metricsCache.get(container.repository)?.pending === pending) {
         metricsCache.set(container.repository, {
           expiresAt: now.getTime() + METRICS_CACHE_TTL_MS,
+          cutoffAt: container.publicOperationsCutoffAt,
           payload,
         });
       }

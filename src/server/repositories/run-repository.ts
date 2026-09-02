@@ -118,6 +118,11 @@ export type PublicRunListOptions = {
   limit: number;
   offset: number;
   includeDetails: boolean;
+  createdAtOrAfter?: string;
+};
+
+export type RunPopulationFilter = {
+  createdAtOrAfter?: string;
 };
 
 export type PurgeExpiredResult = {
@@ -215,11 +220,19 @@ export interface RunRepository {
   readPublicRun(runId: string, now: Date): Promise<PublicRunRecord | null>;
   listPublicRuns(now: Date, options?: PublicRunListOptions): Promise<PublicRunRecord[]>;
   countCleanupBacklog(now: Date): Promise<number>;
-  aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate>;
-  aggregateSourceOrigins(): Promise<SourceOriginAggregate>;
-  aggregateConfirmedModelCosts(now: Date): Promise<ConfirmedModelCostAggregate>;
+  aggregateAnonymousUsage(
+    filter?: RunPopulationFilter,
+  ): Promise<AnonymousUsageAggregate>;
+  aggregateSourceOrigins(
+    filter?: RunPopulationFilter,
+  ): Promise<SourceOriginAggregate>;
+  aggregateConfirmedModelCosts(
+    now: Date,
+    filter?: RunPopulationFilter,
+  ): Promise<ConfirmedModelCostAggregate>;
   aggregateActiveDetailLifecycle(
     now: Date,
+    filter?: RunPopulationFilter,
   ): Promise<ActiveDetailLifecycleAggregate>;
   getDeletionTokenHash(runId: string): Promise<string | null>;
   deleteDetailedData(
@@ -249,6 +262,16 @@ function clone<T>(value: T): T {
 
 function isExpired(run: InternalRun, now: Date): boolean {
   return Date.parse(run.record.expiresAt) <= now.getTime();
+}
+
+function isWithinPopulation(
+  run: InternalRun,
+  filter?: RunPopulationFilter,
+): boolean {
+  if (!filter?.createdAtOrAfter) return true;
+  return (
+    Date.parse(run.record.createdAt) >= Date.parse(filter.createdAtOrAfter)
+  );
 }
 
 function workflowIdentity(
@@ -536,6 +559,11 @@ export class InMemoryRunRepository implements RunRepository {
     options?: PublicRunListOptions,
   ): Promise<PublicRunRecord[]> {
     const sorted = [...this.runs.values()]
+      .filter((run) =>
+        isWithinPopulation(run, {
+          createdAtOrAfter: options?.createdAtOrAfter,
+        }),
+      )
       .sort((a, b) => Date.parse(b.record.createdAt) - Date.parse(a.record.createdAt))
       .slice(options?.offset ?? 0, options ? options.offset + options.limit : undefined);
     return sorted.map((run) =>
@@ -550,13 +578,53 @@ export class InMemoryRunRepository implements RunRepository {
     return expiredDetails + this.cleanupJobs.size;
   }
 
-  async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
-    return clone(this.aggregate);
+  async aggregateAnonymousUsage(
+    filter?: RunPopulationFilter,
+  ): Promise<AnonymousUsageAggregate> {
+    if (!filter?.createdAtOrAfter) return clone(this.aggregate);
+    const aggregate: AnonymousUsageAggregate = {
+      totalRuns: 0,
+      completedRuns: 0,
+      failedRuns: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      estimatedCostUsd: 0,
+      providerCounts: { openai: 0, anthropic: 0 },
+      outcomeCounts: {},
+      reviewRequiredRuns: 0,
+    };
+    for (const run of this.runs.values()) {
+      if (!isWithinPopulation(run, filter)) continue;
+      aggregate.totalRuns += 1;
+      if (run.record.providerDispatched) {
+        aggregate.providerCounts[run.record.provider] += 1;
+      }
+      if (run.failureAggregated) aggregate.failedRuns += 1;
+      if (!run.completionAggregated || run.record.outcome === null) continue;
+      aggregate.completedRuns += 1;
+      aggregate.totalInputTokens += run.record.usage.inputTokens;
+      aggregate.totalOutputTokens += run.record.usage.outputTokens;
+      aggregate.estimatedCostUsd += run.record.estimatedCostUsd;
+      aggregate.outcomeCounts[run.record.outcome] =
+        (aggregate.outcomeCounts[run.record.outcome] ?? 0) + 1;
+      if (
+        requiresHumanReview(
+          run.record.outcome,
+          run.record.sourceOriginStatus,
+        )
+      ) {
+        aggregate.reviewRequiredRuns += 1;
+      }
+    }
+    return aggregate;
   }
 
-  async aggregateSourceOrigins(): Promise<SourceOriginAggregate> {
+  async aggregateSourceOrigins(
+    filter?: RunPopulationFilter,
+  ): Promise<SourceOriginAggregate> {
     const aggregate = emptySourceOriginAggregate();
     for (const run of this.runs.values()) {
+      if (!isWithinPopulation(run, filter)) continue;
       switch (run.record.sourceOriginStatus) {
         case "server_original":
           aggregate.serverOriginal += 1;
@@ -574,6 +642,7 @@ export class InMemoryRunRepository implements RunRepository {
 
   async aggregateConfirmedModelCosts(
     now: Date,
+    filter?: RunPopulationFilter,
   ): Promise<ConfirmedModelCostAggregate> {
     const aggregate = emptyConfirmedModelCostAggregate();
     const modelGroups = new Map<
@@ -592,6 +661,7 @@ export class InMemoryRunRepository implements RunRepository {
     const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
 
     for (const run of this.runs.values()) {
+      if (!isWithinPopulation(run, filter)) continue;
       if (!isConfirmedCompletedModelRun(run, now)) continue;
       const completedAt = Date.parse(run.record.completedAt!);
       const cost = run.record.estimatedCostUsd;
@@ -666,6 +736,7 @@ export class InMemoryRunRepository implements RunRepository {
 
   async aggregateActiveDetailLifecycle(
     now: Date,
+    filter?: RunPopulationFilter,
   ): Promise<ActiveDetailLifecycleAggregate> {
     const aggregate: ActiveDetailLifecycleAggregate = {
       activeDocuments: 0,
@@ -677,6 +748,7 @@ export class InMemoryRunRepository implements RunRepository {
       },
     };
     for (const run of this.runs.values()) {
+      if (!isWithinPopulation(run, filter)) continue;
       const expiresAt = Date.parse(run.record.expiresAt);
       const remainingMs = expiresAt - now.getTime();
       if (
@@ -934,6 +1006,7 @@ const confirmedRunEligibilityCte = `WITH eligible_confirmed_runs AS MATERIALIZED
     AND provider IN ('openai', 'anthropic')
     AND completed_at IS NOT NULL
     AND completed_at <= $1::timestamptz
+    AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
     AND estimated_cost_usd >= 0
 ), confirmed_runs AS MATERIALIZED (
   SELECT * FROM eligible_confirmed_runs
@@ -1289,8 +1362,10 @@ class NeonRunRepository implements RunRepository {
     const driver = await this.readyDriver();
     const rows = options
       ? await driver.query(
-          `SELECT ${publicRunColumns} FROM runs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-          [options.limit, options.offset],
+          `SELECT ${publicRunColumns} FROM runs
+          WHERE ($3::timestamptz IS NULL OR created_at >= $3::timestamptz)
+          ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+          [options.limit, options.offset, options.createdAtOrAfter ?? null],
         )
       : await driver.query(`SELECT ${publicRunColumns} FROM runs ORDER BY created_at DESC`);
     return Promise.all(
@@ -1312,7 +1387,9 @@ class NeonRunRepository implements RunRepository {
     return Number(rows[0]?.backlog_count ?? 0);
   }
 
-  async aggregateAnonymousUsage(): Promise<AnonymousUsageAggregate> {
+  async aggregateAnonymousUsage(
+    filter?: RunPopulationFilter,
+  ): Promise<AnonymousUsageAggregate> {
     const driver = await this.readyDriver();
     const rows = await driver.query(
       `SELECT
@@ -1339,7 +1416,9 @@ class NeonRunRepository implements RunRepository {
             )
           )
         ) AS review_required_runs
-      FROM runs`,
+      FROM runs
+      WHERE ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)`,
+      [filter?.createdAtOrAfter ?? null],
     );
     const row = rows[0] ?? {};
     const outcomeCounts: Partial<Record<Outcome, number>> = {};
@@ -1372,14 +1451,18 @@ class NeonRunRepository implements RunRepository {
     return aggregate;
   }
 
-  async aggregateSourceOrigins(): Promise<SourceOriginAggregate> {
+  async aggregateSourceOrigins(
+    filter?: RunPopulationFilter,
+  ): Promise<SourceOriginAggregate> {
     const driver = await this.readyDriver();
     const rows = await driver.query(
       `SELECT
         COUNT(*) FILTER (WHERE source_origin_status = 'server_original') AS server_original_runs,
         COUNT(*) FILTER (WHERE source_origin_status = 'recognized_copy') AS recognized_copy_runs,
         COUNT(*) FILTER (WHERE source_origin_status = 'unverified') AS unverified_runs
-      FROM runs`,
+      FROM runs
+      WHERE ($1::timestamptz IS NULL OR created_at >= $1::timestamptz)`,
+      [filter?.createdAtOrAfter ?? null],
     );
     const row = rows[0] ?? {};
     return {
@@ -1391,9 +1474,11 @@ class NeonRunRepository implements RunRepository {
 
   async aggregateConfirmedModelCosts(
     now: Date,
+    filter?: RunPopulationFilter,
   ): Promise<ConfirmedModelCostAggregate> {
     const driver = await this.readyDriver();
     const nowIso = now.toISOString();
+    const cutoffAt = filter?.createdAtOrAfter ?? null;
     const [summaryRows, modelRows, familyRows] = await Promise.all([
       driver.query(
         `${confirmedRunEligibilityCte}
@@ -1416,7 +1501,7 @@ class NeonRunRepository implements RunRepository {
             ) AT TIME ZONE 'UTC'
           ), 0) AS month_to_date_estimated_cost_usd
         FROM confirmed_runs`,
-        [nowIso],
+        [nowIso, cutoffAt],
       ),
       driver.query(
         `${confirmedRunEligibilityCte}
@@ -1425,7 +1510,7 @@ class NeonRunRepository implements RunRepository {
           COALESCE(AVG(estimated_cost_usd), 0) AS average_estimated_cost_usd
         FROM confirmed_runs
         GROUP BY provider, model`,
-        [nowIso],
+        [nowIso, cutoffAt],
       ),
       driver.query(
         `${confirmedRunEligibilityCte}
@@ -1435,7 +1520,7 @@ class NeonRunRepository implements RunRepository {
         FROM confirmed_runs
         WHERE document_family IN ('supplier_invoice', 'warehouse_goods_receipt')
         GROUP BY document_family`,
-        [nowIso],
+        [nowIso, cutoffAt],
       ),
     ]);
     const summary = summaryRows[0] ?? {};
@@ -1481,6 +1566,7 @@ class NeonRunRepository implements RunRepository {
 
   async aggregateActiveDetailLifecycle(
     now: Date,
+    filter?: RunPopulationFilter,
   ): Promise<ActiveDetailLifecycleAggregate> {
     const driver = await this.readyDriver();
     const rows = await driver.query(
@@ -1500,10 +1586,11 @@ class NeonRunRepository implements RunRepository {
         ) AS six_to_twenty_four_hours
       FROM runs
       WHERE details_deleted = false
+        AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
         AND status NOT IN ('expired', 'deleted')
         AND expires_at > $1::timestamptz
         AND expires_at <= $1::timestamptz + interval '24 hours'`,
-      [now.toISOString()],
+      [now.toISOString(), filter?.createdAtOrAfter ?? null],
     );
     const row = rows[0] ?? {};
     return {

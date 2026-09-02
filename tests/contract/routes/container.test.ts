@@ -140,6 +140,17 @@ describe("HTTP persistence container", () => {
     });
   });
 
+  it("normalizes the optional public Operations cutoff", () => {
+    const container = createDefaultHttpContainer({
+      NODE_ENV: "test",
+      PUBLIC_OPERATIONS_CUTOFF_AT: "2026-09-02T00:00:00Z",
+    });
+
+    expect(container.publicOperationsCutoffAt).toBe(
+      "2026-09-02T00:00:00.000Z",
+    );
+  });
+
   it("prepares only the selected direct live provider without making a request", async () => {
     const container = createDefaultHttpContainer({
       NODE_ENV: "test",

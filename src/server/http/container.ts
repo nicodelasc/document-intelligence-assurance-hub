@@ -61,6 +61,7 @@ export type HttpContainer = {
   bucketTokenSource: () => string;
   replayStageDelayMs: number;
   liveModeEnabled: boolean;
+  publicOperationsCutoffAt: string | null;
   providerAvailability: ProviderAvailability;
   cronSecret: string | undefined;
   execute: (
@@ -92,6 +93,18 @@ function parseDailyModelBudget(value: string | undefined): number {
   return parsed;
 }
 
+function parsePublicOperationsCutoff(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  const timestamp = Date.parse(trimmed);
+  if (!trimmed || !Number.isFinite(timestamp)) {
+    throw new HttpContainerConfigurationError(
+      "invalid_public_operations_cutoff_at",
+    );
+  }
+  return new Date(timestamp).toISOString();
+}
+
 function hasStrongCronSecret(value: string | undefined): value is string {
   return Boolean(value && value.length >= 32 && !/\s/.test(value));
 }
@@ -106,6 +119,9 @@ export function createDefaultHttpContainer(
   const liveModeEnabled = environment.AI_LIVE_ENABLED === "true";
   const dailyBudgetUsd = parseDailyModelBudget(
     environment.GLOBAL_DAILY_MODEL_BUDGET_USD,
+  );
+  const publicOperationsCutoffAt = parsePublicOperationsCutoff(
+    environment.PUBLIC_OPERATIONS_CUTOFF_AT,
   );
   if (hasDatabase !== hasBlob) {
     throw new HttpContainerConfigurationError(
@@ -157,6 +173,7 @@ export function createDefaultHttpContainer(
     bucketTokenSource: defaultBucketTokenSource,
     replayStageDelayMs: 140,
     liveModeEnabled,
+    publicOperationsCutoffAt,
     providerAvailability: {
       openai: liveModeEnabled && Boolean(environment.OPENAI_API_KEY),
       anthropic: liveModeEnabled && Boolean(environment.ANTHROPIC_API_KEY),
